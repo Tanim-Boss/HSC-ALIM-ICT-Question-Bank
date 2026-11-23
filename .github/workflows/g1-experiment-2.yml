@@ -119,7 +119,7 @@ jobs:
           for target in "5432 g1_test" "5433 g1_shadow"; do
             set -- $target
             port="$1"; db="$2"
-            if out="$(psql -h localhost -p "$port" -U g1 -d "$db" -Atc 'select current_setting(''server_version'');' 2>&1)"; then
+            if out="$(psql -h localhost -p "$port" -U g1 -d "$db" -Atc 'SHOW server_version;' 2>&1)"; then
               echo "postgres on $port ($db): $out"
             else
               echo "::error::cannot reach $db on port $port: $out"
@@ -129,6 +129,7 @@ jobs:
           exit $rc
 
       - name: Run G-1 experiment 2
+        id: experiment
         run: |
           set -euo pipefail
           bash docs/database/g1-spike/experiment-2/run.sh \
@@ -137,8 +138,11 @@ jobs:
 
       # Independent of the script: re-read the catalog directly. If the
       # script's own bookkeeping were wrong, this would still catch it.
+      # Only meaningful when the experiment ran: if it was skipped (or never
+      # started) an empty database is not a G-1 finding, and failing here would
+      # misattribute an infrastructure problem to the constraint layer.
       - name: Assert the five composite FKs are still in the catalog
-        if: always()
+        if: always() && steps.experiment.outcome != 'skipped'
         run: |
           set -euo pipefail
           for port in 5432 5433; do
