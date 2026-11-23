@@ -1,6 +1,23 @@
 # Phase 04A — Audit decision package: Q‑AUD‑1 … Q‑AUD‑5
 
-**Status: DECISION PREPARATION ONLY. Nothing in this document is implemented.**
+**Status: DECIDED — all five decisions and the authorisation question have been answered
+by the project owner. This package is preserved as the evidence they rest on; the
+dispositions are recorded in [§11.9.11 and §11.12 of the proposal](phase-04a-question-bank-physical-schema-proposal.md#11911-audit-decisions-requested).**
+
+| # | Decision | Disposition |
+|---|---|---|
+| Q‑AUD‑1 | `block_ref` CHECK | **CORRECTED** — §3.9 and §3.3.12 (A1) |
+| Q‑AUD‑2 | `Tag.name` | **CORRECTED** — §5 (A2) |
+| Q‑AUD‑3 | `College.name` | **CORRECTED** — §3.4.2 and §5 (A3) |
+| Q‑AUD‑4 | redundant CHECK | **KEPT** — count stays 47, no migration (A4) |
+| Q‑AUD‑5 | support key | **CORRECTED** — §3.3.1 (A5) |
+| §5.1–§5.3 | three further discrepancies | **RECORDED, NOT FIXED** — §11.9.7b (A6) |
+| B1a | Option C workflow | **APPROVED** — workflow only |
+| B1b / B1c | production deploy / drop the FKs | **NOT APPROVED** |
+| B2 | production creation of C‑1…C‑5 | **WITHHELD** — V‑1…V‑5 required first |
+
+*Original header, kept for the record:* **DECISION PREPARATION ONLY. Nothing in this
+document was implemented at the time it was written.**
 
 This package prepares five documentation decisions and one separate authorisation
 question. It changes no schema, no migration, no application code and no approved

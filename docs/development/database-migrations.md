@@ -20,6 +20,28 @@
 
 Copy `.env.example` to `.env.local` for development. Never commit real credentials.
 
+## Authorization status (owner decisions B1a / B2)
+
+**Option C is APPROVED as the controlled migration workflow for this project** (decision
+**B1a**, recorded in §11.12 of the physical schema proposal). That approval is
+**workflow-scoped** and carries five conditions:
+
+1. Full-schema **G‑3 is PASSED** (CI run `45273840004`) — this is what the approval rests on.
+2. **G‑1 remains FAILED** and is not reversed or re-scored by it.
+3. **It does NOT authorise production deployment of migration 0001.**
+4. The prohibitions below (`migrate dev`, `migrate reset`, `db push`,
+   `diff --from-migrations`) are **approved conditions of using Option C**, not
+   conventions — do not relax them.
+5. The safeguards in the proposal's §11.6 (repo guard, catalog assertion, textual guard,
+   checksum control, post-deployment enforcement suite, snapshot diff, documented
+   prohibition) are **mandatory**.
+
+**Production authorisation is WITHHELD (decision B2).** Migration 0001 may not be
+deployed to a production database with the five composite foreign keys, and C‑1…C‑5 may
+not be created in production, until the five verification tasks **V‑1…V‑5** (§11.12.3)
+are completed and recorded **and** B1b/B2 are explicitly approved. Dropping C‑1…C‑5 to
+unblock deployment is **not approved** (B1c).
+
 ## Workflow — Option C (the approved workflow for this project)
 
 `npm run db:migrate` (`prisma migrate dev`) **must not be used**. Use snapshot-to-snapshot

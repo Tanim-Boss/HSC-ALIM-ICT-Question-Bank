@@ -14,6 +14,8 @@
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
+**Status (Revision 15):** **The approved audit decisions A1–A6 are executed, and Option C is authorised for the workflow only.** Four documentation corrections were applied — §3.9 and §3.3.12 now carry the **parenthesised** `block_ref` `CHECK` (A1, pattern byte‑identical, 129 octets, nine pointer cases unchanged), §5 no longer shows a plain `@unique` on `Tag.name` (A2) or `College.name` (A3) and instead states that the expression index is the sole uniqueness rule, §3.4.2 now says the plain unique is **replaced** and warns against restoring one, and §3.3.1 explains why **no** support key is required on `education_levels` (A5). `ck_question_options_key_single_char` is **KEPT** by owner decision, so the `CHECK` count **remains 47** and **no migration was created** (A4). Three further discrepancies are **recorded and left unfixed** in §11.9.7b (A6). **Option C is accepted as the controlled migration workflow (B1a); G‑3 is PASSED on the full 18‑table schema; G‑1 remains FAILED and is not re‑scored; production deployment of migration 0001 and production creation of C‑1…C‑5 are NOT AUTHORISED (B2 withheld), with five verification tasks V‑1…V‑5 required first (§11.12).** **No schema, no migration, no gate and no application code changed in this revision** — it is documentation only. **Deferred and untouched:** G‑2, OD‑21, OD‑NM‑1, OD‑11/12/13, users/RLS, Phase 05 examination tables.
+
 **Status (Revision 14):** **The Phase 04A physical schema now exists as code.** `prisma/schema.prisma` is the real **18-table** datamodel and `prisma/migrations/0001_phase04a_question_bank/migration.sql` is the committed baseline: Prisma-generated DDL plus the reviewed hand-written artifacts Prisma cannot express (47 `CHECK`s, 6 partial/expression indexes, the 5 composite FKs of Request C). Verified on PostgreSQL 16.2 — 18 tables, 7 enums, 26 FKs (21 single + 5 composite), 47 CHECKs, 6 hand-written indexes, and **33/33 enforcement cases**. **G‑3 is PASSED for the full 18-table schema**: CI run [`45273840004`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45273840004) passed all six criteria — migration history, `migrate status`, reproducibility through Prisma, `migrate diff` visibility, tampering detection and the live catalog — with every control negative-tested, plus `prisma validate` on the real datamodel. **G‑1 remains FAILED** and is not re-scored. The audit's five findings are in [§11.9](#119-pre-implementation-audit--what-the-full-schema-authoring-found); only the unappliable SQL was corrected. **Deferred and untouched:** G‑2, OD‑21, OD‑NM‑1, OD‑11/12/13, users/RLS, Phase 05 examination tables. No application code, services, DTOs or UI.
 **Status (Revision 13, historical):** **G‑2 is DEFERRED, not passed and not closed by a type choice.** Negative marking is configurable and off by default, so `negative_marks` is not part of the Phase 04A schema and there is no precision/scale to approve. The Revision 12 `numeric(4,2)` recommendation survives as **historical research only**. **OD‑21 remains open**; **OD‑NM‑1** records the unresolved question of which entity owns the setting. **G‑1 remains FAILED**; **G‑3 remains prototype-only** with full 18-table validation pending. Documentation only — **no migration, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code**.
 **Status (Revision 12, historical):** **G‑2 is investigated and recommended, not passed.** `numeric(4,2)` is proposed with technical justification; the reviewer must approve (Q‑G2‑1). **G‑1 remains FAILED**, **G‑3 remains passed on the prototype only** with full 18-table validation pending, and **OD‑21 remains open and untouched**. Documentation and research only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The approved physical model is unchanged pending the G‑2 approval.
@@ -60,6 +62,7 @@
 | 13 | G‑2 `negative_marks` precision/scale | **SUPERSEDED by row 14 — preserved for audit.** Revision 12 investigated the type and recommended `numeric(4,2)` after measuring that `numeric(4,1)` silently stores `0.25` as `0.3`. The clarified requirement (row 14) makes the question moot for Phase 04A. The research is retained below as historical research, not an approved decision. |
 | 14 | G‑2 deferred — negative marking is configurable | **DEFERRED, and the column removed.** Negative marking must be **configurable, default OFF, switchable by an authorised user**, with the **penalty rule configured independently of the switch**. A per-question decimal cannot represent that pair of states, so `questions.negative_marks` and both its `CHECK`s (E‑9, E‑12) are **removed** from the Phase 04A model; `CHECK` count 49 → **47**. **G‑2 is deferred** to the examination/marking configuration phase, which must support: a default-disabled enable/disable setting; a separately configurable penalty value/rule; validation against the applicable question marks; and consistent behaviour in exam scoring and result calculation. Whether the setting belongs to an **examination**, a **marking profile**, or another entity is **NOT assumed** — recorded as **OD‑NM‑1**. **OD‑21 remains open and is not silently closed.** G‑1 still **FAILED**; G‑3 still prototype-only. Documentation only — no schema, migration, service or UI change. |
 | 15 | Full 18-table schema + migration 0001 + full-schema G‑3 | **Implemented.** The real `prisma/schema.prisma` (18 models) and `prisma/migrations/0001_phase04a_question_bank` are authored from §3/§5, with the five composite FKs and all 47 CHECKs and 6 hand-written indexes appended as reviewed SQL. No transcription: the G‑3 full-schema gate deploys the **committed migration** with `prisma migrate deploy`. Verified on PostgreSQL 16.2: **18 tables, 7 enums, 26 FKs (21+5), 47 CHECKs, 6 hand indexes**, and **33/33 enforcement cases** including all five protected FKs, E‑7 partial uniqueness, E‑10/E‑11, `NULLS NOT DISTINCT` and the expression uniques. The audit found and recorded five specification issues (§11.9): one **unappliable CHECK statement** (fixed by parenthesising, pattern unchanged), two **§3/§5 uniqueness contradictions** (resolved by applying §3 as normative), one **redundant CHECK** (kept, not removed) and one **stale cross-reference** (left for the reviewer). G‑1 still **FAILED** and not re-scored; G‑3 is **PASSED for the full schema** — CI run `45273840004`, all six criteria, every control negative-tested. **No application code, services, DTOs or UI.** |
+| 16 | **Approved audit decisions A1–A6 executed; Option C authorised for the workflow only (B1a).** A1: §3.9 and §3.3.12 now state the parenthesised `block_ref` `CHECK`; both agree with the already‑correct migration 0001 and the pattern is unchanged (129 octets, nine pointer cases identical). A2/A3: §5's `Tag` and `College` no longer show a plain `@unique` on `name`, and §3.4.2 was rewritten to say the plain unique is **replaced** by `uq_colleges_name_lower` with an explicit warning against restoring one. A4: `ck_question_options_key_single_char` is **KEPT** — `CHECK` count stays **47**, no constraint altered, **no migration created**, and the recorded G‑3 pass stays valid. A5: §3.3.1 now explains why no support key is needed (C‑1 references `level_subjects`' primary key). A6: three further discrepancies (§3.14's five‑index list, §11.9.7's checksum wording, §11.8 vs the status line) are recorded in §11.9.7b as **unresolved**, each with its own owner‑decision requirement, and **none was fixed**. B1a: **Option C accepted as the controlled migration workflow**, with the `migrate dev`/`reset`/`db push`/`diff --from-migrations` prohibition and the seven safeguards as **approved conditions**. B1b and B1c **not approved**; **B2 explicitly withheld** — production creation of C‑1…C‑5 is not authorised, and V‑1…V‑5 must be completed and recorded first (§11.12). G‑1 remains **FAILED** and is not re‑scored. | **Documentation only — no schema, migration, gate or application code change.** |
 
 ---
 
@@ -74,7 +77,7 @@
 | `docs/database/` | database-design, data-dictionary, entity-relationships (logical model only — explicitly **not** a physical schema) |
 | `docs/modules/question-bank.md` | Question Bank module scope: taxonomy, MCQ/CQ, versions, keys, assets, sources, search |
 | `prisma/schema.prisma` | Generator + datasource only. **No domain models**, by design (comments cite OD-08…OD-13 etc.) |
-| `prisma/migrations/` | Does not exist. No migration has ever been created. |
+| `prisma/migrations/` | **Exists** — baseline `0001_phase04a_question_bank` (Prisma-generated DDL plus the reviewed hand-written artifacts), deployed through `prisma migrate deploy` in CI and validated by full-schema G‑3 (run `45273840004`). **Not authorised for production** — decision B2 withheld (§11.12.3). |
 | `lib/db.ts` | Lazy Prisma singleton via `@prisma/adapter-pg` on `DATABASE_URL`; server-only. No domain service uses it yet. |
 | `package.json` | Prisma 7.10.1, `@prisma/client` 7.10.1, PostgreSQL datasource, Zod validation layer present but empty (`lib/validation/` has only a README) |
 
@@ -264,7 +267,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** None.
 
-**Unique / CHECK.** `UNIQUE (code)`; `ck_education_levels_code_format` (`code ~ '^[A-Z][A-Z0-9_]{1,31}$'`); `ck_education_levels_name_en_not_blank`; `ck_education_levels_name_bn_not_blank` ([§3.9](#39-required-domain-check-constraints)), plus the optional §3.11.6 support key on `(id, …)`.
+**Unique / CHECK.** `UNIQUE (code)`; `ck_education_levels_code_format` (`code ~ '^[A-Z][A-Z0-9_]{1,31}$'`); `ck_education_levels_name_en_not_blank`; `ck_education_levels_name_bn_not_blank` ([§3.9](#39-required-domain-check-constraints)). **No §3.11.6 support key is required on this table, and none exists.** A support key is needed only where a composite foreign key must reference a non‑primary key: `chapters`, `topics` and `subtopics` each carry one (`UNIQUE (id, subject_id)`, `UNIQUE (id, chapter_id)`, `UNIQUE (id, topic_id)`) because C‑2/C‑3/C‑4 point at them. C‑1 references `level_subjects(level_id, subject_id)`, which is that table's **primary key**, and no composite foreign key references `education_levels` at all — so `(id)` alone is the complete key set. (Corrected under **A5** / Q‑AUD‑5, §11.9.6.)
 
 **Indexes.** Primary key only. The dimension is small (single-digit rows); `is_active` needs no index.
 
@@ -649,7 +652,7 @@ Rules that make the mapping unique:
 
 **Foreign keys.** `version_id` → `question_versions(id)` `CASCADE`; `asset_id` → `question_assets(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (version_id, block_ref)`; `ck_question_version_assets_block_ref_pointer` — `CHECK (block_ref ~ '^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$')` ([§3.9](#39-required-domain-check-constraints)). An index segment must be `0` or a non-zero-padded number, so `/content/blocks/01` is rejected — an ambiguous index is a pointer that can resolve to a different block under a different parser. This is a **grammar** guard only: it proves the pointer is well-formed and rooted, never that it resolves. Resolution, the `assetId` match, and "the asset is actually reachable" are I‑8 at the publish gate, because they require parsing JSONB.
+**Unique / CHECK.** `UNIQUE (version_id, block_ref)`; `ck_question_version_assets_block_ref_pointer` — `CHECK (block_ref ~ ('^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?' || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$'))` ([§3.9](#39-required-domain-check-constraints)). **The parentheses are mandatory:** `~` and `||` share precedence and associate left, so without them the expression is `text`, not `boolean`, and PostgreSQL rejects the `CHECK`. This two‑literal form is byte‑identical to the single literal previously written here (129 octets, measured on PostgreSQL 16.2). Both this copy and §3.9 now match the deployed constraint in migration 0001 (approved as **A1**, §11.9.2). An index segment must be `0` or a non-zero-padded number, so `/content/blocks/01` is rejected — an ambiguous index is a pointer that can resolve to a different block under a different parser. This is a **grammar** guard only: it proves the pointer is well-formed and rooted, never that it resolves. Resolution, the `assetId` match, and "the asset is actually reachable" are I‑8 at the publish gate, because they require parsing JSONB.
 
 **Indexes.** `(asset_id)` (required for "where is this asset used" and for the `RESTRICT` check). `(version_id)` is covered by the `UNIQUE (version_id, block_ref)` prefix. No index on `block_ref` alone: it is only ever read as part of a version load.
 
@@ -756,9 +759,9 @@ Rules that make the mapping unique:
 
 **Foreign keys.** None inbound except `question_sources.college_id` (`RESTRICT`).
 
-**Unique / CHECK.** `UNIQUE (name)`; expression unique `UNIQUE (lower(name))` instead of the plain one; `CHECK (btrim(name) <> '')`; `CHECK (code IS NULL OR code ~ '^[A-Z0-9][A-Z0-9_-]{1,15}$')`.
+**Unique / CHECK.** `name` carries **no plain unique constraint**. Case‑insensitive uniqueness **replaces** the plain one: `uq_colleges_name_lower`, a hand‑written `CREATE UNIQUE INDEX … ON colleges (lower(name))` (§3.10), is the **only** uniqueness rule on `name`. **There is no `UNIQUE (name)`** and none should be added — a plain unique is case‑**sensitive**, so it would permit `Dhaka College` and `dhaka college` to coexist, which is exactly what this rule forbids; and because the expression index already implies exact‑duplicate uniqueness, adding a plain unique would be a second, weaker index doing part of the same job. **Implication for Prisma:** `name` carries **no `@unique`** in the datamodel (§5), because Prisma cannot express an expression unique. A future developer must not "restore" a plain `@unique` on `College.name`. Also `CHECK (btrim(name) <> '')`; `CHECK (code IS NULL OR code ~ '^[A-Z0-9][A-Z0-9_-]{1,15}$')`. (Wording clarified under **A3** / Q‑AUD‑3, §11.9.4; measured on PostgreSQL 16.2 — as migrated, `dhaka college` is rejected by `uq_colleges_name_lower`; with a simulated plain `UNIQUE (name)` the same insert **succeeds**.)
 
-**Indexes.** The unique name index; `code` needs no index until it is used as a filter (**OD-32**).
+**Indexes.** `uq_colleges_name_lower` only — the expression unique **is** the index, there is no separate plain unique index. `code` needs no index until it is used as a filter (**OD-32**).
 
 **Soft delete / archival.** `is_active = false`; deletion `RESTRICT`ed while any source references it.
 
@@ -1159,7 +1162,11 @@ ALTER TABLE question_version_assets
     -- text, not boolean, and PostgreSQL rejects it with
     --   ERROR: argument of CHECK must be type boolean, not type text
     -- (measured on PostgreSQL 16.2). The pattern itself is unchanged.
-    -- See §11.9.2.
+    --
+    -- APPROVED (A1, Q‑AUD‑1): this parenthesised form is the normative
+    -- definition. §3.3.12 carries the same pattern as a single literal; both
+    -- agree with this statement and with the deployed constraint in migration
+    -- 0001 (verified byte-identical, 129 octets). See §11.9.2 and §11.12.
     CHECK (block_ref ~ ('^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?'
                     || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$'));
 
@@ -1220,7 +1227,7 @@ Concurrency behaviour: two concurrent publishes of the same question both attemp
 --     ON question_options (version_id) WHERE is_correct;
 -- is gone with question_options.is_correct. MCQ correctness is now
 -- answer_keys.mcq_correct_option_key, protected by UNIQUE (version_id) plus the
--- composite FK (version_id, mcq_correct_option_key) -> question_options(version_id, key)
+-- composite FK (version_id, mcq_correct_option_key) → question_options(version_id, key)
 -- in §3.11.6. Nothing replaces the index: no correctness column means no partial
 -- predicate to index.
 
@@ -2049,7 +2056,7 @@ model Board {
 
 model College {
   id        String   @id @default(uuid())
-  name      String   @unique
+  name      String            // NO @unique — see §3.4.2
   code      String?
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
@@ -2133,7 +2140,7 @@ model QuestionOption {
   order     Int      @default(0) @map("sort_order")
   version   QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   // No correctness column (review, request D): correctness is answer_keys.mcqCorrectOptionKey.
-  // The composite FK (versionId, mcqCorrectOptionKey) -> (versionId, key) cannot be
+  // The composite FK (versionId, mcqCorrectOptionKey) → (versionId, key) cannot be
   // expressed here at all; it is hand-written SQL (request C, §3.11.6).
   @@unique([versionId, key])
   @@index([versionId])
@@ -2185,7 +2192,7 @@ model QuestionVersionAsset {
 
 model Tag {
   id        String   @id @default(uuid())
-  name      String   @unique
+  name      String            // NO @unique — see §3.3.13
   slug      String   @unique
   createdAt DateTime @default(now())
   questions QuestionTag[]
@@ -4475,7 +4482,22 @@ CHECK (block_ref ~ ('^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9]
 
 The resulting pattern is **byte-identical** to the one §3.9 intends, so the rule is
 unchanged. This is a syntax correction, not a design change, and it is reported rather
-than quietly applied. **Q‑AUD‑1 below asks whether §3.9 should be edited to match.**
+than quietly applied.
+
+> **DECISION — Q‑AUD‑1: CORRECTED. Approved by the project owner as decision A1.**
+> §3.9 now carries the parenthesised form as the normative definition, and §3.3.12's copy
+> is stated in the same two‑literal parenthesised form with the precedence hazard noted.
+> **Both documentation copies now agree with the already‑correct migration 0001 SQL.**
+> **No migration change** — editing an applied migration is exactly what G‑3 criterion 5b
+> detects.
+>
+> Verification that the rule is unchanged: `(a || b)` equals the single literal §3.3.12
+> previously wrote — **true**, 129 octets; the unparenthesised form does not compile; and
+> nine pointer cases behave identically (four accepted: `/content/blocks/0`,
+> `/content/blocks/12/data/blocks/3`, `/options/B/blocks/0`, `/options/ক/blocks/9`;
+> five rejected: `/content/blocks/01`, `/content/blocks/0/data/blocks/001`, `/stems/0`,
+> `content/blocks/0`, `/content/blocks/0/data/blocks/1/data/blocks/2`). See
+> [decision package §3.1](phase-04a-audit-decision-package.md#31-qaud1--the-block_ref-check-is-invalid-sql-as-documented).
 
 #### 11.9.3 Finding 2 — `tags.name` uniqueness is specified two ways
 
@@ -4495,7 +4517,17 @@ and §5 is explicitly "illustrative"):
 - case-insensitive uniqueness comes from the `uq_tags_name_lower` expression index.
 
 Enforcement case 30 proves it: a second tag differing only in case is rejected by
-`uq_tags_name_lower`. **§5 should be corrected; Q‑AUD‑2.**
+`uq_tags_name_lower`, and the case asserts the **constraint name**, so it would have
+failed had the plain unique been created instead.
+
+> **DECISION — Q‑AUD‑2: CORRECTED. Approved by the project owner as decision A2.**
+> §5's `model Tag` no longer carries `@unique` on `name`; it now reads
+> `name String // NO @unique — see §3.3.13`, and `slug` keeps its `@unique`. §5 is
+> illustrative and now agrees with §3.3.13 and §3.10. **No migration change** — the
+> deployed schema was already correct. Measured on PostgreSQL 16.2: as migrated,
+> `logic gate` is rejected by `uq_tags_name_lower`; with a plain `UNIQUE (name)`
+> simulated, the same insert **succeeds**. The contradiction was behavioural, not
+> cosmetic. See [decision package §3.2](phase-04a-audit-decision-package.md#32-qaud2--tagsname-uniqueness-is-specified-two-ways).
 
 #### 11.9.4 Finding 3 — `colleges.name` uniqueness is specified two ways
 
@@ -4505,8 +4537,17 @@ other. The §5 sketch has `name String @unique`.
 
 **Implementation follows §3.10** (the authoritative SQL): no plain unique on `name`, and
 `uq_colleges_name_lower` supplies case-insensitive uniqueness. Enforcement case 32 proves
-a case-variant institution is rejected. **Q‑AUD‑3** asks for the same confirmation as
-Finding 2, and for §3.4.2's wording to be tightened.
+a case-variant institution is rejected.
+
+> **DECISION — Q‑AUD‑3: CORRECTED. Approved by the project owner as decision A3.**
+> §3.4.2 now states unambiguously that the plain unique is **replaced**, that there is
+> **no `UNIQUE (name)`**, that a plain unique would be case‑**sensitive** and would permit
+> `Dhaka College` beside `dhaka college`, and that a future developer must not "restore"
+> one. The `Indexes` line now names `uq_colleges_name_lower` only. §5's `model College`
+> now reads `name String // NO @unique — see §3.4.2`. **No migration change.** Measured
+> on PostgreSQL 16.2: as migrated, `dhaka college` is rejected by `uq_colleges_name_lower`;
+> with a plain `UNIQUE (name)` simulated, the same insert **succeeds**. See
+> [decision package §3.3](phase-04a-audit-decision-package.md#33-qaud3--collegesname-uniqueness-is-specified-two-ways).
 
 #### 11.9.5 Finding 4 — `ck_question_options_key_single_char` is unreachable (redundant, NOT removed)
 
@@ -4527,9 +4568,30 @@ second constraint can therefore never be the one that fires.
 removed**: deleting a constraint the reviewer approved would be a design change made by
 an implementer. Both are created; enforcement case 33 asserts all 47 `ck_` constraints
 are installed, and case 23 accepts whichever of the two rejects a two-character key, with
-the reason recorded in the case itself. **Q‑AUD‑4** asks whether to drop the redundant
-one (which would make the count 46) or keep it as a documentation-level expression of
-intent.
+the reason recorded in the case itself.
+
+> **DECISION — Q‑AUD‑4: KEEP. Approved by the project owner as decision A4.**
+>
+> `ck_question_options_key_single_char` is **retained**. The `CHECK` count **remains 47**.
+> Its SQL is not altered, no constraint is dropped, and **no migration is created** for
+> this decision — migration 0001 is unchanged and the recorded G‑3 pass (run
+> `45273840004`, which asserts exactly 47 `ck_` constraints) remains valid as recorded.
+>
+> **Reason.** The constraint can never be the one that fires — `ck_question_options_key_allowed`
+> implies it — so removing it would change no reject/accept outcome, while removing it
+> *would* cost a new migration, edits to the `47` expectation in eight places, and a fresh
+> full-schema G‑3 run. The redundancy is recorded here and in enforcement case 23 rather
+> than hidden, so keeping it conceals nothing. It also still expresses "one character" as
+> an independent statement of intent, which is defensible even while implied.
+>
+> **Evidence supporting the decision** (PostgreSQL 16.2): an exhaustive probe of 1 463
+> candidate strings (all 1‑, 2‑ and 3‑character strings over the allowed alphabet plus
+> `E`, `a` and space) found **8** satisfying `key_allowed` and **0** satisfying it while
+> violating `key_single_char`; with the constraint dropped, a two‑character key is
+> **still rejected** by `key_allowed`. Full analysis: [decision package §3.4](phase-04a-audit-decision-package.md#34-qaud4--ck_question_options_key_single_char-is-unreachable).
+>
+> **This decision is final for Phase 04A.** It should not be revisited unless the
+> `key_allowed` set itself is changed.
 
 #### 11.9.6 Finding 5 — `education_levels` mentions a support key that does not exist
 
@@ -4538,8 +4600,17 @@ exists: C‑1 references `level_subjects(level_id, subject_id)`, which is that t
 primary key, so `education_levels` needs no support key at all. §3.11.6 is silent on it
 and correct; §3.3.1's sentence is a leftover.
 
-**Implementation:** no support key is created on `education_levels`. **Q‑AUD‑5** asks for
-the sentence to be deleted. This one is cosmetic and blocks nothing.
+**Implementation:** no support key is created on `education_levels`.
+
+> **DECISION — Q‑AUD‑5: CORRECTED. Approved by the project owner as decision A5.**
+> §3.3.1's clause is replaced with a statement that **no §3.11.6 support key is required
+> on this table and none exists**, explaining why: a support key is needed only where a
+> composite foreign key must reference a non‑primary key, which is true for `chapters`,
+> `topics` and `subtopics` (C‑2/C‑3/C‑4) but not for C‑1, which references
+> `level_subjects`' **primary key**. **No migration change**, and the primary‑key and
+> composite‑FK design is preserved exactly. Measured: the only key on the table is
+> `education_levels_pkey`. See
+> [decision package §3.5](phase-04a-audit-decision-package.md#35-qaud5--331-cites-a-support-key-that-does-not-exist).
 
 #### 11.9.7 Findings that are NOT ambiguities
 
@@ -4555,6 +4626,93 @@ Recorded so they are not mistaken for problems later:
 - **`question_sources` has no `updated_at`.** Correct and deliberate — provenance is
   append-only evidence (§3.4.4).
 - **No `Group` table, no provenance columns on `questions`.** Correct per OD‑08/OD‑09.
+
+#### 11.9.7b Three unresolved documentation discrepancies — recorded, NOT fixed
+
+Found while preparing the Q‑AUD decision package, and **deliberately left
+uncorrected**. Recorded here at the owner's direction (**A6**) so they cannot be lost,
+and kept separate from Q‑AUD‑1…5 so they are not mistaken for approved changes.
+
+**Status of all three: OPEN — correction NOT approved. Do not fix these as part of an
+unrelated change.** Each carries its own owner‑decision requirement, stated per item.
+None affects the deployed database, which is why none blocked G‑3.
+
+---
+
+**D‑1 — §3.14 lists five hand‑written indexes; six are deployed.**
+
+§3.14 states: "The 5 remaining hand‑written indexes are: `uq_question_versions_one_published_per_question`,
+`uq_topics_chapter_order`, `uq_question_sources_identity`, `uq_tags_name_lower` and
+`uq_colleges_name_lower`." It also correctly records that `uq_chapters_subject_number`
+became Prisma‑native and therefore left the hand‑written set.
+
+The migration's Part C contains a **sixth** hand‑written index,
+`ix_question_assets_checksum`, which §3.3.11 documents as
+`(checksum) WHERE checksum IS NOT NULL` for de‑duplication, but which §3.14's list
+omits. The list is exhaustive by its own wording ("The 5 remaining hand‑written indexes
+are"), so it is incomplete rather than illustrative.
+
+Measured on PostgreSQL 16.2 against the deployed migration — all six present:
+`uq_question_versions_one_published_per_question`, `uq_topics_chapter_order`,
+`uq_question_sources_identity`, `uq_tags_name_lower`, `uq_colleges_name_lower`,
+`ix_question_assets_checksum`.
+
+**The implementation and the gate agree; only §3.14's prose disagrees.** The G‑3 shape
+assertion expects `6` hand‑written indexes and passes, so the count the *evidence*
+depends on is 6 — the section a reader would quote is the one that is wrong.
+
+*Owner decision required:* whether to correct §3.14's list to six (naming
+`ix_question_assets_checksum`) or to reword it as non‑exhaustive.
+
+---
+
+**D‑2 — §11.9.7's wording about `question_assets.checksum` overstates what the index does.**
+
+§11.9.7 says: "`question_assets` has no `@unique` on `checksum`. Correct: duplicates are
+prevented by `ix_question_assets_checksum`, which is **partial**
+(`WHERE checksum IS NOT NULL`) and therefore cannot be a constraint."
+
+The index is indeed partial and indeed non‑unique — but **a non‑unique index does not
+prevent anything.** Measured on PostgreSQL 16.2: two `question_assets` rows carrying an
+identical `sha256:…` checksum insert successfully
+(`INSERT 0 2`; two rows then share that checksum).
+
+The *design* is correct — §3.3.11 describes the index as "for de‑duplication", i.e. a
+lookup path, not a uniqueness guarantee, and duplicate stored bytes are not a
+correctness problem for a content‑addressed asset store. The imprecision is confined to
+§11.9.7's audit wording, which implies enforcement the schema does not provide.
+
+*Owner decision required:* whether to reword §11.9.7 to say the index makes duplicate
+detection *efficient* rather than prevented — or, separately, whether duplicate checksums
+should in fact be prevented (which would be a **new design decision**, not a documentation
+fix, and is **not** proposed here).
+
+---
+
+**D‑3 — §11.8 and the Revision 14 status line describe the same question differently.**
+
+§11.8 opens: "**Authorised only once G‑1 is resolved (it has now FAILED — a fallback
+decision is required).**" A reader arriving at §11.8 today would conclude migration 0001
+does not exist.
+
+The Revision 14 status line and §11.6.8 describe migration 0001 as **implemented**,
+deployed through `prisma migrate deploy` in CI, and G‑3‑validated.
+
+Both are historically true — 0001 was written as gate evidence, not as a production
+deployment — but the two statements are not reconciled anywhere, and §11.8 is the section
+a reviewer consults to answer "what may I do now?".
+
+*Owner decision required:* this is the same question as **B1a/B2** (§11.12), and is
+resolved by recording that answer rather than by editing §11.8 in isolation. **B1a has
+now been approved and recorded in §11.12**, which supplies the reconciliation §11.8
+lacked without altering the historical statement.
+
+---
+
+**Nothing above was changed in this revision.** No §3.14 list was edited, no §11.9.7
+wording was edited, and no duplicate‑checksum rule was introduced. D‑1 and D‑2 remain
+open documentation items; D‑3 is answered by the B1a record and left standing as the
+evidence that the reconciliation was needed.
 
 #### 11.9.8 CI run 45272402867 — the full-schema gate FAILED on its first run, and why that is the useful result
 
@@ -4593,8 +4751,8 @@ correct** — the schema itself is right; only the table predicate was wrong.
 Measured fix, on PostgreSQL 16.2:
 
 ```
-with the table present:  SELECT count(*) ... tablename <> '_prisma_migrations'  ->  18
-same database, unfiltered: SELECT count(*) FROM pg_tables ... 'public'          ->  19
+with the table present:  SELECT count(*) ... tablename <> '_prisma_migrations'  →  18
+same database, unfiltered: SELECT count(*) FROM pg_tables ... 'public'          →  19
 ```
 
 **The assertion was corrected; the criterion was not weakened.** The gate still requires
@@ -4713,16 +4871,116 @@ the expected case count stayed at 33, and the expected table count stayed at 18.
 > [`phase-04a-audit-decision-package.md`](phase-04a-audit-decision-package.md).** It
 > reproduces each question verbatim, analyses each one independently with PostgreSQL 16.2
 > measurements, and prepares the **separate** authorisation question of whether to proceed
-> with Option C while G‑1 remains FAILED. **It implements nothing** and answers none of the
-> five — they remain open pending owner approval.
+> with Option C while G‑1 remains FAILED. **It implemented nothing** and answered none of
+> the five when written. **All five have since been decided — see the dispositions below —
+> and the authorisation question is answered in [§11.12](#1112-decision-received--option-c-authorised-for-the-workflow-only-b1a-production-withheld-b2).**
 
 **None of these blocks the 18-table migration**, and none was resolved by inventing a
 decision: Findings 2 and 3 were settled by applying the document's own stated precedence
 (§3 is normative, §5 is illustrative), Finding 4 was left in place with the measurement
 recorded, and Finding 1 was corrected only because the SQL was unusable as written.
 
+> **DISPOSITIONS RECEIVED — Revision 15.** Q‑AUD‑1 → **corrected** (A1); Q‑AUD‑2 → **corrected** (A2);
+> Q‑AUD‑3 → **corrected** (A3); Q‑AUD‑4 → **KEEP the redundant CHECK**, count stays 47 (A4);
+> Q‑AUD‑5 → **corrected** (A5). The three further discrepancies raised by the decision package were
+> **recorded as unresolved** (A6) in §11.9.7b. **No question remains open**, and none was answered by an
+> implementer's assumption. The separate authorisation question is answered in §11.12 (B1a approved,
+> B2 withheld).
+
 ### 11.8 What approval now authorises — and what it does not
 
 **Authorised only once G‑1 is resolved (it has now FAILED — a fallback decision is required).** G‑2 is **deferred and does not block migration 0001**, because the `negative_marks` column it concerned is no longer part of the schema (§3.15.4): edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
 
 **Not authorised, and not done in this phase:** any change to `prisma/schema.prisma`, any migration, any application code or UI. This revision is documentation only.
+
+> **Superseded in part — see [§11.12](#1112-decision-received--option-c-authorised-for-the-workflow-only-b1a-production-withheld-b2).** The owner has since decided the authorisation question: **Option C is approved as the workflow (B1a)**, while **production deployment of migration 0001 and production creation of C‑1…C‑5 remain NOT AUTHORISED (B2 withheld)**. The paragraph above is preserved because it accurately describes the state at Revision 14 (§11.9.7b, D‑3).
+
+### 11.12 Decision received — Option C authorised for the workflow only (B1a), production withheld (B2)
+
+**The owner has decided the authorisation question that §11.8 left open.** Recorded here
+as the operative statement of what may and may not be done; §11.8 is left standing
+because it is historically accurate for the state it described (§11.9.7b, D‑3).
+
+#### 11.12.1 What the owner approved — B1a, workflow only
+
+| # | Approved |
+|---|---|
+| **B1a** | **Option C is accepted as the controlled migration workflow for Phase 04A.** |
+
+The approval is expressly **workflow‑scoped**. It carries these five qualifications,
+each of which is part of the decision and not commentary on it:
+
+1. **Full‑schema G‑3 is PASSED.** Six criteria, every control negative‑tested, against
+   the real 18‑table model — CI run `45273840004` (gate first closed at `84cbda4`;
+   re‑confirmed on later SHAs). G‑3 is what this approval rests on.
+2. **G‑1 remains FAILED.** It is **not** reversed, re‑scored, or reinterpreted by this
+   approval. Its two recorded FAIL results (§11.3.2, §11.3.3) stand exactly as written.
+3. **This approval does NOT authorise production deployment of migration 0001.** The
+   workflow is approved; the deployment is not. These are different decisions and this
+   section keeps them apart.
+4. **Ordinary Prisma migration‑diff workflows that can drop C‑1…C‑5 remain prohibited**
+   in the protected workflow: `prisma migrate dev`, `prisma migrate reset`,
+   `prisma db push`, and `prisma migrate diff --from-migrations`. The prohibition is now
+   an **approved condition of using Option C**, not merely a convention recommended by
+   §11.4.3 — enforceable by `repo-guard.sh` and required to stay so.
+5. **The documented safeguards remain mandatory.** The seven controls in §11.6.5 and
+   §11.6.1 (repo guard, catalog assertion, textual guard, checksum control,
+   post‑deployment enforcement suite, snapshot‑to‑snapshot diff, documented prohibition)
+   are **requirements**, not optional hardening. Removing or bypassing any of them
+   withdraws the basis on which Option C was approved.
+
+#### 11.12.2 What was NOT approved — B1b and B1c
+
+Recorded explicitly, because an approval is only as narrow as its exclusions:
+
+| # | Not approved | Consequence |
+|---|---|---|
+| **B1b** | **Production deployment of migration 0001 with C‑1…C‑5** | **B1a must not be read as this.** No production database may receive migration 0001 with the five composite FKs on the strength of B1a. |
+| **B1c** | **Removing C‑1…C‑5, or silently replacing their declarative guarantees with service‑only validation** | Option A remains **not approved** (§11.4.8, D‑1…D‑4). C‑1…C‑5 remain the approved design and are **not** to be dropped to unblock deployment. |
+
+#### 11.12.3 B2 — production authorisation is explicitly withheld
+
+**Production creation of C‑1…C‑5 is NOT YET APPROVED.** Stated as a decision, not an
+open question with a default: absent a later explicit approval, migration 0001 may not be
+deployed to a production database with Part D included.
+
+**Five verification tasks must be completed and recorded before B1b/B2 approval is
+requested.** None has been done; each is a precondition, not a formality:
+
+| # | Task | Why it is a precondition |
+|---|---|---|
+| **V‑1** | **Run a real second migration through the full‑schema Option C workflow** | Every G‑3 run so far exercises migration **0001** plus synthetic constrained‑column changes applied with `psql`. No real *second* migration has been authored from a snapshot‑to‑snapshot diff, guarded, deployed and verified end‑to‑end. That is the path the team will use every week, and it is designed and prototyped but **not exercised** on this repository. |
+| **V‑2** | **Validate with realistic seed data** | The 33‑case suite uses synthetic rows. §3.14's checklist requires seeding the six ICT chapters, subjects/boards/years and one MCQ + one CQ before 0001 is considered done. A wrong `CHECK` that rejects legitimate curriculum data would surface here and nowhere else. |
+| **V‑3** | **Perform and document a backup/restore drill** | Prisma Migrate is forward‑only (§3.14). Rollback means restore or a compensating migration; neither has been rehearsed, so the recovery path is currently a claim rather than a tested procedure. |
+| **V‑4** | **Verify the publish‑gate invariants** | I‑3…I‑15 are service responsibilities and are not implemented. Until they are verified, the schema's guarantees are partial **by design**, and a deployment decision should be made knowing which half is being delivered. |
+| **V‑5** | **Verify Prisma `P2002` mapping for expression‑unique violations** | `uq_tags_name_lower` and `uq_colleges_name_lower` are constraints **Prisma does not know about**. A service inserting a case‑variant tag will receive a raw `23505`; whether that surfaces as `P2002` or as an unhandled driver error is unverified, and it is a user‑visible behaviour difference. |
+
+**No production deployment was performed as part of this task.** No production database
+was contacted, no deployment command was run, and no configuration for one was added.
+
+#### 11.12.4 State after B1a
+
+| Item | State |
+|---|---|
+| Option C as the migration workflow | **APPROVED** (B1a) |
+| Full‑schema G‑3 | **PASSED** — run `45273840004` |
+| G‑1 (Prisma‑drift spike) | **FAILED** — unchanged, not re‑scored |
+| Migration 0001 in the repository | Present, deploys through `prisma migrate deploy` in CI |
+| Migration 0001 in production | **NOT AUTHORISED** (B2 withheld) |
+| C‑1…C‑5 in production | **NOT AUTHORISED** (B2 withheld) |
+| Option A (drop the FKs) | **Not approved** (B1c) |
+| G‑2 / OD‑21 / OD‑NM‑1 | Unchanged — deferred / open |
+| OD‑11/12/13, users/RLS, Phase 05 tables | Unchanged — deferred, absent |
+
+#### 11.12.5 What would have to change for B1b/B2
+
+Stated so the path is unambiguous rather than implied: **V‑1 … V‑5 completed and
+recorded, then an explicit owner approval of B1b and B2.** Nothing in this revision
+pre‑authorises that step, and no future status line should imply otherwise.
+
+**A residual risk that survives B1a, stated plainly:** six of the seven safeguards are
+*process* controls, not database‑level locks. If the team stops running the guard, the
+catalog assertion, the checksum control or the enforcement suite, the integrity guarantees
+degrade silently. This is inherent to Option C — the same property that makes the
+snapshot diff unable to delete C‑1…C‑5 makes Prisma unable to protect them — and it is
+why the approval is workflow‑scoped and conditional rather than clean.
