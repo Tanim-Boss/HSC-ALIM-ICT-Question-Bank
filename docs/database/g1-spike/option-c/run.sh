@@ -311,6 +311,7 @@ if [ "$rc" -eq 0 ]; then
   ci_note "step5 drift check: exit 0 (clean)"
 else
   printf '\n----- drift reported -----\n'; cat "$OUT_DIR/05-drift.sql"; printf -- '-----\n'
+  ci_note "step5 drift DETECTED (exit $rc): $(head -c 800 "$OUT_DIR/05-drift.sql" | tr '\n' ' ')"
   if grep -qiE 'CONSTRAINT|fk_' "$OUT_DIR/05-drift.sql"; then
     fail "the drift check reports constraint differences — composite FKs DO produce false-positive drift, which breaks this CI mechanism"
   fi
