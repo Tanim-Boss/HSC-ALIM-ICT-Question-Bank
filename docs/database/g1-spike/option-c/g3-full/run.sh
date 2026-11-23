@@ -497,8 +497,28 @@ set -e
 cat "$OUT_DIR/04e-apply.log"
 [ "$rc" -eq 0 ] || fail "the safe constrained-column migration failed to apply (exit $rc)"
 assert_catalog "$URL" "after the constrained-column change"
-ok "integrity preserved after the constrained-column change"
-C4_STATUS="PASS (coercible=$COERCIBLE; non-coercible refused; safe pattern accepted+applied; unsafe rejected)"
+
+info ""
+info "--- 4f: RESTORE the column types, so the database is left as the migration created it ---"
+info "Criterion 4 deliberately narrows question_options.key to char(1). If the"
+info "schema is left that way, a LATER step that inserts a deliberately invalid"
+info "two-character key gets a length error instead of a CHECK violation and"
+info "silently drops a case from the enforcement count. CI run 45273199251 failed"
+info "exactly there: 'primary enforcement ran 32 cases, expected 33'."
+info "The criterion must not corrupt the state the other criteria measure."
+set +e
+"$PSQL" "$URL" -v ON_ERROR_STOP=1 -q \
+  -c 'ALTER TABLE "answer_keys" ALTER COLUMN "mcq_correct_option_key" TYPE text;' \
+  -c 'ALTER TABLE "question_options" ALTER COLUMN "key" TYPE text;' \
+  > "$OUT_DIR/04f-restore.log" 2>&1
+rc=$?
+set -e
+cat "$OUT_DIR/04f-restore.log"
+[ "$rc" -eq 0 ] || fail "could not restore the column types after criterion 4 (exit $rc)"
+assert_shape "$URL" "after restoring the column types"
+assert_catalog "$URL" "after restoring the column types"
+ok "the schema is restored to the shape the committed migration produces"
+C4_STATUS="PASS (coercible=$COERCIBLE; non-coercible refused; safe pattern accepted+applied; unsafe rejected; schema restored)"
 
 # =====================================================================
 # CRITERION 5 — tampering detection

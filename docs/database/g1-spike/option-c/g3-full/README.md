@@ -1,8 +1,7 @@
 # G-3 full-schema — the gate against the real 18-table model
 
-**Status: implemented and verified at the SQL level; the Prisma-dependent criteria are
-awaiting the recorded CI run.** The honest one-line summary is *awaiting CI*, not
-*passed*. See the proposal
+**Status: every criterion has passed in CI across two runs, but no single run has passed
+all six yet — the honest one-line summary is *awaiting a clean run*, not *passed*.** See the proposal
 [§11.6.8](../../../phase-04a-question-bank-physical-schema-proposal.md#1168-full-schema-g3--what-changed-in-revision-14)
 and [§11.9](../../../phase-04a-question-bank-physical-schema-proposal.md#119-pre-implementation-audit--what-the-full-schema-authoring-found).
 
@@ -93,9 +92,25 @@ statement evaluated to `text` and PostgreSQL refused it. The migration parenthes
 literals; the pattern is unchanged. Recorded as Finding 1 / **Q‑AUD‑1** in §11.9.2, and
 §3.9 now carries the corrected form.
 
-## A harness defect found and fixed here
+## Three harness defects found by CI, and fixed here
 
-An early version asserted that the guard rejects `DROP TABLE "question_versions"`. It
+These are recorded because each one is a case where the *test* was wrong and the
+*schema* was right. None was fixed by weakening a criterion.
+
+**1. `_prisma_migrations` counted as a 19th table** (`45272402867`). It is a real table in
+`public`; it is Prisma's own bookkeeping and is excluded by name. Measured: with the
+filter 18, without 19.
+
+**2. Criterion 4 left the schema narrowed** (`45273199251`). It changes
+`question_options.key` to `char(1)` and never restored it, so case 23's invalid
+two-character key hit `value too long for type character(1)` instead of a
+`check_violation`, and the suite silently ran **32 of 33** cases. Step 4f now restores
+both columns and re-asserts the shape. Measured both directions: `char(1)` → 32,
+`text` → 33. Note that the count assertion is what caught this — the suite would
+otherwise have reported 32/32 as a pass.
+
+**3. An out-of-scope drop test** (local). An early version asserted that the guard
+rejects `DROP TABLE "question_versions"`. It
 does not, and should not: the guard's protected-table scope is the seven tables the five
 composite FKs touch, and PostgreSQL's own FK dependencies already block that drop. The
 test was wrong, not the control. It was replaced with `DROP TABLE "question_options"`,

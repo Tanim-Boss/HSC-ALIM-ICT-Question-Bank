@@ -4610,7 +4610,47 @@ inspected rather than hidden.
 **Status after the fix: re-run pending.** Nothing in the corrected run's outcome is
 claimed here in advance.
 
-#### 11.9.9 Audit decisions requested
+#### 11.9.9 CI run 45273199251 — every criterion passed except one, and the cause was criterion 4 corrupting state
+
+Second full-schema run. This one is much closer, and its single failure is again a defect
+in my harness rather than in the schema.
+
+| Criterion | Result in `45273199251` |
+|---|---|
+| 1 — workflow enforcement | **PASS** |
+| 2 — migration history + checksum | **PASS** — deploy of the committed baseline, status clean, checksum verified |
+| 3 — inventory + live catalog | **PASS** — `18/7/26/47/6`; catalog rejected **both** a weakened and a dropped FK |
+| 4 — constrained-column safety | **PASS** — the snapshot diff saw the `ALTER` and proposed **zero** `DROP`s; the coercible widening was accepted; the non-coercible change was refused; the safe drop+re-add pattern was accepted and applied |
+| 5a — textual tampering | **PASS** — 6/6 variants rejected |
+| 5b — edited applied migration | **PASS** — `prisma_detects=no` (measured again), the checksum control caught it |
+| 6 — reproducibility | **PASS** — independent replay: 18 tables, 5/5 constraints, **33/33** enforcement |
+| **final enforcement on the primary database** | **FAIL — ran 32 of 33 cases** |
+
+**Root cause, and it is mine.** Criterion 4 deliberately narrows
+`question_options.key` to `char(1)` to test a constrained-column change. It never restored
+the type. Case 23 then tries to insert a deliberately invalid two-character key — but
+`char(1)` now rejects it with `value too long for type character(1)`, which is **not** a
+`check_violation`, so the `EXCEPTION WHEN check_violation` handler does not fire and the
+case row is never written. The suite silently ran 32 cases.
+
+That silent drop is itself the proof the count assertion exists for: the driver refused to
+call 32/32 a pass because it expects exactly 33.
+
+**Measured on PostgreSQL 16.2, both directions:**
+
+| `question_options.key` type | Cases that complete | Failure |
+|---|---|---|
+| `char(1)` (left by criterion 4) | **32** | `value too long for type character(1)` on case 23 |
+| `text` (as the migration creates it) | **33** | none — 33/33 PASS |
+
+**Fix:** criterion 4 now ends with step **4f**, which restores both narrowed columns to
+`text` and re-asserts the full shape and the catalog. A criterion must not corrupt the
+state that other criteria measure. The enforcement suite and its expectation were **not**
+changed — 33 is still required.
+
+**Status after this fix: re-run pending.** No outcome is claimed in advance.
+
+#### 11.9.10 Audit decisions requested
 
 | # | Question | Recommendation |
 |---|---|---|
