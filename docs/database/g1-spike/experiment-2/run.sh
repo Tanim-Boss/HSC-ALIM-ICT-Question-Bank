@@ -514,7 +514,11 @@ else
   cat "$NEW_SQL" 2>/dev/null || echo "(no migration.sql)"
   printf '\n----- end -----\n'
   DROP_COUNT="$(grep -ci 'DROP' "$NEW_SQL" 2>/dev/null || true)"
-  ci_note "step8 no-change migrate dev: GENERATED a migration with ${DROP_COUNT} DROP statement(s)"
+  # List exactly which objects Prisma wants to remove, so the finding is
+  # specific and not just a count.
+  DROPPED_OBJECTS="$(grep -oiE 'DROP (CONSTRAINT|INDEX) "[a-zA-Z0-9_]+"' "$NEW_SQL" 2>/dev/null | sort -u | tr '\n' ' ' || true)"
+  ci_note "step8 no-change migrate dev: GENERATED a migration with ${DROP_COUNT} DROP statement(s): ${DROPPED_OBJECTS}"
+  printf '\n[G-1/2] objects Prisma would remove on the next apply:\n%s\n' "$DROPPED_OBJECTS"
   n="$(count_composite_fks "$URL")"
   [ "$n" = "5" ] || fail "after no-change 'migrate dev' only $n/5 composite FKs remain"
   ok "5/5 composite FKs still present (this migration was --create-only, so it was not applied)"
