@@ -210,7 +210,11 @@ case "$rc" in
   2) printf '\n----- 04-drift-empty.sql (first 40 lines) -----\n'
      head -40 "$OUT_DIR/04-drift-empty.sql"
      printf '\n----- end of diff excerpt -----\n'
-     fail "the no-change diff is NOT empty — Prisma wants to change the schema (full output in out/04-drift-empty.sql)" ;;
+     # GitHub annotations are capped at ~64 KiB; keep the excerpt short but
+     # specific so the cause is visible without downloading the artefact.
+     diff_excerpt="$(head -c 3000 "$OUT_DIR/04-drift-empty.sql" | tr '\n' ' ')"
+     diff_summary="$(grep -oiE 'DROP [A-Z]+ [^;]*|ALTER TABLE [^;]*|CREATE [A-Z]+ [^;(]*' "$OUT_DIR/04-drift-empty.sql" | head -12 | tr '\n' ' ')"
+     fail "the no-change diff is NOT empty — Prisma wants to change the schema. Statement summary: ${diff_summary:-none parsed}. Raw excerpt: $diff_excerpt" ;;
   *) cat "$OUT_DIR/04-drift-empty.err"
      fail "prisma migrate diff errored (exit $rc)" ;;
 esac
