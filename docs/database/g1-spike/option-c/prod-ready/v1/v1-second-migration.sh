@@ -204,15 +204,29 @@ head2 "3. GENERATE the migration with a snapshot-to-snapshot diff"
 # NOTE: the config file must be written BEFORE the command that consumes it.
 # The first draft wrote it after, which would have failed in CI.
 mk_diff_config "$SESS/next.prisma" "$SESS/diff.config.ts"
-info "command: prisma migrate diff --from-schema prev.prisma --to-schema next.prisma --script"
+# --from-schema is NOT "the datamodel named by this file". It is the legacy
+# shorthand whose source is the file's DATASOURCE, i.e. a live database named in
+# the schema — which is why the first real CI run produced an EMPTY migration
+# instead of reporting an error: it compared the live database against itself.
+# Two datamodel FILES need --from-schema-datamodel / --to-schema-datamodel.
+# (Both flags present in the pinned CLI 7.10.1; verified in its own help text.)
+info "command: prisma migrate diff --from-schema-datamodel prev.prisma --to-schema-datamodel next.prisma --script"
+trap - ERR
 set +e
 prisma_run migrate diff \
-  --from-schema "$SESS/prev.prisma" \
-  --to-schema   "$SESS/next.prisma" \
+  --from-schema-datamodel "$SESS/prev.prisma" \
+  --to-schema-datamodel   "$SESS/next.prisma" \
   --script --config "$SESS/diff.config.ts" > "$OUT_DIR/03-generated.sql" 2> "$OUT_DIR/03-generated.err"
 rc=$?
 set -e
 if [ $rc -ne 0 ]; then cat "$OUT_DIR/03-generated.err"; fail "migrate diff failed (exit $rc)"; fi
+arm_err_trap
+# an empty diff must never be mistaken for success — this is the check that
+# caught the --from-schema defect, and it is worth naming explicitly
+[ -s "$OUT_DIR/03-generated.sql" ] || {
+  printf '  ....  stderr and stdout follow\n'
+  sed -n '1,40p' "$OUT_DIR/03-generated.err" 2>/dev/null || true
+}
 cat "$OUT_DIR/03-generated.sql"
 [ -s "$OUT_DIR/03-generated.sql" ] || fail "the generated migration is EMPTY — the diff saw no change"
 grep -qi "CREATE INDEX" "$OUT_DIR/03-generated.sql" \
