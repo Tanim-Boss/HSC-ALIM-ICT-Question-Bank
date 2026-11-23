@@ -1,0 +1,154 @@
+// =====================================================================
+// G-1 spike — Prisma datamodel for the drift experiment
+//
+// This is a SPIKE schema. It is NOT prisma/schema.prisma, it is never
+// generated into the application, and it must not be adopted as the
+// project schema without a fresh review.
+//
+// What it reproduces: the columns and single-column relations that the
+// nine spike tables have in docs/database/g1-spike/sql/0001-schema.sql.
+//
+// What it deliberately does NOT contain: the five composite foreign keys
+// (C-1..C-5) and the three support unique keys. §3.11.6 states that Prisma
+// cannot model them; the whole purpose of G-1 is to prove what Prisma does
+// when they exist in the database but not in this file.
+// =====================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("G1_SPIKE_DATABASE_URL")
+}
+
+model EducationLevel {
+  id            String         @id @default(uuid()) @db.Uuid
+  code          String         @unique
+  levelSubjects LevelSubject[]
+  questions     Question[]
+
+  @@map("education_levels")
+  @@schema("g1")
+}
+
+model Subject {
+  id            String         @id @default(uuid()) @db.Uuid
+  code          String         @unique
+  levelSubjects LevelSubject[]
+  chapters      Chapter[]
+  questions     Question[]
+
+  @@map("subjects")
+  @@schema("g1")
+}
+
+model LevelSubject {
+  levelId   String         @db.Uuid
+  subjectId String         @db.Uuid
+  level     EducationLevel @relation(fields: [levelId], references: [id], onDelete: Cascade)
+  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade)
+
+  @@id([levelId, subjectId])
+  @@map("level_subjects")
+  @@schema("g1")
+}
+
+model Chapter {
+  id            String    @id @default(uuid()) @db.Uuid
+  subjectId     String    @db.Uuid
+  chapterNumber Int
+  titleEn       String    @default("")
+  isActive      Boolean   @default(true)
+  subject       Subject   @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  topics        Topic[]
+  questions     Question[]
+
+  // E-7 (Revision 5): plain global unique, Prisma-native.
+  @@unique([subjectId, chapterNumber])
+  @@map("chapters")
+  @@schema("g1")
+}
+
+model Topic {
+  id         String     @id @default(uuid()) @db.Uuid
+  chapterId  String     @db.Uuid
+  nameEn     String     @default("")
+  orderIndex Int        @default(0)
+  isActive   Boolean    @default(true)
+  chapter    Chapter    @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  subtopics  Subtopic[]
+  questions  Question[]
+
+  // E-7 as corrected in Revision 5: display order is ACTIVE-ONLY unique and
+  // is expressed by the hand-written partial index uq_topics_chapter_order.
+  // No @@unique here on purpose — Prisma cannot model a partial index.
+  @@map("topics")
+  @@schema("g1")
+}
+
+model Subtopic {
+  id        String     @id @default(uuid()) @db.Uuid
+  topicId   String     @db.Uuid
+  nameEn    String     @default("")
+  topic     Topic      @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  questions Question[]
+
+  @@map("subtopics")
+  @@schema("g1")
+}
+
+model Question {
+  id               String          @id @default(uuid()) @db.Uuid
+  educationLevelId String          @db.Uuid
+  subjectId        String          @db.Uuid
+  chapterId        String?         @db.Uuid
+  topicId          String?         @db.Uuid
+  subtopicId       String?         @db.Uuid
+  educationLevel   EducationLevel  @relation(fields: [educationLevelId], references: [id], onDelete: Restrict)
+  subject          Subject         @relation(fields: [subjectId], references: [id], onDelete: Restrict)
+  chapter          Chapter?        @relation(fields: [chapterId], references: [id], onDelete: Restrict)
+  topic            Topic?          @relation(fields: [topicId], references: [id], onDelete: Restrict)
+  subtopic         Subtopic?       @relation(fields: [subtopicId], references: [id], onDelete: Restrict)
+  versions         QuestionVersion[]
+
+  @@map("questions")
+  @@schema("g1")
+}
+
+model QuestionVersion {
+  id         String          @id @default(uuid()) @db.Uuid
+  questionId String          @db.Uuid
+  question   Question        @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  options    QuestionOption[]
+  answerKeys AnswerKey[]
+
+  @@map("question_versions")
+  @@schema("g1")
+}
+
+model QuestionOption {
+  id        String          @id @default(uuid()) @db.Uuid
+  versionId String          @db.Uuid
+  key       String
+  version   QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  // C-5's referenced key; Prisma can express this one natively.
+  @@unique([versionId, key])
+  @@map("question_options")
+  @@schema("g1")
+}
+
+model AnswerKey {
+  id                  String          @id @default(uuid()) @db.Uuid
+  versionId           String          @unique @db.Uuid
+  mcqCorrectOptionKey String?
+  version             QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  // NOTE: the (versionId, mcqCorrectOptionKey) -> QuestionOption relation is
+  // NOT modelled here. It is composite FK C-5 and is hand-written SQL only.
+  @@map("answer_keys")
+  @@schema("g1")
+}
