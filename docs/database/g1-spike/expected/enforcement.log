@@ -1,41 +1,36 @@
 
-### 0. seed accepted by all five composite FKs (expect PASS)
-         result          
--------------------------
- PASS  seed row accepted
+----- G1 RESULTS (machine-checked) -----
+ seq |             name              | result 
+-----+-------------------------------+--------
+   1 | S0-seed-accepted              | PASS
+   2 | C1-level-subject              | PASS
+   3 | C2-chapter-subject            | PASS
+   4 | C3-topic-chapter              | PASS
+   5 | C4-subtopic-topic             | PASS
+   6 | C5-key-of-version             | PASS
+   7 | C5b-null-key-skipped          | PASS
+   8 | P1-consistent-accepted        | PASS
+   9 | P2-optional-links-null        | PASS
+  10 | E7a-retired-position-reusable | PASS
+  11 | E7b-active-position-unique    | PASS
+  12 | E7c-retired-not-indexed       | PASS
+  13 | R1-restrict-blocks-delete     | PASS
+  14 | S9-all-five-present           | PASS
+(14 rows)
+
+
+    total    
+-------------
+ G1_TOTAL=14
 (1 row)
 
+   passed   
+------------
+ G1_PASS=14
+(1 row)
 
-### C-1  level + subject pair not in level_subjects (expect 23503 fk_questions_level_subject)
-psql:sql/0002-enforce.sql:100: NOTICE:  PASS  C-1 rejected by fk_questions_level_subject (23503)
-
-### C-2  chapter belongs to another subject (expect 23503 fk_questions_chapter_subject)
-psql:sql/0002-enforce.sql:123: NOTICE:  PASS  C-2 rejected by fk_questions_chapter_subject (23503)
-
-### C-3  topic belongs to another chapter (expect 23503 fk_questions_topic_chapter)
-psql:sql/0002-enforce.sql:147: NOTICE:  PASS  C-3 rejected by fk_questions_topic_chapter (23503)
-
-### C-4  subtopic belongs to another topic (expect 23503 fk_questions_subtopic_topic)
-psql:sql/0002-enforce.sql:172: NOTICE:  PASS  C-4 rejected by fk_questions_subtopic_topic (23503)
-
-### C-5  answer key names an option that is not in the version (expect 23503 fk_answer_keys_options_of_version)
-psql:sql/0002-enforce.sql:194: NOTICE:  PASS  C-5 rejected by fk_answer_keys_options_of_version (23503)
-
-### C-5b NULL mcq key on a CQ rubric row must be ALLOWED (expect PASS)
-psql:sql/0002-enforce.sql:212: NOTICE:  PASS  C-5 MATCH SIMPLE skips the NULL key (cq_rubric row accepted)
-
-### P-1  a fully consistent question must be ACCEPTED (expect PASS)
-psql:sql/0002-enforce.sql:233: NOTICE:  PASS  P-1 consistent hierarchy accepted
-
-### E-7a a retired topic frees its display position (expect PASS)
-psql:sql/0002-enforce.sql:254: NOTICE:  PASS  E-7 retired + live topic share display position 2
-
-### E-7b two ACTIVE topics may not share a position (expect 23505 uq_topics_chapter_order)
-psql:sql/0002-enforce.sql:275: NOTICE:  PASS  E-7 rejected by uq_topics_chapter_order (23505)
-
-### final: composite FKs still present after the whole suite (expect 5)
- composite_fk_count 
---------------------
-                  5
+  failed   
+-----------
+ G1_FAIL=0
 (1 row)
 

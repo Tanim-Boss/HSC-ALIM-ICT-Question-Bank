@@ -5,8 +5,12 @@
 // generated into the application, and it must not be adopted as the
 // project schema without a fresh review.
 //
-// What it reproduces: the columns and single-column relations that the
-// nine spike tables have in docs/database/g1-spike/sql/0001-schema.sql.
+// What it reproduces: the columns and single-column relations of the ten
+// spike tables created by docs/database/g1-spike/sql/0001-schema.sql, which
+// live in the `public` schema of a dedicated disposable database. No
+// @@schema attribute is used: without the `multiSchema` preview feature
+// Prisma only sees `public`, so a non-public schema would be invisible and
+// every diff would be misleading.
 //
 // What it deliberately does NOT contain: the five composite foreign keys
 // (C-1..C-5) and the three support unique keys. §3.11.6 states that Prisma
@@ -19,9 +23,11 @@ generator client {
   output   = "./generated"
 }
 
+// Prisma 7 no longer reads a datasource `url` from the schema: the URL comes
+// from the CLI flag (`--url`) or from `prisma.config.ts`. Keeping it here would
+// be ignored at best and a hard error at worst, so it is deliberately absent.
 datasource db {
   provider = "postgresql"
-  url      = env("G1_SPIKE_DATABASE_URL")
 }
 
 model EducationLevel {
@@ -31,7 +37,6 @@ model EducationLevel {
   questions     Question[]
 
   @@map("education_levels")
-  @@schema("g1")
 }
 
 model Subject {
@@ -42,7 +47,6 @@ model Subject {
   questions     Question[]
 
   @@map("subjects")
-  @@schema("g1")
 }
 
 model LevelSubject {
@@ -53,7 +57,6 @@ model LevelSubject {
 
   @@id([levelId, subjectId])
   @@map("level_subjects")
-  @@schema("g1")
 }
 
 model Chapter {
@@ -69,7 +72,6 @@ model Chapter {
   // E-7 (Revision 5): plain global unique, Prisma-native.
   @@unique([subjectId, chapterNumber])
   @@map("chapters")
-  @@schema("g1")
 }
 
 model Topic {
@@ -86,7 +88,6 @@ model Topic {
   // is expressed by the hand-written partial index uq_topics_chapter_order.
   // No @@unique here on purpose — Prisma cannot model a partial index.
   @@map("topics")
-  @@schema("g1")
 }
 
 model Subtopic {
@@ -97,7 +98,6 @@ model Subtopic {
   questions Question[]
 
   @@map("subtopics")
-  @@schema("g1")
 }
 
 model Question {
@@ -115,7 +115,6 @@ model Question {
   versions         QuestionVersion[]
 
   @@map("questions")
-  @@schema("g1")
 }
 
 model QuestionVersion {
@@ -126,7 +125,6 @@ model QuestionVersion {
   answerKeys AnswerKey[]
 
   @@map("question_versions")
-  @@schema("g1")
 }
 
 model QuestionOption {
@@ -138,7 +136,6 @@ model QuestionOption {
   // C-5's referenced key; Prisma can express this one natively.
   @@unique([versionId, key])
   @@map("question_options")
-  @@schema("g1")
 }
 
 model AnswerKey {
@@ -150,5 +147,4 @@ model AnswerKey {
   // NOTE: the (versionId, mcqCorrectOptionKey) -> QuestionOption relation is
   // NOT modelled here. It is composite FK C-5 and is hand-written SQL only.
   @@map("answer_keys")
-  @@schema("g1")
 }

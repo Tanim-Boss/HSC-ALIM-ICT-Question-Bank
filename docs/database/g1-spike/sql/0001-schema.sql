@@ -11,12 +11,18 @@
 -- columns for Prisma introspection to produce models. It is NOT migration
 -- 0001 and must never be treated as one.
 --
+-- The spike uses a DEDICATED DATABASE, not a dedicated schema: the default
+-- `public` schema is the only one Prisma sees without the `multiSchema`
+-- preview feature, so isolating into a separate schema would make every
+-- introspection and diff result ambiguous. run.sh creates and drops the
+-- database; this file only owns the objects inside it.
+--
 -- Disposable only. Never run against a shared, staging or production db.
 -- =====================================================================
 
-DROP SCHEMA IF EXISTS g1 CASCADE;
-CREATE SCHEMA g1;
-SET search_path TO g1;
+-- Start from a clean slate *inside* the disposable database.
+DROP SCHEMA IF EXISTS public CASCADE;
+CREATE SCHEMA public;
 
 -- ---------------------------------------------------------------------
 -- Taxonomy
@@ -158,7 +164,7 @@ ALTER TABLE answer_keys
 \echo '### composite FKs present (expect 5)'
 SELECT conname, pg_get_constraintdef(oid) AS definition
 FROM pg_constraint
-WHERE connamespace = 'g1'::regnamespace
+WHERE connamespace = current_schema::regnamespace
   AND conname IN (
     'fk_questions_level_subject',
     'fk_questions_chapter_subject',
@@ -171,7 +177,7 @@ ORDER BY conname;
 \echo '### composite FK count (expect 5)'
 SELECT count(*) AS composite_fk_count
 FROM pg_constraint
-WHERE connamespace = 'g1'::regnamespace
+WHERE connamespace = current_schema::regnamespace
   AND conname IN (
     'fk_questions_level_subject',
     'fk_questions_chapter_subject',

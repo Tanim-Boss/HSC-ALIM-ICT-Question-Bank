@@ -1,14 +1,14 @@
-psql:sql/0001-schema.sql:17: NOTICE:  drop cascades to 10 other objects
-DETAIL:  drop cascades to table g1.education_levels
-drop cascades to table g1.subjects
-drop cascades to table g1.level_subjects
-drop cascades to table g1.chapters
-drop cascades to table g1.topics
-drop cascades to table g1.subtopics
-drop cascades to table g1.questions
-drop cascades to table g1.question_versions
-drop cascades to table g1.question_options
-drop cascades to table g1.answer_keys
+psql:../sql/0001-schema.sql:24: NOTICE:  drop cascades to 10 other objects
+DETAIL:  drop cascades to table education_levels
+drop cascades to table subjects
+drop cascades to table level_subjects
+drop cascades to table chapters
+drop cascades to table topics
+drop cascades to table subtopics
+drop cascades to table questions
+drop cascades to table question_versions
+drop cascades to table question_options
+drop cascades to table answer_keys
 
 ### composite FKs present (expect 5)
               conname              |                                                             definition                                                             

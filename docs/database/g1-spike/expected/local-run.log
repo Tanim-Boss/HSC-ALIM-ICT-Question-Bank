@@ -1,0 +1,63 @@
+
+============================================================
+[G-1] 0. versions (all pinned; nothing is downloaded at run time)
+============================================================
+[G-1] ok: prisma CLI 7.10.1 (project dependency)
+[G-1] ok: node v22.22.3
+postgres 16.2
+
+============================================================
+[G-1] 1. create schema, C-1..C-5, and the three support keys
+============================================================
+[G-1] ok: schema created
+[G-1] ok: 5/5 composite FKs created: fk_answer_keys_options_of_version fk_questions_chapter_subject fk_questions_level_subject fk_questions_subtopic_topic fk_questions_topic_chapter
+
+============================================================
+[G-1] 2. enforcement: PostgreSQL rejects every invalid write
+============================================================
+
+----- G1 RESULTS (machine-checked) -----
+ seq |             name              | result 
+-----+-------------------------------+--------
+   1 | S0-seed-accepted              | PASS
+   2 | C1-level-subject              | PASS
+   3 | C2-chapter-subject            | PASS
+   4 | C3-topic-chapter              | PASS
+   5 | C4-subtopic-topic             | PASS
+   6 | C5-key-of-version             | PASS
+   7 | C5b-null-key-skipped          | PASS
+   8 | P1-consistent-accepted        | PASS
+   9 | P2-optional-links-null        | PASS
+  10 | E7a-retired-position-reusable | PASS
+  11 | E7b-active-position-unique    | PASS
+  12 | E7c-retired-not-indexed       | PASS
+  13 | R1-restrict-blocks-delete     | PASS
+  14 | S9-all-five-present           | PASS
+(14 rows)
+
+
+    total    
+-------------
+ G1_TOTAL=14
+(1 row)
+
+   passed   
+------------
+ G1_PASS=14
+(1 row)
+
+  failed   
+-----------
+ G1_FAIL=0
+(1 row)
+
+[G-1] ok: 14/14 enforcement cases PASS
+
+============================================================
+[G-1] 3. reflection: Prisma introspects the live database
+============================================================
+Loaded Prisma config from docs/database/g1-spike/prisma/prisma.config.ts.
+
+Error: request to https://binaries.prisma.sh/all_commits/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8/debian-openssl-3.0.x/schema-engine.gz.sha256 failed, reason: Client network socket disconnected before secure TLS connection was established
+
+[G-1] FAIL: prisma db pull failed
