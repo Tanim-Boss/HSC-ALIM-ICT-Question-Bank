@@ -517,6 +517,54 @@ fi
 ci_note "criterion 5b: edited applied migration detected by checksum control (Prisma itself does not detect it: prisma_detects=$PRISMA_DETECTS)"
 fi
 
+# Criterion 4 needs one internally-consistent row set (a version that has
+# options and can carry an answer key). The CI path deploys the schema with no
+# data at all, so the seeds cannot be assumed — CI run 45262866806 failed here
+# with "answer_keys_version_id_fkey ... not present in question_versions".
+# Idempotent: safe whether or not the database was already seeded.
+seed_minimum() {
+  if ! "$PSQL" "$URL" -v ON_ERROR_STOP=1 -q > "$OUT_DIR/04a-seed.log" 2>&1 <<'SEED'
+BEGIN;
+INSERT INTO education_levels (id, code) VALUES
+  ('11111111-1111-1111-1111-111111111111','HSC') ON CONFLICT (id) DO NOTHING;
+INSERT INTO subjects (id, code) VALUES
+  ('33333333-3333-3333-3333-333333333333','ICT') ON CONFLICT (id) DO NOTHING;
+INSERT INTO level_subjects (level_id, subject_id) VALUES
+  ('11111111-1111-1111-1111-111111111111','33333333-3333-3333-3333-333333333333')
+  ON CONFLICT DO NOTHING;
+INSERT INTO chapters (id, subject_id, chapter_number, title_en) VALUES
+  ('44444444-4444-4444-4444-444444444444','33333333-3333-3333-3333-333333333333',1,'ICT ch1')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO questions (id, education_level_id, subject_id, chapter_id) VALUES
+  ('77777777-7777-7777-7777-777777777777',
+   '11111111-1111-1111-1111-111111111111',
+   '33333333-3333-3333-3333-333333333333',
+   '44444444-4444-4444-4444-444444444444')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO question_versions (id, question_id) VALUES
+  ('88888888-8888-8888-8888-888888888888','77777777-7777-7777-7777-777777777777')
+  ON CONFLICT (id) DO NOTHING;
+INSERT INTO question_options (version_id, key) VALUES
+  ('88888888-8888-8888-8888-888888888888','A'),
+  ('88888888-8888-8888-8888-888888888888','B'),
+  ('88888888-8888-8888-8888-888888888888','C'),
+  ('88888888-8888-8888-8888-888888888888','D')
+  ON CONFLICT DO NOTHING;
+INSERT INTO answer_keys (version_id, mcq_correct_option_key) VALUES
+  ('88888888-8888-8888-8888-888888888888','B')
+  ON CONFLICT (version_id) DO NOTHING;
+COMMIT;
+SEED
+  then
+    cat "$OUT_DIR/04a-seed.log"
+    fail "could not seed the minimum row set for criterion 4"
+  fi
+  local n
+  n="$("$PSQL" "$URL" -Atc "SELECT count(*) FROM question_options WHERE version_id='88888888-8888-8888-8888-888888888888';")"
+  [ "$n" = "4" ] || fail "criterion 4 needs 4 options on the fixture version, found $n"
+  ok "minimum fixture rows present (4 options on the C-5 test version)"
+}
+
 # =====================================================================
 # CRITERION 4 — constrained-column migration safety
 # =====================================================================
@@ -598,6 +646,7 @@ if [ "$NAIVE_OK" = "1" ]; then
   info "binary-coercible, so PostgreSQL does not need to rebuild C-5 and leaves"
   info "it in place. Verified immediately below, not assumed."
   assert_catalog "$URL" "after the coercible widening"
+  seed_minimum
   "$PSQL" "$URL" -v ON_ERROR_STOP=1 -q -c "DELETE FROM answer_keys WHERE version_id = '88888888-8888-8888-8888-888888888888';" >/dev/null
   if "$PSQL" "$URL" -v ON_ERROR_STOP=0 -q -c "INSERT INTO answer_keys (version_id, mcq_correct_option_key) VALUES ('88888888-8888-8888-8888-888888888888','Z');" > "$OUT_DIR/04b-enforce.log" 2>&1; then
     fail "C-5 stopped enforcing after a coercible widening"
