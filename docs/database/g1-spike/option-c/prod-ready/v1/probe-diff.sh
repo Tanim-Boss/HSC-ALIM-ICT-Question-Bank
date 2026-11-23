@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# V-1 diagnostic: which `prisma migrate diff` invocation actually sees a
+# datamodel-to-datamodel delta?
+#
+# Why this exists
+#   `migrate diff --from-schema prev.prisma --to-schema next.prisma --script`
+#   returned exit 0 and an EMPTY script although the two files differ by one
+#   `@@index`. Empty means "no difference", so the command ran, parsed, and
+#   concluded nothing changed — which then produced an empty migration 0002.
+#   The CLI's own runtime help says `--from-schema` "uses the datamodel for the
+#   diff", so the intent was right and the flag was right; something else made
+#   the comparison degenerate. This records what each plausible invocation does
+#   so the fix is chosen from evidence rather than guessed.
+#
+# Config files are written INSIDE the repository: `prisma/config` is a bare
+# specifier that Node resolves by walking up from the config file, so a config
+# under /tmp cannot see node_modules and the command dies before diffing.
+#
+# Read-only: no database is written, nothing is deployed.
+set -uo pipefail
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$HERE/../../../../../.." && pwd)"
+[ -f "$REPO_ROOT/prisma/schema.prisma" ] || { echo "FATAL: REPO_ROOT=$REPO_ROOT has no prisma/schema.prisma"; exit 2; }
+
+SESS="$REPO_ROOT/.v1-session/probe.$$"
+mkdir -p "$SESS"
+trap 'rm -rf "$SESS"; rmdir "$REPO_ROOT/.v1-session" 2>/dev/null || true' EXIT
+
+cp "$REPO_ROOT/prisma/schema.prisma" "$SESS/prev.prisma"
+python3 - "$SESS/prev.prisma" "$SESS/next.prisma" <<'PY'
+import io, sys
+s = io.open(sys.argv[1], encoding='utf-8').read()
+anchor = '  @@index([status, type, difficulty], map: "ix_questions_status_type_difficulty")'
+assert anchor in s, "anchor not found"
+s = s.replace(anchor, anchor + '\n  @@index([createdAt(sort: Desc)], map: "ix_questions_created_at_desc")', 1)
+io.open(sys.argv[2], 'w', encoding='utf-8').write(s)
+PY
+
+cat > "$SESS/next.config.ts" <<CFG
+import { defineConfig } from 'prisma/config';
+export default defineConfig({ schema: '$SESS/next.prisma' });
+CFG
+
+echo "prev indexes: $(grep -c '@@index' "$SESS/prev.prisma")"
+echo "next indexes: $(grep -c '@@index' "$SESS/next.prisma")"
+echo "delta lines:  $(diff "$SESS/prev.prisma" "$SESS/next.prisma" | grep -c '^>')"
+echo
+
+P="$REPO_ROOT/node_modules/.bin/prisma"
+run() { # <label> <args...>
+  local label="$1"; shift
+  echo "===== $label"
+  ( cd "$REPO_ROOT" && "$P" migrate diff "$@" ) 2>&1 | sed -n '1,25p'
+  echo "----- exit=${PIPESTATUS[0]}"
+  echo
+}
+
+run "A  --from-schema/--to-schema (space form) + config" \
+  --from-schema "$SESS/prev.prisma" --to-schema "$SESS/next.prisma" --script --config "$SESS/next.config.ts"
+run "B  --from-schema=/--to-schema= (equals form) + config" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script --config "$SESS/next.config.ts"
+run "C  equals form, no --config" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script
+run "D  CONTROL --from-empty --to-schema= (must emit the whole schema)" \
+  --from-empty --to-schema="$SESS/next.prisma" --script --config "$SESS/next.config.ts"
+run "E  human-readable summary, no --script" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --config "$SESS/next.config.ts"
+run "F  --exit-code (2 = changes detected, 0 = empty)" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --exit-code --config "$SESS/next.config.ts"
