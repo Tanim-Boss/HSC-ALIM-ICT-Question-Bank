@@ -288,7 +288,11 @@ prisma_run migrate diff --from-migrations "$MIGRATIONS" --to-schema "$BASELINE_S
 rc=$?
 set -e
 info "exit code: $rc (0 = no drift, 2 = drift detected, 1 = error)"
-[ "$rc" -eq 1 ] && { cat "$OUT_DIR/05-drift.err"; fail "the drift check errored"; }
+if [ "$rc" -eq 1 ]; then
+  cat "$OUT_DIR/05-drift.err"
+  ci_note "step5 drift check ERRORED: $(tail -c 900 "$OUT_DIR/05-drift.err" | tr '\n' ' ')"
+  fail "the drift check errored: $(tail -c 600 "$OUT_DIR/05-drift.err" | tr '\n' ' ')"
+fi
 if [ "$rc" -eq 0 ]; then
   ok "NO drift: migration history matches the datamodel; C-1..C-5 cause no false positive"
   ci_note "step5 drift check: exit 0 (clean)"
