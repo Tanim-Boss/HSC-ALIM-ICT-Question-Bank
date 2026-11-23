@@ -154,6 +154,11 @@ ok "database is empty"
 
 MIGRATIONS="$OUT_DIR/migrations"
 mkdir -p "$MIGRATIONS"
+# `migrate diff --from-migrations` refuses to run without a provider lock file:
+# "Could not determine the connector from the migrations directory (missing
+# migration_lock.toml)". A real Prisma project has one, so the prototype must
+# have one too, or the CI drift check cannot be exercised at all.
+printf 'provider = "postgresql"\n' > "$MIGRATIONS/migration_lock.toml"
 SESS="$OUT_DIR/session"
 mkdir -p "$SESS"
 
