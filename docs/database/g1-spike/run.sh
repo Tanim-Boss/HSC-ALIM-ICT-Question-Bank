@@ -191,6 +191,37 @@ grep -q 'model Question' "$OUT_DIR/03-introspected.prisma" \
   || fail "introspection did not find the Question model — it did not see the database"
 ok "introspection produced $(wc -c < "$OUT_DIR/03-introspected.prisma") bytes containing the spike models"
 
+# ---------------------------------------------------------------------
+# The drift verdict is only meaningful if the spike datamodel describes the
+# SQL schema exactly, apart from the omissions Prisma cannot express. Diffing
+# the INTROSPECTED schema against the spike datamodel must therefore produce
+# nothing except the composite FKs, the three support keys and the partial
+# index. If it produces anything else, the datamodel is out of step and any
+# "drift" below would be an artefact of that mistake, not a Prisma verdict.
+#
+# Introspection cannot see the three support UNIQUE (id, parent_id) keys, the
+# five composite FKs or the partial index, so a NON-empty result here is
+# expected in one direction only: the datamodel must not ask for anything the
+# database does not have. We check exactly that.
+# ---------------------------------------------------------------------
+step "3b. datamodel fidelity: the spike schema must not invent or omit columns"
+set +e
+prisma_run migrate diff \
+  --config "$SPIKE_CONFIG" \
+  --from-schema "$OUT_DIR/03-introspected.prisma" \
+  --to-schema "$SPIKE_DIR/prisma/schema.prisma" \
+  --script > "$OUT_DIR/03b-fidelity.sql" 2> "$OUT_DIR/03b-fidelity.err"
+rc=$?
+set -e
+[ "$rc" -eq 0 ] || { cat "$OUT_DIR/03b-fidelity.err"; fail "could not compare the introspected schema with the spike datamodel"; }
+# an empty file here is the GOOD case: no differences at all
+[ -f "$OUT_DIR/03b-fidelity.sql" ] || fail "datamodel fidelity diff produced no output file"
+if grep -Eqi 'ADD COLUMN|DROP COLUMN|ALTER COLUMN|ADD CONSTRAINT|DROP CONSTRAINT' "$OUT_DIR/03b-fidelity.sql"; then
+  printf '\n----- 03b-fidelity.sql -----\n'; cat "$OUT_DIR/03b-fidelity.sql"
+  fail "the spike datamodel does not match the SQL schema (see 03b-fidelity.sql); the drift result below would be meaningless until this is fixed"
+fi
+ok "datamodel matches the SQL schema except the documented omissions"
+
 # --- step 4: no-change drift ------------------------------------------
 step "4. no-change drift: migrate diff (database -> datamodel) must contain no DROP"
 set +e
