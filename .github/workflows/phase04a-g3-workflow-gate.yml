@@ -152,15 +152,27 @@ jobs:
       - name: Independent catalog assertion
         if: always() && steps.g3.outcome != 'skipped'
         run: |
-          set -euo pipefail
+          set -uo pipefail
           Q="$(python3 -c "import sys;sys.path.insert(0,'docs/database/g1-spike/option-c');import guard;print(guard.CATALOG_QUERY)")"
           rc=0
           for target in "5432 g3_main" "5434 g3_replay"; do
             set -- $target
             port="$1"; db="$2"
+            f="/tmp/$db-catalog.json"
+            echo "=== $db (port $port)"
+            echo "--- protected constraints visible to SQL directly:"
             psql -h localhost -p "$port" -U g3 -d "$db" -Atc \
-              "SELECT json_agg(row_to_json(t)) FROM ($Q) t;" > "/tmp/$db-catalog.json" || true
-            if python3 docs/database/g1-spike/option-c/guard.py catalog "/tmp/$db-catalog.json"; then
+              "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint
+                WHERE conname = ANY (ARRAY['fk_questions_level_subject','fk_questions_chapter_subject',
+                  'fk_questions_topic_chapter','fk_questions_subtopic_topic',
+                  'fk_answer_keys_options_of_version']) ORDER BY 1;" || true
+            echo "--- total foreign keys:"
+            psql -h localhost -p "$port" -U g3 -d "$db" -Atc \
+              "SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace;" || true
+            psql -h localhost -p "$port" -U g3 -d "$db" -Atc \
+              "SELECT coalesce(json_agg(row_to_json(t)), '[]'::json) FROM ($Q) t;" > "$f" || true
+            echo "--- catalog rows captured: $(wc -c < "$f") bytes"
+            if python3 docs/database/g1-spike/option-c/guard.py catalog "$f"; then
               echo "$db: OK"
             else
               echo "::error::$db failed the protected-constraint catalog assertion"

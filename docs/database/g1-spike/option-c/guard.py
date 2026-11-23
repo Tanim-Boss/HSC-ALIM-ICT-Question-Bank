@@ -29,11 +29,22 @@ escalated to CASCADE — is a violation.
 This is a textual pre-deployment check. It is necessary but NOT sufficient; the
 authoritative check is the post-deployment comparison of the live catalog
 against the approved definitions (assert_protected_fks below).
+
+THIRD CHECK — APPLIED-MIGRATION INTEGRITY (``history``)
+------------------------------------------------------
+`prisma migrate deploy` and `prisma migrate status` were MEASURED not to notice
+that an already-applied migration file had been edited (CI run 45262383682,
+criterion 5b: both exited 0 after the file was rewritten). Prisma is therefore
+not a control for tampering with applied history, and this module supplies one:
+`_prisma_migrations.checksum` holds the SHA-256 of the file as it was applied, so
+recomputing it over the file on disk detects any edit. See ``check_history``.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import sys
 from typing import Any
@@ -165,10 +176,50 @@ WHERE c.contype = 'f'
 """
 
 
+def check_history(rows: list[dict[str, Any]], migrations_dir: str) -> tuple[bool, list[str]]:
+    """Compare on-disk migration files against `_prisma_migrations.checksum`.
+
+    `rows` is one JSON object per applied migration with `migration_name` and
+    `checksum`. Prisma records the SHA-256 of `migration.sql` at apply time; a
+    file edited afterwards no longer matches. This check exists because Prisma's
+    own `migrate deploy`/`migrate status` were measured NOT to detect such an
+    edit (it was applied to a disposable database and both commands exited 0).
+    """
+    problems: list[str] = []
+    if not rows:
+        problems.append("no applied migrations were supplied — nothing to verify, refusing to pass")
+        return False, problems
+
+    checked = 0
+    for row in rows:
+        name = row.get("migration_name") or ""
+        expected = (row.get("checksum") or "").strip()
+        path = os.path.join(migrations_dir, name, "migration.sql")
+        if not os.path.isfile(path):
+            problems.append(f"{name}: recorded as applied but {path} does not exist")
+            continue
+        with open(path, "rb") as fh:
+            actual = hashlib.sha256(fh.read()).hexdigest()
+        if not expected:
+            problems.append(f"{name}: no checksum recorded in _prisma_migrations")
+            continue
+        if actual != expected:
+            problems.append(
+                f"{name}: migration.sql was MODIFIED after it was applied "
+                f"(recorded {expected[:12]}…, on disk {actual[:12]}…)"
+            )
+            continue
+        checked += 1
+    if problems:
+        return False, problems
+    return True, [f"{checked} applied migration(s) match their recorded checksums"]
+
+
 def main(argv: list[str]) -> int:
     """CLI: `python3 guard.py sql <file...>` or `python3 guard.py catalog <json>`."""
     if len(argv) < 2:
-        print("usage: guard.py sql <migration.sql...> | guard.py catalog <rows.json>", file=sys.stderr)
+        print("usage: guard.py sql <migration.sql...> | guard.py catalog <rows.json> | "
+              "guard.py history <rows.json> <migrations-dir>", file=sys.stderr)
         return 2
 
     mode = argv[1]
@@ -186,12 +237,33 @@ def main(argv: list[str]) -> int:
                     print(f"          - {r}")
         return 1 if bad else 0
 
-    if mode == "catalog":
+    if mode == "history":
+        if len(argv) < 4:
+            print("usage: guard.py history <rows.json> <migrations-dir>", file=sys.stderr)
+            return 2
         with open(argv[2], encoding="utf-8") as fh:
             rows = json.load(fh)
         if isinstance(rows, dict):
             rows = [rows]
-        ok, problems = assert_protected_fks(rows)
+        ok, notes = check_history(rows or [], argv[3])
+        for n in notes:
+            print(("OK      " if ok else "REJECT  ") + n)
+        return 0 if ok else 1
+
+    if mode == "catalog":
+        raw = open(argv[2], encoding="utf-8").read().strip()
+        if not raw:
+            print(f"REJECT  {argv[2]} is empty — no catalog rows were returned, "
+                  f"which is indistinguishable from no constraints existing")
+            return 1
+        try:
+            rows = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            print(f"REJECT  {argv[2]} is not valid JSON ({exc})")
+            return 1
+        if isinstance(rows, dict):
+            rows = [rows]
+        ok, problems = assert_protected_fks(rows or [])
         if ok:
             print("OK      all five protected composite FKs present with approved definitions")
             return 0

@@ -440,17 +440,19 @@ C5_STATUS="PASS (5/5 textual variants rejected pre-deployment)"
 
 info ""
 info "--- 5b: a migration EDITED WITHOUT changing the protected FK ---"
+info "Subtler than 5a: the edit does not touch C-1..C-5, so a textual guard"
+info "cannot and should not object. The question is whether the edit is DETECTED."
+info ""
+info "MEASURED ANSWER IN CI RUN 45262383682: IT IS NOT. After the already-applied"
+info "migration file was rewritten in place, both 'migrate deploy' and"
+info "'migrate status' exited 0. The step that asserted the edit would be caught"
+info "failed, which is the correct outcome for a control that does not exist."
+info "So Prisma is NOT relied on for this, and the driver supplies the check."
 if [ -n "$PARTIAL" ]; then
-  info "NOT TESTED in a partial run: this mode proves a checksum refusal by"
-  info "Prisma, which is not installed here. Reported as NOT TESTED, not as a pass."
+  info "NOT TESTED in a partial run: there is no _prisma_migrations history."
   C5B_STATUS="NOT TESTED"
 fi
 if [ -z "$PARTIAL" ]; then
-info "This is subtler: the migration does not touch C-1..C-5 at all, so a"
-info "textual guard cannot and should not object. The question is whether the"
-info "edit is still DETECTED. Two layers answer it:"
-info "  (i)  Prisma refuses to apply a migration whose recorded checksum changed"
-info "  (ii) the catalog assertion still proves the constraints survived"
 EDIT_DIR="$MIGRATIONS/20260103000000_edited"
 mkdir -p "$EDIT_DIR"
 cat > "$EDIT_DIR/migration.sql" <<'SQL'
@@ -463,32 +465,56 @@ ok "the textual guard does not object (correct: it does not touch C-1..C-5)"
 
 prisma_run migrate deploy --config "$SESS/deploy.config.ts" > "$OUT_DIR/05b-deploy1.log" 2>&1 \
   || { cat "$OUT_DIR/05b-deploy1.log"; fail "deployment of the edited migration failed"; }
-ok "the edited migration applied once"
+ok "the migration applied once"
 
 info ""
 info "now EDIT the already-applied migration file (the real tampering scenario)"
+checksum_before="$("$PSQL" "$URL" -Atc "SELECT checksum FROM _prisma_migrations WHERE migration_name='20260103000000_edited';")"
+info "recorded checksum before edit: $checksum_before"
 sed -i 's/g3_edited/g3_edited_TAMPERED/' "$EDIT_DIR/migration.sql"
+
 set +e
-prisma_run migrate status --config "$SESS/deploy.config.ts" > "$OUT_DIR/05b-status-edited.log" 2>&1
-rc=$?
 prisma_run migrate deploy --config "$SESS/deploy.config.ts" > "$OUT_DIR/05b-deploy2.log" 2>&1
 rc2=$?
+prisma_run migrate status --config "$SESS/deploy.config.ts" > "$OUT_DIR/05b-status-edited.log" 2>&1
+rc=$?
 set -e
-cat "$OUT_DIR/05b-status-edited.log"
 cat "$OUT_DIR/05b-deploy2.log"
-if [ "$rc" -eq 0 ] && [ "$rc2" -eq 0 ]; then
-  fail "editing an applied migration file was NOT detected (status=$rc deploy=$rc2) — tampering would go unnoticed"
-fi
-info "status exit=$rc, deploy exit=$rc2"
-grep -qiE 'modified|checksum|edited' "$OUT_DIR/05b-status-edited.log" "$OUT_DIR/05b-deploy2.log" \
-  || info "(Prisma reported the problem without the word 'modified'; the failure itself is the signal)"
-ok "Prisma detects an edited, already-applied migration (checksum) and refuses to proceed"
-ci_note "criterion 5b: an edited applied migration is detected via checksum (status/deploy exit non-zero)"
+cat "$OUT_DIR/05b-status-edited.log"
+if [ "$rc" -ne 0 ] || [ "$rc2" -ne 0 ]; then
+  ok "Prisma itself refused to proceed with the edited migration (deploy=$rc2 status=$rc)"
+  PRISMA_DETECTS="yes"
+else
+  ci_note "criterion 5b: Prisma did NOT detect the edit (deploy=0, status=0); using the checksum control"
+  ok "recorded, not assumed: Prisma did NOT detect the edited applied migration"
+  PRISMA_DETECTS="no"
 fi
 
-# restore the file so the rest of the run is coherent (full runs only)
-if [ -z "$PARTIAL" ]; then
-  sed -i 's/g3_edited_TAMPERED/g3_edited/' "$EDIT_DIR/migration.sql"
+info ""
+info "the project's own control: recompute SHA-256 and compare with _prisma_migrations"
+"$PSQL" "$URL" -Atc \
+  "SELECT json_agg(row_to_json(t)) FROM (SELECT migration_name, checksum FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL) t;" \
+  > "$OUT_DIR/05b-history.json" || fail "could not read _prisma_migrations"
+if python3 "$GUARD" history "$OUT_DIR/05b-history.json" "$MIGRATIONS" > "$OUT_DIR/05b-history.log" 2>&1; then
+  cat "$OUT_DIR/05b-history.log"
+  fail "the checksum control ACCEPTED an edited applied migration"
+fi
+cat "$OUT_DIR/05b-history.log"
+info "=> the edit is detected; deployment is refused before anything is altered"
+ok "the checksum control detects the edited applied migration"
+
+info ""
+info "control negative-test: with the file restored, the same check must pass"
+sed -i 's/g3_edited_TAMPERED/g3_edited/' "$EDIT_DIR/migration.sql"
+if python3 "$GUARD" history "$OUT_DIR/05b-history.json" "$MIGRATIONS" > "$OUT_DIR/05b-history-ok.log" 2>&1; then
+  cat "$OUT_DIR/05b-history-ok.log"
+  ok "the checksum control passes on unmodified history (not vacuous)"
+  C5B_STATUS="PASS (Prisma does NOT detect the edit — measured; checksum control does)"
+else
+  cat "$OUT_DIR/05b-history-ok.log"
+  fail "the checksum control rejects unmodified history — it is unusable"
+fi
+ci_note "criterion 5b: edited applied migration detected by checksum control (Prisma itself does not detect it: prisma_detects=$PRISMA_DETECTS)"
 fi
 
 # =====================================================================
