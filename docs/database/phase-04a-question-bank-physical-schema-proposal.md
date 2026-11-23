@@ -1,8 +1,8 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 2)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 3)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
-**Revision 2 scope:** completed **§3** (Migration 0001 — full 18-table inventory) and **§7** (OD-18 content-block schema). Revision 1 (decision review, ER sketch, Prisma sketch, policy) is preserved below and is still the record of the approved decisions.
+**Revision 3 scope:** review findings applied — MCQ correctness authority resolved (request **D**), asset-pointer integrity resolved (`block_ref` `NOT NULL` + rooted grammar), the five composite foreign keys restated as request **C** with a mandatory Prisma-drift gate, and request **E** broken out into an item-by-item review. Revision 2 completed §3 and §7; revision 1 (decision review, ER sketch, Prisma sketch, policy) is preserved below and remains the record of the approved decisions.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
 **Status:** Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
@@ -14,7 +14,8 @@
 | Revision | Scope | State |
 |---|---|---|
 | 1 | Inspection findings, OD-08/OD-09/OD-10 review, abbreviated table list, ER sketch, Prisma sketch, index rationale, JSONB-in-principle, deletion policy | Preserved in full below; its approved decisions are unchanged |
-| 2 (this revision) | **§3 completed** (full 18-table inventory with types, nullability, defaults, keys, FKs, constraints, indexes, archival rules, complete ER diagram, dependency-ordered creation, supporting-table justification, partial unique index SQL, domain `CHECK`s, the `educationLevelId`+`subjectId` composite-FK analysis, migration impact and rollback) and **§7 completed** (OD-18 envelope, ten block types with valid *and* invalid examples, profiles, document versioning, rejection behaviour, sanitization and Zod strategy, rubric schema, hard limits) | Documentation only. §3 and §7 await approval (requests **A** and **B**); three further schema decisions are raised as **C**, **D** and **E**. No migration, no schema change, no application code |
+| 2 | **§3 completed** (full 18-table inventory with types, nullability, defaults, keys, FKs, constraints, indexes, archival rules, complete ER diagram, dependency-ordered creation, supporting-table justification, partial unique index SQL, domain `CHECK`s, the `educationLevelId`+`subjectId` composite-FK analysis, migration impact and rollback) and **§7 completed** (OD-18 envelope, ten block types with valid *and* invalid examples, profiles, document versioning, rejection behaviour, sanitization and Zod strategy, rubric schema, hard limits) | Documentation only. §3 and §7 await approval (requests **A** and **B**); three further schema decisions raised as **C**, **D** and **E** |
+| 3 (this revision) | **Review findings applied.** ① Request **D resolved**: `question_options.is_correct` removed, `uq_question_options_one_correct_per_version` removed, `answer_keys.mcq_correct_option_key` made the single authority, guarantee re-expressed via `UNIQUE (answer_keys.version_id)` + composite FK, publish gate retained (I‑4, I‑13). ② **Asset pointers**: `block_ref` is `NOT NULL` with a rooted grammar covering stem, option and nested-subquestion content, `UNIQUE (version_id, block_ref)`, new §7.6.5 worked example. ③ **Request C** restated as five named composite FKs with a mandatory six-step Prisma-drift spike; no claim that Prisma represents them. ④ **Request E** split into 17 individually reviewed items with recommendation, consequence and "changes the model?" per item. ⑤ Consistency sweep across ER diagram, SQL, Prisma sketch, examples and the register. | Documentation only. Requests **A**, **B**, **C** and 14 open **E** items await disposition; **D** and the asset-pointer decision are resolved. No migration, no schema change, no application code |
 
 ---
 
@@ -29,7 +30,10 @@
 | 5 | JSONB usage | **APPROVED IN PRINCIPLE** — OD-18 content-block schema **specified in full (§7)**; final approval is request **B** in §11 |
 | 6 | Deletion and integrity | **APPROVED WITH CLARIFICATIONS** |
 | 7 | OD-11 / OD-12 / OD-13 | **ACKNOWLEDGED** — deferred to Phase 05; **no values invented in this revision** |
-| 8 | Schema tightenings + optional composite FKs | **NEW — awaiting decision** — requests **C**, **D**, **E** in §11; each is a proposed change to the physical schema, not an applied one |
+| 8 | MCQ correctness authority (request **D**) | **RESOLVED — reviewer accepted**: `answer_keys.mcq_correct_option_key` is the sole authority; `question_options.is_correct` and its partial unique index removed |
+| 9 | Asset pointer integrity | **RESOLVED — reviewer accepted**: `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covers stem/option/nested-subquestion content |
+| 10 | Composite foreign keys (request **C**) | **PENDING** — five FKs retained and strengthened by D; Prisma cannot represent them; disposable PostgreSQL drift spike is a mandatory gate |
+| 11 | Physical-schema tightenings (request **E**) | **PENDING — item by item** — §3.15 reviews 17 items; E‑7, E‑9 and E‑10 explicitly not recommended for silent approval |
 
 ---
 
@@ -115,9 +119,9 @@ Direction noted in the earlier report; required before Phase 05 (examinations), 
 
 ## 3. Migration 0001 — complete 18-table inventory
 
-**Status: SPECIFICATION COMPLETE — NOT YET APPROVED.** This section replaces the earlier abbreviated inventory. It is a reviewable design, not authorization to create a migration: `prisma/schema.prisma` stays untouched and no `prisma/migrations/` directory is created until the reviewer approves §3 and §7 ([§11](#11-decisions-still-awaiting-your-final-approval)).
+**Status: SPECIFICATION COMPLETE — NOT YET APPROVED, except two items resolved by review.** This section replaces the earlier abbreviated inventory. It is a reviewable design, not authorization to create a migration: `prisma/schema.prisma` stays untouched and no `prisma/migrations/` directory is created until the reviewer approves §3 and §7 ([§11](#11-decisions-still-awaiting-your-final-approval)).
 
-Every table below is **PROPOSED**. Items marked **(P)** are details that the earlier report left open or that this revision proposes to tighten; each is listed for confirmation in [§3.15](#315-corrections-and-tightenings-relative-to-the-earlier-proposal) and [§11](#11-decisions-still-awaiting-your-final-approval). Nothing in this section changes an approved decision: [§3.1.4](#314-approved-decisions-this-section-preserves) maps each preserved decision to the artifact that enforces it.
+Every table below is **PROPOSED**. Items marked **(P)** are physical details that this document proposes beyond what the earlier report settled; each maps to an **E‑n** row in [§3.15](#315-corrections-and-tightenings--individual-review-request-e) and to request **E** in [§11](#11-decisions-still-awaiting-your-final-approval) — **none is approved by being written down.** Two schema decisions are marked **(review)** instead of (P) because the reviewer resolved them in this round: MCQ correctness authority (request **D**) and asset-pointer integrity. Nothing in this section changes an approved decision: [§3.1.4](#314-approved-decisions-this-section-preserves) maps each preserved decision to the artifact that enforces it.
 
 ### 3.1 Scope, conventions and preserved decisions
 
@@ -137,14 +141,14 @@ Every table below is **PROPOSED**. Items marked **(P)** are details that the ear
 | JSONB | Only `question_versions.content`, `question_options.content`, `answer_keys.cq_rubric` | Approved JSONB boundary (L2/R6). Never the whole question record. |
 | Triggers / procedures | None | Banned by [database migrations](../development/database-migrations.md). Invariants that would need them are listed in [§3.13](#313-invariants-that-cannot-be-enforced-declaratively). |
 | Row-level security | None in 0001 | RLS, roles and policies remain **OD-16**; server authorization is the only approved control. |
-| Constraint naming | Prisma-generated names by default; hand-written artifacts use `ck_`, `uq_`, `ix_` prefixes | Hand-written artifacts are exactly those PostgreSQL features Prisma cannot express (partial indexes, `CHECK`s, and the optional composite foreign keys in [§3.11](#311-can-educationlevelid--subjectid-be-an-invalid-pair)). |
+| Constraint naming | Prisma-generated names by default; hand-written artifacts use `ck_`, `uq_`, `ix_` prefixes | Hand-written artifacts are exactly those PostgreSQL features Prisma cannot express (partial indexes, `CHECK`s, and the five composite foreign keys of request **C** in [§3.11.6](#3116-composite-foreign-keys-request-c)). |
 
 #### 3.1.2 Deletion-action matrix
 
 | Child column | Parent | `ON UPDATE` | `ON DELETE` | Why |
 |---|---|---|---|---|
 | `level_subjects.level_id` | `education_levels.id` | CASCADE | **RESTRICT** | Membership rows are cheap to delete explicitly; a level must never disappear while a question, or a membership still in use, depends on it. |
-| `level_subjects.subject_id` | `subjects.id` | CASCADE | **RESTRICT** | Same reasoning; the earlier draft's `Cascade` was corrected (P). |
+| `level_subjects.subject_id` | `subjects.id` | CASCADE | **RESTRICT** | Same reasoning; the earlier draft's `Cascade` was corrected — item **E‑1**. |
 | `chapters.subject_id` | `subjects.id` | CASCADE | **RESTRICT** | A subject with chapters is never hard-deleted (retire with `is_active = false`). |
 | `topics.chapter_id` | `chapters.id` | CASCADE | **RESTRICT** | Curriculum history is preserved. |
 | `subtopics.topic_id` | `topics.id` | CASCADE | **RESTRICT** | Curriculum history is preserved. |
@@ -154,6 +158,7 @@ Every table below is **PROPOSED**. Items marked **(P)** are details that the ear
 | `answer_keys.version_id` | `question_versions.id` | CASCADE | **CASCADE** | A key cannot outlive its version. |
 | `question_version_assets.version_id` | `question_versions.id` | CASCADE | **CASCADE** | The rendering pin dies with the version, which can only happen when nothing references it. |
 | `question_version_assets.asset_id` | `question_assets.id` | CASCADE | **RESTRICT** | An asset referenced by any version cannot be deleted; retention is **OD-20**. |
+| `answer_keys.(version_id, mcq_correct_option_key)` | `question_options(version_id, key)` | CASCADE | **RESTRICT** (request **C**) | The key must name an option of its own version; deleting a published version's option cannot silently orphan the authoritative key. |
 | `question_tags.question_id` | `questions.id` | CASCADE | **CASCADE** | Tag associations are not historical evidence. |
 | `question_tags.tag_id` | `tags.id` | CASCADE | **CASCADE** | Removing a tag removes its associations. |
 | `question_sources.question_id` | `questions.id` | CASCADE | **CASCADE** | Provenance rows belong to the question identity. |
@@ -166,10 +171,12 @@ Every table below is **PROPOSED**. Items marked **(P)** are details that the ear
 | `question_versions` per `questions` | 1 : 0..n | FK + `UNIQUE (question_id, version_number)` |
 | Published `question_versions` per `questions` | 1 : 0..1 | Partial unique index ([§3.10](#310-partial-and-expression-unique-index-sql)) |
 | `question_options` per `question_versions` | 1 : 0..n | FK; "exactly four for an MCQ version" is a service invariant (I‑4) |
+| correct MCQ option per MCQ `question_versions` | exactly 1 option named by 0..1 key row | `UNIQUE (answer_keys.version_id)` + composite FK to `question_options(version_id, key)`; presence is I‑13 |
 | `answer_keys` per `question_versions` | 1 : 0..1 | `UNIQUE (version_id)` |
 | `question_sources` per `questions` | 1 : 0..n | FK |
 | `questions` per `level_subjects` | n : 1 | Two FK columns; academic validity of the pair in [§3.11](#311-can-educationlevelid--subjectid-be-an-invalid-pair) |
-| `question_assets` per `question_versions` | n : m through `question_version_assets` | Join PK/unique constraints |
+| `question_assets` per `question_versions` | n : m through `question_version_assets` | `UNIQUE (version_id, block_ref)` — one asset per located block; the same asset may appear at many pointers |
+| `question_assets` per located block | at most 1 | `UNIQUE (version_id, block_ref)` + I‑8 (`assetId` at that pointer must match) |
 
 #### 3.1.4 Approved decisions this section preserves
 
@@ -197,7 +204,7 @@ Fourteen **essential** tables are required to author, classify, version, publish
 | 7 | `questions` | Essential | Question identity and classification (no content) | 1, 2, 4, 5, 6 |
 | 8 | `question_versions` | Essential | Immutable structured content revision | 7 |
 | 9 | `question_options` | Essential | MCQ choices for a version | 8 |
-| 10 | `answer_keys` | Essential | Authoritative MCQ key or CQ marking guide (server-only) | 8 (9 if the optional key FK in §3.11.6 is adopted) |
+| 10 | `answer_keys` | Essential | Authoritative MCQ key or CQ marking guide; **the only home of MCQ correctness** | 8, 9 |
 | 11 | `question_assets` | Essential | Asset metadata; bytes in object storage | — |
 | 12 | `question_version_assets` | Essential | Pins which assets a version renders, by JSON Pointer | 8, 11 |
 | 13 | `tags` | Essential | Tag dimension | — |
@@ -289,7 +296,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Indexes.** PK covers `level_id` prefixes. Add `ix_level_subjects_subject_id` on `(subject_id)` for the reverse lookup ("which levels offer this subject").
 
-**Soft delete / archival.** None. Membership is either present or absent. Removal must be restricted while questions reference the pair (via the optional composite FK) or must be preceded by re-classifying those questions (service responsibility, I‑1).
+**Soft delete / archival.** None. Membership is either present or absent. Removal must be restricted while questions reference the pair (via the request‑C composite FK C‑1) or must be preceded by re-classifying those questions (service responsibility, I‑1).
 
 **Dependencies.** `education_levels`, `subjects`.
 
@@ -314,7 +321,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `subject_id` → `subjects(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (id, subject_id)` (P) — required only if the composite FK in [§3.11](#311-can-educationlevelid--subjectid-be-an-invalid-pair) is adopted; it is what lets `questions(chapter_id, subject_id)` prove the chapter belongs to the question's subject. Active-number uniqueness via the partial index `uq_chapters_subject_number_active` on `(subject_id, chapter_number) WHERE is_active` (P) instead of a plain unique constraint, so a retired chapter's number can be reused after a curriculum revision. `CHECK (chapter_number > 0)`; non-blank title checks.
+**Unique / CHECK.** `UNIQUE (id, subject_id)` — the support key for composite FK C‑2 in [§3.11.6](#3116-composite-foreign-keys-request-c), needed only if request **C** is approved; it is what lets `questions(chapter_id, subject_id)` prove the chapter belongs to the question's subject. Active-number uniqueness via the partial index `uq_chapters_subject_number_active` on `(subject_id, chapter_number) WHERE is_active` (item **E‑7**, which **needs an explicit curriculum-numbering decision**) instead of a plain unique constraint, so a retired chapter's number can be reused after a curriculum revision. `CHECK (chapter_number > 0)`; non-blank title checks.
 
 **Indexes.** The partial unique index above covers `subject_id` prefixes. If the plain `UNIQUE (subject_id, chapter_number)` is preferred over the partial index, it also covers them.
 
@@ -343,7 +350,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `chapter_id` → `chapters(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (id, chapter_id)` (P, for the composite FK); `uq_topics_chapter_order_active` on `(chapter_id, order_index) WHERE is_active` (P); `CHECK (order_index >= 0)`; non-blank name checks.
+**Unique / CHECK.** `UNIQUE (id, chapter_id)` (support key for composite FK C‑3, request **C**); `uq_topics_chapter_order_active` on `(chapter_id, order_index) WHERE is_active` (item **E‑7**); `CHECK (order_index >= 0)`; non-blank name checks.
 
 **Indexes.** The partial unique index covers `chapter_id` prefixes.
 
@@ -406,11 +413,11 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** Five, all `RESTRICT` on delete: `education_level_id`, `subject_id`, `chapter_id`, `topic_id`, `subtopic_id`.
 
-**Unique / CHECK.** No natural unique key: two identical-looking stems are two questions until content hashing is decided (**OD-27**). Checks: `marks >= 0`; `negative_marks >= 0`; `negative_marks <= marks` (P); `topic_id IS NULL OR chapter_id IS NOT NULL`; `subtopic_id IS NULL OR topic_id IS NOT NULL`; `type <> 'CQ' OR marks = 10` (P, the approved 1+2+3+4 CQ shape); `type <> 'MCQ' OR marks >= 1` (P).
+**Unique / CHECK.** No natural unique key: two identical-looking stems are two questions until content hashing is decided (**OD-27**). Checks: `marks >= 0`; `negative_marks >= 0`; `negative_marks <= marks` (item **E‑9**, flagged — interacts with the open OD‑21 negative-mark floor); `topic_id IS NULL OR chapter_id IS NOT NULL`; `subtopic_id IS NULL OR topic_id IS NOT NULL`; `type <> 'CQ' OR marks = 10` (item **E‑10** — **not recommended for silent approval**: it hard-codes the current curriculum's 10-mark CQ shape); `type <> 'MCQ' OR marks >= 1` (item **E‑11**).
 
-**Indexes.** `(education_level_id)`, `(subject_id)`, `(chapter_id)`, `(topic_id)`, `(subtopic_id)`, `(education_level_id, subject_id)` (level→subject facet entry point), `(subject_id, chapter_id, topic_id)` (chapter→topic cascade), `(type, status)`, `(status, type, difficulty)` (published listing with facets). Optional (P): `(created_at DESC)` for "recently added" admin listings. No GIN or full-text index — search is **OD-32**.
+**Indexes.** `(education_level_id)`, `(subject_id)`, `(chapter_id)`, `(topic_id)`, `(subtopic_id)`, `(education_level_id, subject_id)` (level→subject facet entry point), `(subject_id, chapter_id, topic_id)` (chapter→topic cascade), `(type, status)`, `(status, type, difficulty)` (published listing with facets). Optional, not proposed for 0001: `(created_at DESC)` for "recently added" admin listings (no measured need yet). No GIN or full-text index — search is **OD-32**.
 
-**Soft delete / archival.** `status = 'ARCHIVED'` is the soft delete ([§8](#8-data-integrity-and-deletion-policy--approved-with-clarifications)). No `deleted_at` column: two deletion mechanisms (`status` and a timestamp) would let a row be archived-but-not-deleted, or deleted-but-active. Hard delete is permitted only for a draft question with no published version, no source-row history worth keeping and no exam reference (none can exist in Phase 04). "Why no `archived_at`" is recorded in [§3.15](#315-corrections-and-tightenings-relative-to-the-earlier-proposal): status-transition timestamps belong to the audit log (**OD-27**), which is not in 0001.
+**Soft delete / archival.** `status = 'ARCHIVED'` is the soft delete ([§8](#8-data-integrity-and-deletion-policy--approved-with-clarifications)). No `deleted_at` column: two deletion mechanisms (`status` and a timestamp) would let a row be archived-but-not-deleted, or deleted-but-active. Hard delete is permitted only for a draft question with no published version, no source-row history worth keeping and no exam reference (none can exist in Phase 04). "Why no `archived_at`" is recorded in [§3.15](#315-corrections-and-tightenings--individual-review-request-e): status-transition timestamps belong to the audit log (**OD-27**), which is not in 0001.
 
 **Dependencies.** `education_levels`, `subjects`, `chapters`, `topics`, `subtopics`.
 
@@ -434,7 +441,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `question_id` → `questions(id)` `CASCADE`.
 
-**Unique / CHECK.** `UNIQUE (question_id, version_number)`; `CHECK (version_number > 0)`; `CHECK (jsonb_typeof(content) = 'object')`; envelope-presence check `content ? 'format' AND content ? 'version' AND content ? 'blocks'` (P — a syntax guard only, **not** a content validator); optional size cap `pg_column_size(content) <= 262144` (P, matches the §7.14 limit). The published-uniqueness rule is a partial index, not a constraint ([§3.10](#310-partial-and-expression-unique-index-sql)).
+**Unique / CHECK.** `UNIQUE (question_id, version_number)`; `CHECK (version_number > 0)`; `CHECK (jsonb_typeof(content) = 'object')`; envelope-presence check `content ? 'format' AND content ? 'version' AND content ? 'blocks'` (a syntax guard only, **not** a content validator); size cap `pg_column_size(content) <= 262144` (matches the [§7.12](#712-hard-limits) limit). The published-uniqueness rule is a partial index, not a constraint ([§3.10](#310-partial-and-expression-unique-index-sql)).
 
 **Indexes.** `(question_id)` (also covered by the unique constraint's prefix), `(status)`, `(question_id, status)`, and the partial unique index below. A GIN index on `content` is deliberately deferred until **OD-32** defines the search need.
 
@@ -454,27 +461,42 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 | `version_id` | `uuid` | no | none | FK → `question_versions.id` (CASCADE) |
 | `key` | `text` | no | none | One character: `A`–`D` for the initial format (also accepts `ক`–`ঘ`) |
 | `content` | `jsonb` | no | none | Inline-only block document ([§7.6.2](#762-four-option-mcq--stem-plus-option-content)) |
-| `sort_order` | `integer` | no | `0` | Render order; `order` avoided as a reserved word |
-| `is_correct` | `boolean` | no | `false` | Declarative mirror of the key; see the authority note below |
+| `sort_order` | `integer` | no | `0` | Render order; `order` avoided as a reserved word (item **E‑3**) |
 | `created_at` | `timestamptz(3)` | no | `now()` | |
+
+**There is no `is_correct` column** (review disposition, request **D**). Correctness lives only in `answer_keys.mcq_correct_option_key`; see "Correctness authority" below.
 
 **Primary key.** `(id)`.
 
 **Foreign keys.** `version_id` → `question_versions(id)` `CASCADE`.
 
-**Unique / CHECK.** `UNIQUE (version_id, key)`; `CHECK (char_length(key) = 1)`; `CHECK (key IN ('A','B','C','D','ক','খ','গ','ঘ'))` (P); `CHECK (sort_order >= 0)`; `CHECK (jsonb_typeof(content) = 'object')`; one correct option per version via the partial unique index `uq_question_options_one_correct` ([§3.10](#310-partial-and-expression-unique-index-sql)). "Exactly four options per MCQ version, zero per CQ version" cannot be a `CHECK` (it is a row-count rule) — it is I‑4.
+**Unique / CHECK.** `UNIQUE (version_id, key)`; `CHECK (char_length(key) = 1)`; `CHECK (key IN ('A','B','C','D','ক','খ','গ','ঘ'))`; `CHECK (sort_order >= 0)`; `CHECK (jsonb_typeof(content) = 'object')`. There is **no** "one correct option per version" partial unique index any more — that index referenced the dropped `is_correct` column, and the guarantee is now provided by `answer_keys` + the composite FK ([§3.3.10](#3310-answer_keys--authoritative-correctness-or-cq-marking-guide)). "Exactly four options per MCQ version, zero per CQ version" cannot be a `CHECK` (it is a row-count rule) — it is I‑4.
 
-**Indexes.** `(version_id)`, `(version_id, is_correct)`, plus the partial unique index. `UNIQUE (version_id, key)` also serves as the lookup for "which option has key X of this version", which is what the optional `answer_keys` FK in [§3.11](#311-can-educationlevelid--subjectid-be-an-invalid-pair) references.
+**Indexes.** `(version_id)` and `UNIQUE (version_id, key)`. The `(version_id, is_correct)` index is **removed** with the column. `UNIQUE (version_id, key)` now carries a second duty: it is the unique key that the composite FK `answer_keys(version_id, mcq_correct_option_key) → question_options(version_id, key)` references ([§3.11.6](#3116-composite-foreign-keys-request-c)). No index on `key` means correctness is never a query entry point.
 
 **Soft delete / archival.** None: options are an owned component of an immutable version. They disappear only when the version row is deleted, which the retention rules prevent for published or examined versions. Individual option edits are forbidden after publish; publish a new version instead (I‑5).
 
-**Correctness authority (unresolved, needs a decision).** Correctness is currently representable twice: `question_options.is_correct` and `answer_keys.mcq_correct_option_key`. The `is_correct` column exists **only** because PostgreSQL cannot express "exactly one correct option" as a cross-table constraint. Two rules keep them consistent: (1) `answer_keys.mcq_correct_option_key` is authoritative and is the only value any reader may use; (2) both are written in one transaction by the publish service, and a consistency test asserts they agree for every published version. The alternative — dropping `is_correct` — is rejected because the partial unique index would be lost; the alternative of dropping `mcq_correct_option_key` is rejected because then correctness has no server-only home distinct from the render rows. Recorded as approval request **D** in [§11](#11-decisions-still-awaiting-your-final-approval).
+**Correctness authority (resolved by review — request D).** `answer_keys.mcq_correct_option_key` is the **single** source of MCQ correctness. There is no correctness column on `question_options`, so the two-writable-sources-of-truth problem the earlier revision flagged cannot arise: a reader either joins the key (staff/server paths) or has no access to correctness at all. Options are pure render rows — `key`, `content`, `sort_order` — and a leaked option row leaks nothing.
 
-**Dependencies.** `question_versions`. (If the optional composite FK is adopted, `answer_keys` depends on this table.)
+How "exactly one valid correct option per MCQ version" is then guaranteed, without a correctness column:
+
+| Requirement | Guaranteed by |
+|---|---|
+| **At most one** answer key per version | `UNIQUE (version_id)` on `answer_keys` |
+| The key names **a real option of that same version** | composite FK `(version_id, mcq_correct_option_key) → question_options(version_id, key)` ([§3.11.6](#3116-composite-foreign-keys-request-c)) |
+| The key can match **at most one** option row (no ambiguity) | the FK's referenced key is unique: `UNIQUE (version_id, key)` on `question_options` |
+| An MCQ version **must have** a key, and a CQ version must not have an MCQ key | `CHECK (num_nonnulls(mcq_correct_option_key, cq_rubric) = 1)` on `answer_keys` + I‑13 (publish gate, because it depends on `questions.type`) |
+| **Exactly four** distinct option rows per MCQ version | I‑4 (publish gate, row-count rule) — `UNIQUE (version_id, key)` supplies the distinctness half |
+
+So the composite FK does the job the partial index used to do, and does it more strongly: the index only proved "one row says it is correct", whereas the FK proves "the single key names an option that actually exists in this version". The FK is `MATCH SIMPLE` and `mcq_correct_option_key` is nullable, so a CQ rubric row is skipped — correct behaviour for the rubric case. What the composite FK cannot express is that an MCQ's key *must be present*; that is I‑13.
+
+**Publish-time validation is retained and is mandatory.** The database cannot count rows, cannot see `questions.type`, and cannot check that four options were authored. The publish gate therefore still requires, in one transaction: (1) exactly four distinct option keys for an MCQ version and zero for a CQ version; (2) exactly one valid MCQ answer key naming one of those four keys (or, for CQ, exactly one rubric and no MCQ key); (3) `answer_keys` written before the version transitions to `PUBLISHED`, so a published MCQ version can never be keyless. See [§3.13](#313-invariants-that-cannot-be-enforced-declaratively) I‑4 and I‑13, and [§7.11](#711-zod-validation-strategy-server-side) step 6.
+
+**Dependencies.** `question_versions`. With request **C** adopted, `answer_keys` also depends on `question_options` (the composite FK). If **C** is declined, the FK is absent and only the publish gate prevents a key naming a non-existent option — which is exactly why declining **C** has a real cost.
 
 #### 3.3.10 `answer_keys` — authoritative correctness or CQ marking guide
 
-**Purpose.** The server-only answer authority for a version: one MCQ key **or** one CQ marking rubric. Never projected into any student-facing exam DTO, including result endpoints.
+**Purpose.** The server-only answer authority for a version: one MCQ key **or** one CQ marking rubric. Never projected into any student-facing exam DTO, including result endpoints. Since request **D**, this table is the **only** home of MCQ correctness anywhere in the schema.
 
 **Columns.**
 
@@ -482,7 +504,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 |---|---|---|---|---|
 | `id` | `uuid` | no | none | Primary key |
 | `version_id` | `uuid` | no | none | FK → `question_versions.id` (CASCADE); unique, so at most one key per version |
-| `mcq_correct_option_key` | `text` | yes | `NULL` | One of the version's `question_options.key` values |
+| `mcq_correct_option_key` | `text` | yes | `NULL` | **Authoritative** for MCQ. One of the same version's `question_options.key` values, enforced by the composite FK ([§3.11.6](#3116-composite-foreign-keys-request-c)) |
 | `cq_rubric` | `jsonb` | yes | `NULL` | OD-18 rubric document ([§7.7](#77-answer_keyscq_rubric-schema-and-example)) |
 | `is_verified` | `boolean` | no | `false` | Drafts may publish without a verified key (OD-10 condition) |
 | `verified_at` | `timestamptz(3)` | yes | `NULL` | Required when `is_verified` |
@@ -492,15 +514,17 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Primary key.** `(id)`.
 
-**Foreign keys.** `version_id` → `question_versions(id)` `CASCADE`. Optional (P): composite FK `(version_id, mcq_correct_option_key)` → `question_options(version_id, key)` — see [§3.11.6](#3116-optional-declarative-hardening-for-the-key-and-the-hierarchy).
+**Foreign keys.** `version_id` → `question_versions(id)` `CASCADE`. Plus request **C**: composite FK `(version_id, mcq_correct_option_key)` → `question_options(version_id, key)`, `ON UPDATE CASCADE ON DELETE RESTRICT` — see [§3.11.6](#3116-composite-foreign-keys-request-c).
+
+**Composite FK is not optional decoration.** With `is_correct` removed this FK is the only declarative proof that the authoritative key points at an option that exists in the same version. It is still Request **C** because Prisma cannot model it, so it requires hand-written migration SQL and the Prisma-drift spike; but declining **C** now removes a correctness guarantee rather than merely a redundancy, and the approval register says so.
 
 **Unique / CHECK.** `UNIQUE (version_id)`; `CHECK (num_nonnulls(mcq_correct_option_key, cq_rubric) = 1)` — exactly one payload, so an MCQ key can never carry a rubric and a CQ version can never carry an MCQ key; `CHECK (mcq_correct_option_key IS NULL OR char_length(mcq_correct_option_key) = 1)`; `CHECK (NOT is_verified OR verified_at IS NOT NULL)`; `CHECK (cq_rubric IS NULL OR jsonb_typeof(cq_rubric) = 'object')`.
 
-**Indexes.** `UNIQUE (version_id)` is the only required index: keys are always loaded by version. No index on `mcq_correct_option_key` — correctness must never be a query entry point.
+**Indexes.** `UNIQUE (version_id)` is the only required index: keys are always loaded by version. No index on `mcq_correct_option_key` — correctness must never be a query entry point. The composite FK adds no child-side index (PostgreSQL does not require one; the referenced `question_options(version_id, key)` index does the lookup).
 
 **Soft delete / archival.** Cascade with the version. A key is never "soft deleted": correcting a key means publishing a new version (OD-10). The row is the most sensitive data in 0001 and is audited at the service layer.
 
-**Dependencies.** `question_versions`; `question_options` if the optional composite FK is adopted.
+**Dependencies.** `question_versions`, and `question_options` (request **C** composite FK) — which is why `answer_keys` is created after `question_options` in [§3.6](#36-dependency-based-creation-order-single-migration-0001).
 
 #### 3.3.11 `question_assets` — asset metadata
 
@@ -520,15 +544,15 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 | `long_description` | `text` | yes | `NULL` | For complex diagrams |
 | `checksum` | `text` | yes | `NULL` | `sha256:<64 hex>` for de-duplication and integrity |
 | `created_at` | `timestamptz(3)` | no | `now()` | |
-| `updated_at` | `timestamptz(3)` | no | none | Metadata may be corrected (P) |
+| `updated_at` | `timestamptz(3)` | no | none | Metadata may be corrected — item **E‑5** |
 
 **Primary key.** `(id)`.
 
 **Foreign keys.** None inbound except `question_version_assets.asset_id` (`RESTRICT`).
 
-**Unique / CHECK.** `UNIQUE (storage_key)`; `CHECK (size_bytes > 0)`; `CHECK (mime_type ~ '^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$')`; `CHECK (width IS NULL OR width > 0)`; `CHECK (height IS NULL OR height > 0)`; `CHECK (btrim(alt_text) <> '')`; `CHECK (checksum IS NULL OR checksum ~ '^sha256:[0-9a-f]{64}$')` (P).
+**Unique / CHECK.** `UNIQUE (storage_key)`; `CHECK (size_bytes > 0)`; `CHECK (mime_type ~ '^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$')`; `CHECK (width IS NULL OR width > 0)`; `CHECK (height IS NULL OR height > 0)`; `CHECK (btrim(alt_text) <> '')`; `CHECK (checksum IS NULL OR checksum ~ '^sha256:[0-9a-f]{64}$')`.
 
-**Indexes.** `UNIQUE (storage_key)` (also the resolve path); `ix_question_assets_checksum` on `(checksum) WHERE checksum IS NOT NULL` (P) for de-duplication; no index on `mime_type` (low selectivity, not a filter path).
+**Indexes.** `UNIQUE (storage_key)` (also the resolve path); `ix_question_assets_checksum` on `(checksum) WHERE checksum IS NOT NULL` for de-duplication; no index on `mime_type` (low selectivity, not a filter path).
 
 **Soft delete / archival.** No deletion flag in 0001: bytes are immutable and a new upload always creates a new row and a new `storage_key`. Deletion is `RESTRICT`ed while any version pins the asset. Orphan cleanup, retention periods and lifecycle rules are **OD-20**; the *policy* must not be invented here. Metadata rows are never reused for different bytes.
 
@@ -536,27 +560,54 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 #### 3.3.12 `question_version_assets` — version → asset pin
 
-**Purpose.** Records which assets a specific version renders and at which JSON Pointer, so historical rendering survives later asset changes and so publish-time validation can prove every `assetId` in `content` is legitimately linked to that version.
+**Purpose.** Records which assets a specific version renders **and exactly where**, so historical rendering survives later asset changes and so publish-time validation can prove that every `assetId` in the version's content is legitimately linked, at the pointer where it appears.
 
 **Columns.**
 
 | Column | PostgreSQL type | Null | Default | Notes |
 |---|---|---|---|---|
-| `id` | `uuid` | no | none | Primary key (P — replaced the earlier `(version_id, asset_id)` composite key) |
+| `id` | `uuid` | no | none | Primary key |
 | `version_id` | `uuid` | no | none | FK → `question_versions.id` (CASCADE) |
 | `asset_id` | `uuid` | no | none | FK → `question_assets.id` (RESTRICT) |
-| `block_ref` | `text` | yes | `NULL` | JSON Pointer into that version's content, e.g. `/blocks/2`, `/blocks/3/data/blocks/0`, `/options/A/blocks/0` |
+| `block_ref` | `text` | **no** (review disposition) | none | **Canonical asset pointer** — see the namespace below |
 | `created_at` | `timestamptz(3)` | no | `now()` | |
 
-**Primary key.** `(id)` (P). The earlier proposal used `(version_id, asset_id, block_ref)` conceptually, but a composite primary key cannot contain `NULL` and the same asset legitimately appears at several pointers in one version.
+**`block_ref` is `NOT NULL`.** The earlier revision left it nullable "in case a version links an asset without naming a location". That state is not legitimate: an asset a version renders is *always* rendered by some block, and a link with no pointer cannot be resolved by the renderer, cannot be validated against content, and cannot be cleaned up safely (which asset belongs to which block becomes unknowable). Making it `NOT NULL` also lets the uniqueness rule below be a plain `UNIQUE`/primary-key-shaped constraint instead of a partial index. Consequence: links are created only from a parsed content document during publish, never ad hoc — which is how they are created anyway.
+
+**The pointer namespace — one canonical grammar covering all three content homes.** An asset location must be unique within a *question version*, but a version's renderable content spans three places: the version document, the option documents, and the blocks nested inside CQ subquestions. `block_ref` is therefore a **rooted path string**, not a bare RFC 6901 pointer into `question_versions.content`, and the root segment selects which document it addresses:
+
+| Root | Addresses | JSONB column actually indexed | Example | Max depth |
+|---|---|---|---|---|
+| `/content` | a block in the version's stem/stimulus document | `question_versions.content` | `/content/blocks/2` | 3 segments |
+| `/content/…/data/blocks` | a block nested inside a CQ `subquestion` | `question_versions.content` | `/content/blocks/3/data/blocks/0` | 5 segments |
+| `/options/{KEY}` | one MCQ option's document | `question_options.content` **where `key = {KEY}`** | `/options/A/blocks/0` | 3 segments |
+
+Grammar (all segments are literal; no escaping, no `~0`/`~1`, no empty segments, no trailing slash):
+
+```text
+block_ref := "/content/blocks/" index ("/data/blocks/" index)?
+           | "/options/" option_key "/blocks/" index
+option_key := "A" | "B" | "C" | "D" | "ক" | "খ" | "গ" | "ঘ"
+index      := "0" | [1-9][0-9]{0,2}      (no leading zeros)
+```
+
+Rules that make the mapping unique:
+
+1. **A root is mandatory.** A bare `/blocks/2` is rejected, because the same token would be ambiguous between stem and option documents.
+2. **`/options/{KEY}` is keyed by `key`, not by row id or `sort_order`.** `key` is immutable for a version and is already `UNIQUE (version_id, key)`, so the pointer stays valid if sort order is ever corrected, and it cannot drift when an option row is re-ordered. Option `id`s are deliberately not used: they are internal, and a pointer stored in an immutable version should not encode a surrogate.
+3. **Nesting is addressed by data path, not by a subquestion index.** A CQ part's blocks sit at `content.blocks[i].data.blocks[j]`, so the pointer is `/content/blocks/i/data/blocks/j`. Depth is bounded at 5 segments precisely because `subquestion` may not nest (OD-18).
+4. **Resolution is exact.** `block_ref` must resolve to a block object whose own `data.assetId` equals this row's `asset_id`. A pointer that resolves to a block of another type, or to a block exposing a different asset, is a publish error (I‑8).
+5. **Uniqueness is per version, across all three roots.** Because the roots are disjoint and each grammar is unambiguous, one `UNIQUE` constraint over `(version_id, block_ref)` guarantees "one asset per location"; the reverse is **not** unique — the same asset may legitimately appear at several pointers (a reused diagram), which is why `(version_id, asset_id)` is not the key.
+
+**Primary key.** `(id)`. A surrogate key plus `UNIQUE (version_id, block_ref)` (both P). The earlier revision's `(version_id, asset_id)` key could only represent an asset once per version and broke reused images.
 
 **Foreign keys.** `version_id` → `question_versions(id)` `CASCADE`; `asset_id` → `question_assets(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (version_id, block_ref)` (P) — one asset per pointer, which is what the renderer resolves; several pointers may share one asset. `CHECK (block_ref IS NULL OR (left(block_ref, 1) = '/' AND block_ref ~ '^/[A-Za-z0-9/_-]+$'))` — a syntax guard only; full JSON Pointer resolution is I‑8.
+**Unique / CHECK.** `UNIQUE (version_id, block_ref)`; `ck_question_version_assets_block_ref_pointer` — `CHECK (block_ref ~ '^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$')` ([§3.9](#39-required-domain-check-constraints)). An index segment must be `0` or a non-zero-padded number, so `/content/blocks/01` is rejected — an ambiguous index is a pointer that can resolve to a different block under a different parser. This is a **grammar** guard only: it proves the pointer is well-formed and rooted, never that it resolves. Resolution, the `assetId` match, and "the asset is actually reachable" are I‑8 at the publish gate, because they require parsing JSONB.
 
-**Indexes.** `(version_id)`, `(asset_id)` (required for the `RESTRICT` check and for "where is this asset used").
+**Indexes.** `(asset_id)` (required for "where is this asset used" and for the `RESTRICT` check). `(version_id)` is covered by the `UNIQUE (version_id, block_ref)` prefix. No index on `block_ref` alone: it is only ever read as part of a version load.
 
-**Soft delete / archival.** No flag: rows are part of the immutable version snapshot and cascade with it.
+**Soft delete / archival.** No flag: rows are part of the immutable version snapshot and cascade with it. Because `asset_id` is `RESTRICT` and `block_ref` is `NOT NULL`, an asset cannot be orphaned by a link row and a link row cannot exist without a location.
 
 **Dependencies.** `question_versions`, `question_assets`.
 
@@ -577,7 +628,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** None inbound except `question_tags.tag_id` (`CASCADE`).
 
-**Unique / CHECK.** `UNIQUE (slug)`; `CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')`; `CHECK (btrim(name) <> '')`; `UNIQUE (lower(name))` as an expression index (P) instead of a plain `UNIQUE (name)`, so "Logic Gate" and "logic gate" cannot both exist.
+**Unique / CHECK.** `UNIQUE (slug)`; `CHECK (slug ~ '^[a-z0-9]+(-[a-z0-9]+)*$')`; `CHECK (btrim(name) <> '')`; `UNIQUE (lower(name))` as an expression index instead of a plain `UNIQUE (name)`, so "Logic Gate" and "logic gate" cannot both exist.
 
 **Indexes.** The two unique indexes above. `question_tags(tag_id)` covers the "questions with tag" join.
 
@@ -659,7 +710,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** None inbound except `question_sources.college_id` (`RESTRICT`).
 
-**Unique / CHECK.** `UNIQUE (name)`; expression unique `UNIQUE (lower(name))` (P) instead of the plain one; `CHECK (btrim(name) <> '')`; `CHECK (code IS NULL OR code ~ '^[A-Z0-9][A-Z0-9_-]{1,15}$')`.
+**Unique / CHECK.** `UNIQUE (name)`; expression unique `UNIQUE (lower(name))` instead of the plain one; `CHECK (btrim(name) <> '')`; `CHECK (code IS NULL OR code ~ '^[A-Z0-9][A-Z0-9_-]{1,15}$')`.
 
 **Indexes.** The unique name index; `code` needs no index until it is used as a filter (**OD-32**).
 
@@ -715,9 +766,9 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `question_id` `CASCADE`; three conditional dimensions `RESTRICT`.
 
-**Unique / CHECK.** `ck_question_sources_board_or_college_not_both` — `CHECK (board_id IS NULL OR college_id IS NULL)` (the approved OD-08 database guard); `CHECK (source_name IS NULL OR btrim(source_name) <> '')`. Deduplication uses the expression unique index with `NULLS NOT DISTINCT` ([§3.10](#310-partial-and-expression-unique-index-sql)) (P). The *source-type-specific requirement* (a `BOARD` row must have `board_id`, a `COLLEGE`/`TEST_EXAM` row must have `college_id`, and so on) is enforced by the service, exactly as approved in OD-08 — a `CHECK` covering every `SourceType` value would have to invent rules for `MODEL_TEST`, `INSTITUTION` and `ORIGINAL`, so it is **not** added here ([§3.13](#313-invariants-that-cannot-be-enforced-declaratively), I‑2).
+**Unique / CHECK.** `ck_question_sources_board_or_college_not_both` — `CHECK (board_id IS NULL OR college_id IS NULL)` (the approved OD-08 database guard); `CHECK (source_name IS NULL OR btrim(source_name) <> '')`. Deduplication uses the unique index with `NULLS NOT DISTINCT` ([§3.10](#310-partial-and-expression-unique-index-sql)), item **E‑8**. The *source-type-specific requirement* (a `BOARD` row must have `board_id`, a `COLLEGE`/`TEST_EXAM` row must have `college_id`, and so on) is enforced by the service, exactly as approved in OD-08 — a `CHECK` covering every `SourceType` value would have to invent rules for `MODEL_TEST`, `INSTITUTION` and `ORIGINAL`, so it is **not** added here ([§3.13](#313-invariants-that-cannot-be-enforced-declaratively), I‑2).
 
-**Indexes.** `(question_id)`, `(source_type)`, `(board_id)`, `(college_id)`, `(academic_year_id)`, and `(board_id, academic_year_id)` (P) for the common "board paper in year Y" filter.
+**Indexes.** `(question_id)`, `(source_type)`, `(board_id)`, `(college_id)`, `(academic_year_id)`, and `(board_id, academic_year_id)` for the common "board paper in year Y" filter.
 
 **Soft delete / archival.** Append-only by convention: no `updated_at`, because provenance rows are historical evidence. Corrections add a row and delete the wrong one; the service never rewrites a row in place.
 
@@ -742,7 +793,7 @@ erDiagram
     QUESTION ||--o{ QUESTION_VERSION : "has revisions"
     QUESTION_VERSION |o--|| ANSWER_KEY : "at most one key (unique version_id)"
     QUESTION_VERSION ||--o{ QUESTION_OPTION : "offers (MCQ only)"
-    ANSWER_KEY |o--o{ QUESTION_OPTION : "names one option key (optional FK)"
+    ANSWER_KEY |o--o{ QUESTION_OPTION : "authoritative key names one option (composite FK, Request C)"
 
     QUESTION_VERSION ||--o{ QUESTION_VERSION_ASSET : "pins"
     QUESTION_ASSET ||--o{ QUESTION_VERSION_ASSET : "used at pointer"
@@ -823,12 +874,11 @@ erDiagram
         text key
         jsonb content
         integer sort_order
-        boolean is_correct
     }
     ANSWER_KEY {
         uuid id PK
         uuid version_id FK,UK
-        text mcq_correct_option_key
+        text mcq_correct_option_key "authoritative MCQ correctness"
         jsonb cq_rubric
         boolean is_verified
         timestamptz verified_at
@@ -845,7 +895,7 @@ erDiagram
         uuid id PK
         uuid version_id FK
         uuid asset_id FK
-        text block_ref
+        text block_ref "NOT NULL; rooted pointer"
     }
     TAG {
         uuid id PK
@@ -890,7 +940,9 @@ erDiagram
 Diagram notes:
 
 - `QUESTION_VERSION |o--|| ANSWER_KEY` is drawn zero-or-one to exactly-one from the version side; `UNIQUE (version_id)` plus `NOT NULL version_id` is what makes it zero-or-one in practice.
-- `ANSWER_KEY |o--o{ QUESTION_OPTION` is the **optional** composite foreign key from [§3.11.6](#3116-optional-declarative-hardening-for-the-key-and-the-hierarchy); it is shown because it exists in the recommended design, but it is not created until that item is approved.
+- `ANSWER_KEY |o--o{ QUESTION_OPTION` is the composite foreign key from [§3.11.6](#3116-composite-foreign-keys-request-c). It is drawn as **Request C** — recommended and required for a declarative correctness guarantee, but not created until **C** is approved, because Prisma cannot model it. It is **not** a Prisma-native relation, and the candidate model in §5 cannot express it.
+- `QUESTION_OPTION` has **no correctness attribute** (request **D**): the only correctness in this diagram is `ANSWER_KEY.mcq_correct_option_key`, which the composite FK binds to a unique `(version_id, key)` pair.
+- `QUESTION_VERSION_ASSET.block_ref` is `NOT NULL` and is the rooted pointer `/content/...` or `/options/{KEY}/…` ([§3.3.12](#3312-question_version_assets--version--asset-pin)); the asset-location mapping is unique per version across stem, option and nested-subquestion content.
 - `CHAPTER |o--o{ QUESTION` and its `TOPIC`/`SUBTOPIC` twins are optional parents: the question may omit them, but a chosen parent must be consistent with the question's subject and ancestors ([§3.11](#311-can-educationlevelid--subjectid-be-an-invalid-pair)).
 - No `EXAM*`, `USER*`, `AdminAuditLog` or RLS policy appears: all are out of scope for 0001 ([§3.8](#38-not-in-migration-0001)).
 
@@ -913,13 +965,13 @@ Enums first, then tables in this order. Creating the whole set in one migration 
 | 10 | `questions` | 1, 2, 7, 8, 9 |
 | 11 | `question_versions` | 10 |
 | 12 | `question_options` | 11 |
-| 13 | `answer_keys` | 11 (and 12 if the §3.11.6 composite FK is adopted) |
+| 13 | `answer_keys` | 11, **12** (the request‑C composite FK references `question_options(version_id, key)`, so this order is mandatory if **C** is approved, and harmless otherwise) |
 | 14 | `question_assets` | — (independent; may be created at any point before 15) |
 | 15 | `question_version_assets` | 11, 14 |
 | 16 | `tags` | — (independent; before 17) |
 | 17 | `question_tags` | 10, 16 |
 | 18 | `question_sources` | 10, 3, 4, 5 |
-| 19 | Hand-written artifacts: `CHECK` constraints, partial/expression unique indexes, optional composite foreign keys ([§3.9](#39-required-domain-check-constraints), [§3.10](#310-partial-and-expression-unique-index-sql), [§3.11.6](#3116-optional-declarative-hardening-for-the-key-and-the-hierarchy)) | All tables above |
+| 19 | Hand-written artifacts: `CHECK` constraints, partial/expression unique indexes, and — if request **C** is approved — the five composite foreign keys plus three support unique keys ([§3.9](#39-required-domain-check-constraints), [§3.10](#310-partial-and-expression-unique-index-sql), [§3.11.6](#3116-composite-foreign-keys-request-c)) | All tables above |
 
 Steps 3–5, 14 and 16 are order-independent among themselves; Prisma emits them in declaration order, which is sufficient. Step 19 must run **after** the tables it constrains, and — critically — before the migration is applied anywhere, so a single migration file remains the source of truth.
 
@@ -984,16 +1036,17 @@ ALTER TABLE subtopics
 ALTER TABLE questions
   ADD CONSTRAINT ck_questions_marks_nonnegative CHECK (marks >= 0),
   ADD CONSTRAINT ck_questions_negative_marks_nonnegative CHECK (negative_marks >= 0),
-  -- (P) a negative marking may never exceed the mark it penalises
+  -- (E-9, flagged: interacts with the open OD-21 negative-mark floor) a penalty
+  -- may never exceed the mark it applies to
   ADD CONSTRAINT ck_questions_negative_marks_not_above_marks CHECK (negative_marks <= marks),
   -- an optional parent chain may not have holes: topic requires chapter, subtopic requires topic
   ADD CONSTRAINT ck_questions_topic_requires_chapter
     CHECK (topic_id IS NULL OR chapter_id IS NOT NULL),
   ADD CONSTRAINT ck_questions_subtopic_requires_topic
     CHECK (subtopic_id IS NULL OR topic_id IS NOT NULL),
-  -- (P) the approved CQ shape is four parts worth 1+2+3+4
+  -- (E-10, NOT recommended: hard-codes the current curriculum's 10-mark CQ shape)
   ADD CONSTRAINT ck_questions_cq_total_marks CHECK (type <> 'CQ' OR marks = 10),
-  -- (P) an MCQ is worth at least one mark
+  -- (E-11) an MCQ is worth at least one mark
   ADD CONSTRAINT ck_questions_mcq_marks_positive CHECK (type <> 'MCQ' OR marks >= 1);
 
 -- ── Versions and options ─────────────────────────────────────────────────
@@ -1001,16 +1054,16 @@ ALTER TABLE question_versions
   ADD CONSTRAINT ck_question_versions_number_positive CHECK (version_number > 0),
   ADD CONSTRAINT ck_question_versions_content_object
     CHECK (jsonb_typeof(content) = 'object'),
-  -- (P) envelope guard only; block shapes are validated by Zod (§7.13)
+  -- envelope guard only; block shapes are validated by Zod (§7.11)
   ADD CONSTRAINT ck_question_versions_content_envelope
     CHECK (content ? 'format' AND content ? 'version' AND content ? 'blocks'),
-  -- (P) hard ceiling matching the §7.14 content limit
+  -- hard ceiling matching the §7.12 content limit
   ADD CONSTRAINT ck_question_versions_content_size
     CHECK (pg_column_size(content) <= 262144);
 
 ALTER TABLE question_options
   ADD CONSTRAINT ck_question_options_key_single_char CHECK (char_length(key) = 1),
-  -- (P) only the two approved labelling alphabets
+  -- only the two approved labelling alphabets
   ADD CONSTRAINT ck_question_options_key_allowed
     CHECK (key IN ('A','B','C','D','ক','খ','গ','ঘ')),
   ADD CONSTRAINT ck_question_options_sort_order_nonnegative CHECK (sort_order >= 0),
@@ -1036,14 +1089,15 @@ ALTER TABLE question_assets
   ADD CONSTRAINT ck_question_assets_width_positive CHECK (width IS NULL OR width > 0),
   ADD CONSTRAINT ck_question_assets_height_positive CHECK (height IS NULL OR height > 0),
   ADD CONSTRAINT ck_question_assets_alt_not_blank CHECK (btrim(alt_text) <> ''),
-  -- (P)
   ADD CONSTRAINT ck_question_assets_checksum_format
     CHECK (checksum IS NULL OR checksum ~ '^sha256:[0-9a-f]{64}$');
 
+-- (review) block_ref is NOT NULL; this CHECK proves the pointer is *rooted and
+-- well-formed*, never that it resolves. Resolution is I-8 at the publish gate.
 ALTER TABLE question_version_assets
   ADD CONSTRAINT ck_question_version_assets_block_ref_pointer
-    CHECK (block_ref IS NULL
-           OR (left(block_ref, 1) = '/' AND block_ref ~ '^/[A-Za-z0-9/_-]+$'));
+    CHECK (block_ref ~ '^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?'
+                    || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$');
 
 -- ── Tags and provenance dimensions ───────────────────────────────────────
 ALTER TABLE tags
@@ -1061,7 +1115,7 @@ ALTER TABLE colleges
 
 ALTER TABLE academic_years
   ADD CONSTRAINT ck_academic_years_label_not_blank CHECK (btrim(label) <> ''),
-  -- (P) four-digit format guard only
+  -- four-digit format guard only, not a curriculum claim
   ADD CONSTRAINT ck_academic_years_year_range
     CHECK (year IS NULL OR (year >= 1000 AND year <= 9999));
 
@@ -1077,7 +1131,7 @@ Constraints deliberately **not** added:
 
 - A per-`source_type` requirement matrix. OD-08 approved "database CHECK ensures at most one of board/college" and left the *type-specific requirement* to the service, because the rules for `MODEL_TEST`, `INSTITUTION` and `ORIGINAL` were never specified. Adding one would invent approved-looking semantics.
 - "Exactly four options per MCQ version" and "no options on a CQ version": row-count and cross-table rules that `CHECK` cannot express (I‑4).
-- "Content block shapes are valid": a JSONB schema validator in disguise; §7.13 places it in Zod, and a database-side mini-validator would become a second, drifting specification.
+- "Content block shapes are valid": a JSONB schema validator in disguise; [§7.11](#711-zod-validation-strategy-server-side) places it in Zod, and a database-side mini-validator would become a second, drifting specification.
 - Anything requiring `users`, exams or moderation states: those tables do not exist in 0001.
 
 ### 3.10 Partial and expression unique index SQL
@@ -1097,10 +1151,14 @@ Concurrency behaviour: two concurrent publishes of the same question both attemp
 **Other required hand-written indexes.**
 
 ```sql
--- at most one correct option per version (the declarative half of MCQ correctness)
-CREATE UNIQUE INDEX uq_question_options_one_correct_per_version
-  ON question_options (version_id)
-  WHERE is_correct;
+-- REMOVED in this revision (review, request D): the former
+--   CREATE UNIQUE INDEX uq_question_options_one_correct_per_version
+--     ON question_options (version_id) WHERE is_correct;
+-- is gone with question_options.is_correct. MCQ correctness is now
+-- answer_keys.mcq_correct_option_key, protected by UNIQUE (version_id) plus the
+-- composite FK (version_id, mcq_correct_option_key) -> question_options(version_id, key)
+-- in §3.11.6. Nothing replaces the index: no correctness column means no partial
+-- predicate to index.
 
 -- provenance de-duplication: identical attributions cannot be repeated
 -- PostgreSQL 15+; requires UNIQUE NULLS NOT DISTINCT so partial sources
@@ -1170,30 +1228,42 @@ Three costs must be accepted explicitly:
 
 Option B is **not yet approved**. It is a new schema artifact that OD-09's disposition did not consider, so it must not be created silently. Approval request **C** in [§11](#11-decisions-still-awaiting-your-final-approval) covers it, including the Prisma-drift spike. If the reviewer declines, Option A applies with no schema change and the mitigation in [§3.13](#313-invariants-that-cannot-be-enforced-declaratively).
 
-#### 3.11.6 Optional declarative hardening for the key and the hierarchy
+#### 3.11.6 Composite foreign keys (Request C)
 
-**The same reasoning applies to the rest of the hierarchy — and Option B closes it.** With unique keys on the parents, the whole chain becomes declaratively consistent, and the nullable children keep their optionality because `MATCH SIMPLE` skips the check when the child column is `NULL`:
+Five composite foreign keys are proposed, all as **request C**. They are kept exactly as previously proposed — this revision does not withdraw or weaken any of them. Together they turn each "two independent FKs that could form an invalid pair" problem into a constraint the database enforces.
+
+**C‑1 — education level + subject membership.** `questions(education_level_id, subject_id)` → `level_subjects(level_id, subject_id)`. Referenced key is that table's primary key, so no extra unique key is needed and both referencing columns are `NOT NULL`, so `MATCH SIMPLE` never skips it.
+
+```sql
+ALTER TABLE questions
+  ADD CONSTRAINT fk_questions_level_subject
+  FOREIGN KEY (education_level_id, subject_id)
+  REFERENCES level_subjects (level_id, subject_id)
+  ON UPDATE CASCADE ON DELETE RESTRICT;
+```
+
+**C‑2, C‑3, C‑4 — chapter/topic/subtopic consistency.** Each needs a support `UNIQUE (id, parent_id)` on the parent so the child's pair has a legal referenced key. The children stay optional: `MATCH SIMPLE` skips the check only when the child column is `NULL`, which is exactly the approved OD-09 optionality.
 
 ```sql
 ALTER TABLE chapters  ADD CONSTRAINT uq_chapters_id_subject  UNIQUE (id, subject_id);
 ALTER TABLE topics    ADD CONSTRAINT uq_topics_id_chapter    UNIQUE (id, chapter_id);
 ALTER TABLE subtopics ADD CONSTRAINT uq_subtopics_id_topic   UNIQUE (id, topic_id);
 
--- chapter belongs to the question's subject
+-- C-2 chapter belongs to the question's subject
 ALTER TABLE questions
   ADD CONSTRAINT fk_questions_chapter_subject
   FOREIGN KEY (chapter_id, subject_id)
   REFERENCES chapters (id, subject_id)
   ON UPDATE CASCADE ON DELETE RESTRICT;
 
--- topic belongs to the question's chapter
+-- C-3 topic belongs to the question's chapter
 ALTER TABLE questions
   ADD CONSTRAINT fk_questions_topic_chapter
   FOREIGN KEY (topic_id, chapter_id)
   REFERENCES topics (id, chapter_id)
   ON UPDATE CASCADE ON DELETE RESTRICT;
 
--- subtopic belongs to the question's topic
+-- C-4 subtopic belongs to the question's topic
 ALTER TABLE questions
   ADD CONSTRAINT fk_questions_subtopic_topic
   FOREIGN KEY (subtopic_id, topic_id)
@@ -1201,8 +1271,9 @@ ALTER TABLE questions
   ON UPDATE CASCADE ON DELETE RESTRICT;
 ```
 
+Combined with the chain `CHECK`s in [§3.9](#39-required-domain-check-constraints) (`topic_id` requires `chapter_id`; `subtopic_id` requires `topic_id`), an inconsistent hierarchy becomes unrepresentable rather than merely unlikely.
 
-The same technique makes the MCQ key provably point at a real option of the same version. `question_options(version_id, key)` is already unique, so it can be referenced directly (P):
+**C‑5 — answer key + option consistency.** `answer_keys(version_id, mcq_correct_option_key)` → `question_options(version_id, key)`. `question_options` already has `UNIQUE (version_id, key)`, so no support key is needed. `mcq_correct_option_key` is nullable, so `MATCH SIMPLE` skips the check for a CQ rubric row — which is correct.
 
 ```sql
 ALTER TABLE answer_keys
@@ -1212,11 +1283,20 @@ ALTER TABLE answer_keys
   ON UPDATE CASCADE ON DELETE RESTRICT;
 ```
 
-`mcq_correct_option_key` is nullable, so `MATCH SIMPLE` skips the check for a CQ rubric row — which is exactly right. This closes the last way a key can name an option that does not exist, and it is approval request **C** as well.
+Since request **D** removed `question_options.is_correct`, **C‑5 is the only declarative guarantee that the authoritative MCQ key names an option that exists in the same version.** It does not prove the key is *present*, does not prove there are exactly four options, and does not know the question type — those remain I‑4 and I‑13 at the publish gate.
 
-Combined with the chain `CHECK`s in [§3.9](#39-required-domain-check-constraints) (`topic_id` requires `chapter_id`, `subtopic_id` requires `topic_id`), these five constraints make an inconsistent hierarchy unrepresentable rather than merely unlikely.
+**Prisma does not represent any of these natively.** Prisma models one relation per foreign key between *models*, and it cannot express a foreign key over a composite key that is not the referenced model's own `@@id`, cannot express two relations that share a column, and does not understand `MATCH SIMPLE` skip semantics. The candidate model sketch in [§5](#5-proposed-prisma-model-sketch-illustrative--3-is-normative) therefore keeps only the single-column relations, and these five constraints exist **only** as hand-written SQL appended to the generated migration. Claims to the contrary would be false; that is the whole reason for the gate below.
 
-**What still requires server validation even with Option B.** A chapter whose `subject_id` matches the question's subject does **not** prove the chapter is *active*, does not prove the topic selection is complete, and does not prove the version's content, options and key agree with `questions.type`. Publish-time Zod validation therefore remains mandatory for: type/content agreement (I‑4, I‑6), source-type requirements (I‑2), content-block validity (§7), rubric/subquestion agreement (I‑7), asset linkage (I‑8), and status rollups (I‑3).
+**Mandatory pre-migration gate — the disposable PostgreSQL Prisma-drift spike.** These constraints must not be merged on the assumption that Prisma will tolerate them. Before migration 0001 is created, on a **disposable** database and never on a shared one:
+
+1. Create the schema with the composite FKs applied by hand-written SQL in the migration.
+2. Run `prisma migrate dev` with **no** schema change and confirm it generates an **empty** migration (no `DROP CONSTRAINT` for the five).
+3. Run `prisma migrate dev` after an unrelated additive change and confirm the five constraints survive; inspect the generated SQL line by line.
+4. Run `prisma migrate diff --from-migrations --to-schema-datamodel --script` and confirm it reports no diff for these constraints.
+5. Exercise each constraint with a deliberately invalid write and confirm PostgreSQL rejects it; then exercise Prisma Client writes through the single-column relations and confirm legitimately valid writes still succeed.
+6. Record the outcome in this document (result, Prisma version, date). **If Prisma drops or fights the constraints, request C is not silently abandoned:** the fallback is Option A (service validation) plus a scheduled integrity query and a publish-gate re-check, recorded as an explicit deviation.
+
+**What still requires server validation even with all five.** A chapter whose `subject_id` matches the question's subject does **not** prove the chapter is *active*, does not prove the topic selection is complete, and does not prove the version's content, options and key agree with `questions.type`. Publish-time Zod validation therefore remains mandatory for: type/content agreement (I‑4, I‑6, I‑13), source-type requirements (I‑2), content-block validity (§7), rubric/subquestion agreement (I‑7), asset linkage (I‑8), and status rollups (I‑3).
 
 ### 3.12 Prisma ↔ PostgreSQL type mapping
 
@@ -1242,23 +1322,24 @@ The physical types in this section are authoritative. Where [§5](#5-proposed-pr
 | I‑1 | A question's subject is offered at its education level, and its chapter/topic/subtopic belong to that subject | Cross-row; a `CHECK` cannot query another table. Composite FKs (Option B, §3.11) make it storage-enforced **if approved** | Declarative composite FKs if **C** is approved; always Zod + transactional lookup at the publish gate |
 | I‑2 | `question_sources.source_type` requirements (`BOARD` ⇒ board, `COLLEGE`/`TEST_EXAM` ⇒ college) | Rules for the remaining source types were never specified (OD-08) | Source service, validated on write |
 | I‑3 | `questions.status` is a rollup of its versions (`PUBLISHED` iff a published version exists; `ARCHIVED` iff all versions archived) | Cross-table aggregate | Publish/archive service in one transaction; reconciliation query in tests |
-| I‑4 | An MCQ version has exactly four options; a CQ version has none; the four keys are distinct | Row-count rule | Publish gate; `UNIQUE (version_id, key)` backs the distinctness half |
+| I‑4 | An MCQ version has exactly four options; a CQ version has none; the four keys are distinct | Row-count rule; `CHECK` cannot count rows | Publish gate (retained, mandatory); `UNIQUE (version_id, key)` backs the distinctness half |
 | I‑5 | A published version's content, options and key never change; corrections create a new version | Temporal/immutability rule | Version service; triggers banned; covered by tests |
 | I‑6 | `questions.type` cannot change after a published version exists | Cross-table | Question service |
 | I‑7 | `answer_keys.cq_rubric` parts match the version's four subquestion blocks and their marks | Cross-document (JSONB ↔ JSONB) | Publish gate comparing parsed content to parsed rubric |
-| I‑8 | Every `assetId` in `content` is linked to the version at the matching JSON Pointer, and every linked asset is used | JSONB ↔ join table | Publish gate + `question_version_assets(version_id, block_ref)` uniqueness |
-| I‑9 | `mcq_correct_option_key` equals the `key` of the option whose `is_correct` is true | Two tables | Publish service writes both atomically; consistency test ([§3.3.9](#339-question_options--mcq-choices-for-a-version)) |
+| I‑8 | Every `assetId` in the stem, option and nested-subquestion content is linked to the version at **that exact rooted pointer**, and every link resolves to a block exposing that asset | JSONB ↔ join table; requires parsing three documents | Publish gate: walk the content, compute `/content/...` and `/options/{KEY}/...` pointers, compare to `question_version_assets`; `UNIQUE (version_id, block_ref)` guards one-asset-per-location |
+| I‑13 | An **MCQ** version has exactly one valid MCQ answer key naming one of its four options; a **CQ** version has a rubric and no MCQ key | Depends on `questions.type` (cross-table) and on key *presence*, which no FK can require | Publish gate, one transaction, key written before `status = 'PUBLISHED'`; `UNIQUE (version_id)` and the composite FK provide the "at most one" and "must exist in this version" halves |
 | I‑10 | A rubric carries no MCQ payload and vice versa | Already declarative (`num_nonnulls = 1`) | Database |
 | I‑11 | `version_number` is contiguous from 1 with no gaps | Sequence rule | Version service (a gap is a lost version, not a schema error) |
 | I‑12 | Archived/retired rows are never the target of new references | Temporal rule | Services resolve only active rows; historical references remain valid by FK |
+| I‑14 | `question_version_assets.block_ref` resolves inside the version it names — the root selects the document and the path exists there | Grammar is a `CHECK`; existence is JSONB-dependent | `ck_question_version_assets_block_ref_pointer` proves the grammar; the publish gate proves each pointer exists (part of I‑8) |
 
-Each invariant needs at least one integration test against a disposable PostgreSQL instance before 0001 is considered done (**OD-26** still owns the pipeline).
+Each invariant needs at least one integration test against a disposable PostgreSQL instance before 0001 is considered done (**OD‑26** still owns the pipeline). Note that I‑9 no longer exists: removing `question_options.is_correct` (request **D**) eliminated the two-writable-sources-of-truth problem it described, and I‑13 replaces it with the requirement that actually matters — one valid key per MCQ version, none for a CQ.
 
 ### 3.14 Migration impact and rollback
 
 **Impact at creation (greenfield).**
 
-- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys** (27 if the six optional §3.11.6 constraints are approved), **50 hand-written `CHECK` constraints**, and **10 hand-written indexes** (7 partial or `NULLS NOT DISTINCT` unique indexes, 2 expression unique indexes, plus the 3 `UNIQUE (id, parent_id)` support keys that §3.11.6 adds only if **C** is approved) — all in addition to what Prisma generates.
+- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys** (plus 5 composite FKs and 3 support `UNIQUE (id, parent_id)` keys if request **C** is approved), **50 hand-written `CHECK` constraints**, and **6 hand-written indexes** (3 `WHERE is_active` partial uniques, 1 `WHERE status = 'PUBLISHED'` partial unique, 1 `NULLS NOT DISTINCT` unique, 2 case-insensitive expression uniques) — down from 7 in the previous revision because `uq_question_options_one_correct_per_version` is removed with `question_options.is_correct` (request **D**). All in addition to what Prisma generates.
 - Zero data migration: no production or staging data exists, so creation cannot corrupt anything. The only real risks are (a) a wrong `CHECK` that rejects legitimate seed data, and (b) a wrong delete action that makes a legitimate operation fail. Both are found by seeding the six ICT chapters, a handful of subjects/boards/years and one MCQ + one CQ end-to-end fixture in a disposable database **before** the migration is committed.
 - No application code is required: `lib/db.ts` is schema-agnostic and the generated client is git-ignored.
 - Exam tables are unaffected and will attach additively in Phase 05 through `question_versions.id`.
@@ -1284,25 +1365,35 @@ question_assets → subjects → education_levels → (enum types)
 1. `npm run db:validate`, then generate against a disposable database.
 2. Apply to an empty database, seed realistic taxonomy + one MCQ + one CQ, and run the integrity checks in [§3.13](#313-invariants-that-cannot-be-enforced-declaratively).
 3. Re-run `prisma migrate dev` with no schema change and confirm it produces an **empty** migration (proves the hand-written artifacts did not create drift).
-4. Attempt every forbidden operation (two published versions, two correct options, board+college on one source, topic without chapter, duplicate source row) and confirm each fails at the database.
+4. Attempt every forbidden operation and confirm each fails at the right layer: two published versions, duplicate `(version_id, key)`, an answer key naming a key that is not in the version, `block_ref` without a `/content` or `/options/{KEY}` root, board+college on one source, topic without chapter, duplicate source row → **database** rejects. Two answer keys for one version, an MCQ version with three options or no key, a CQ version with an MCQ key, an option `content` carrying a `table` block → **publish gate** rejects (I‑4, I‑13). Both layers are exercised; neither is assumed.
 
-### 3.15 Corrections and tightenings relative to the earlier proposal
+### 3.15 Corrections and tightenings — individual review (Request E)
 
-| # | Change | Reason | Needs approval |
-|---|---|---|---|
-| 1 | `level_subjects` delete actions changed from `CASCADE` to `RESTRICT` | A taxonomy membership is historical evidence; cascading deletes could silently orphan question classification | (P) — request **E** |
-| 2 | `question_version_assets` primary key changed to a surrogate `id` plus `UNIQUE (version_id, block_ref)` | The earlier `(version_id, asset_id)` key could represent one asset only once per version, which breaks reused images | (P) — request **E** |
-| 3 | `question_options.order` renamed to `sort_order` (Prisma field keeps `order` via `@map`) | `order` is a reserved word | (P) — request **E** |
-| 4 | `question_versions.updated_at` added | `status` legitimately mutates (`DRAFT`→`PUBLISHED`→`ARCHIVED`) even though content never does | (P) — request **E** |
-| 5 | `question_assets.updated_at` added | Metadata is explicitly correctable while bytes are immutable | (P) — request **E** |
-| 6 | All timestamps typed `timestamptz(3)` | Time-zone-naive timestamps are unsafe for server-authoritative exam timing | (P) — request **E** |
-| 7 | Added `UNIQUE (id, parent_id)` support keys and the optional composite hierarchy/key FKs | Makes an inconsistent academic hierarchy unrepresentable | Request **C** |
-| 8 | Replaced plain `UNIQUE (subject_id, chapter_number)` / `(chapter_id, order_index)` with `WHERE is_active` partial uniques | A retired chapter's number must be reusable after a curriculum revision | (P) — request **E** |
-| 9 | Source de-duplication uses `NULLS NOT DISTINCT` | The earlier partial index skipped rows with a null dimension, so duplicates slipped through | (P) — request **E** |
-| 10 | `created_at` defaults to `now()`, identifiers have no database default | Documented single-writer conventions (§3.1.1) | Informational |
-| 11 | Explicit "absent columns" list for `questions` | Makes the OD-08/OD-09 prohibitions reviewable rather than implicit | Informational |
-| 12 | `questions.negative_marks <= marks`, `type='CQ' ⇒ marks = 10`, `type='MCQ' ⇒ marks >= 1` | Encoding the approved mark model as cheap guards | (P) — request **E** |
-| 13 | Correctness authority documented as `answer_keys.mcq_correct_option_key`, with `is_correct` as a mirror | Two writable sources of truth are a corruption risk | Request **D** |
+Every item previously bundled into "request E" is reviewed here on its own merits. The point of this table is that none of them is approved by being written down: "Recommendation" is what this document advises, "Consequence" is what changes in the database if it is accepted, and "Changes the approved physical model?" answers the governance question explicitly. **Items already decided by this review round are marked RESOLVED** and are no longer part of request E.
+
+Legend: **Model change** = *No* means it is consistent with, or a clarification of, something already approved; *Yes* means it introduces a physical detail that no approved decision covers and therefore needs a recorded decision.
+
+| # | Item | Recommendation | Technical consequence if accepted | Changes the approved physical model? | Status |
+|---|---|---|---|---|---|
+| E‑1 | `level_subjects` delete actions from `CASCADE` to `RESTRICT` | **Accept** | Deleting a level or subject row fails while an unremoved membership exists; removing membership becomes an explicit, auditable service step instead of a silent cascade. Prevents "delete a subject → question classification silently orphaned". Requires the taxonomy service to surface a clear error. | **No** — OD‑09 approved the join table; delete action was never specified. | Pending |
+| E‑2 | Surrogate `id` + `UNIQUE (version_id, block_ref)` on `question_version_assets` (replacing `(version_id, asset_id)`) | **Accept** (partly superseded) | Needed because one asset legitimately appears at several pointers in one version. This revision goes one step further and makes `block_ref` **NOT NULL** with a rooted grammar — see §3.3.12. Accepting E‑2 without the `NOT NULL` half leaves an unresolvable-link state. | **No** — join-table shape and asset-pointer storage were open under OD‑18/OD‑19. | **RESOLVED in this revision** (as part of the asset-pointer decision) |
+| E‑3 | `question_options.order` renamed to `sort_order` (Prisma field keeps `order` via `@map`) | **Accept** | `order` is a reserved word in PostgreSQL and must be double-quoted in every hand-written statement; the rename removes a class of SQL-authoring bug. Prisma field name is unchanged, so no service code is affected. | **No** — naming only; no column semantics change. | Pending |
+| E‑4 | `question_versions.updated_at` added | **Accept** | `status` legitimately transitions `DRAFT → PUBLISHED → ARCHIVED` on an otherwise immutable row, so an updated timestamp is meaningful. Content immutability is unaffected (I‑5). Cost: one column and a write per transition. | **No** — timestamp presence was unspecified; this does not make content mutable. | Pending |
+| E‑5 | `question_assets.updated_at` added | **Accept** | Metadata (alt text, long description) is explicitly correctable while bytes are immutable; without the column a metadata fix is invisible. | **No** | Pending |
+| E‑6 | All timestamps typed `timestamptz(3)` | **Accept — strongly** | Prisma's default `timestamp(3)` is timezone-naive. For server-authoritative exam timing, a naive timestamp is a correctness bug waiting to happen at the first timezone or DST change. Requires `@db.Timestamptz(3)` annotations and a schema-test that fails if any `DateTime` lacks it. | **No** — L3 already makes server timing authoritative; this is the physical expression of it. | Pending |
+| E‑7 | `WHERE is_active` partial uniques for `(subject_id, chapter_number)` and `(chapter_id, order_index)` | **Accept** | A retired chapter's number becomes reusable after a curriculum revision, which a plain unique constraint forbids. Cost: two partial indexes Prisma cannot model, so they join the hand-written set and the drift review. | **Yes** — a curriculum-revision policy for numbering (retire-and-reuse) had not been decided; OD‑09 mentions "curriculum revisions" without a rule. **Needs a recorded decision**: either retire-and-reuse (partial unique) or keep numbers globally unique per subject (plain unique). | Pending — decision required |
+| E‑8 | Source de-duplication using `NULLS NOT DISTINCT` | **Accept** | The earlier `WHERE board_id IS NOT NULL AND college_id IS NOT NULL AND …` partial index silently skipped every partially-specified source, so duplicates slipped through. `NULLS NOT DISTINCT` (PostgreSQL 15+) closes that. Requires PostgreSQL 15+ — true for the planned Supabase instance, but must be recorded, with the three-partial-index fallback documented in §3.10. | **No** — dedup was approved under OD‑08; only its expression was wrong. | Pending |
+| E‑9 | `questions.negative_marks <= marks` | **Recommend, with a caveat** | Prevents a penalty larger than the mark it applies to. **Caveat:** negative-marking policy is a scoring question, and OD‑21 owns "negative-mark floor". This constraint is a data-shape guard, not a scoring policy — but if OD‑21 later allows a per-question penalty above the mark value, the constraint must be dropped by migration. | **Marginal** — it constrains data, not scoring. Recommended, flagged because OD‑21 is open. | Pending — flagged |
+| E‑10 | `questions.type = 'CQ' ⇒ marks = 10` | **Recommend, with a caveat** | Encodes the approved 1+2+3+4 shape. **Caveat:** it hard-codes the current curriculum's CQ total. A future level with a different CQ structure (approved under OD‑09's "must support other levels") would collide. Safer variant: leave the total to the publish gate (which already sums the rubric) and keep only `marks >= 0`. | **Yes** — a hard 10 for all CQ types is a curriculum assumption not stated in any approved decision. | Pending — **do not accept silently** |
+| E‑11 | `questions.type = 'MCQ' ⇒ marks >= 1` | **Accept** | An MCQ worth zero marks is not a question. Cheap and harmless. | **No** | Pending |
+| E‑12 | `questions.negative_marks >= 0` (previous revision) | **Accept** | Already stated as a blueprint rule ("marks and negative marks cannot be negative"); the `CHECK` is its expression. | **No** | Pending |
+| E‑13 | Identifier generation client-side only (no database `default`) | **Accept** | One generator, one truth. Raw SQL inserts must supply ids explicitly — acceptable because such writes are reviewed scripts. | **No** | Pending |
+| E‑14 | `updated_at` has no database default | **Accept** | A missed application write then fails loudly (`NOT NULL` violation) instead of silently reusing `now()`. | **No** | Pending |
+| E‑15 | No `deleted_at` / no `archived_at` on `questions` | **Accept** | `status = 'ARCHIVED'` is the single soft-delete mechanism (§3.3.7); status-transition timestamps belong to the audit log, which **OD‑27** owns and which is not in 0001. Two deletion mechanisms would allow an archived-but-not-deleted or deleted-but-active row. | **No** | Pending |
+| E‑16 | Correctness authority: `answer_keys.mcq_correct_option_key` sole source; drop `is_correct` and `uq_question_options_one_correct_per_version` | **ACCEPTED by review** | The partial unique index is removed with the column; the guarantee moves to `UNIQUE (answer_keys.version_id)` + the composite FK to `question_options(version_id, key)` (**C‑5**), with four-options/one-key presence enforced at the publish gate (I‑4, I‑13). | **Yes** — but **approved by the reviewer** in this round, not assumed. | **RESOLVED — approved** |
+| E‑17 | `question_version_assets.block_ref` `NOT NULL`, rooted pointer grammar covering stem, option and nested-subquestion content | **ACCEPTED by review** | Unique asset-per-location across all three content homes; the `CHECK` enforces the grammar, I‑8/I‑14 enforce resolution. See §3.3.12. | **Yes** — but **approved by the reviewer** in this round. | **RESOLVED — approved** |
+
+**Summary of request E as it now stands.** Sixteen items remain for disposition; two (E‑2 partially, E‑16, E‑17) are resolved by this review round. Three items are *not* recommended for silent approval: **E‑7** (needs an explicit curriculum-numbering policy), **E‑9** (interacts with the open OD‑21 negative-mark floor) and **E‑10** (hard-codes a curriculum total). Everything else is a low-risk physical detail that is consistent with an approved decision.
 
 ## 4. Entity map (candidate view — superseded by §3.5)
 
@@ -1342,6 +1433,8 @@ Notes:
 
 
 ## 5. Proposed Prisma model sketch (illustrative — §3 is normative)
+
+> **Prisma cannot express the five composite foreign keys of request C** ([§3.11.6](#3116-composite-foreign-keys-request-c)). The sketch below is what `prisma/schema.prisma` could represent; the real schema is that plus hand-written SQL, and the disposable-database drift spike is a mandatory gate before migration 0001. Note also that `QuestionOption` carries no correctness field (request D) and `QuestionVersionAsset.blockRef` is non-nullable.
 
 ```prisma
 // ICT Atlas — Phase 04A Question Bank physical schema (PROPOSAL — REVISED)
@@ -1581,17 +1674,21 @@ model QuestionOption {
   versionId String
   key       String   // "A"…"D" or "ক"…"ঘ"
   content   Json
-  order     Int      @default(0)
-  isCorrect Boolean @default(false)
+  order     Int      @default(0) @map("sort_order")
   version   QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  // No correctness column (review, request D): correctness is answer_keys.mcqCorrectOptionKey.
+  // The composite FK (versionId, mcqCorrectOptionKey) -> (versionId, key) cannot be
+  // expressed here at all; it is hand-written SQL (request C, §3.11.6).
+  @@unique([versionId, key])
   @@index([versionId])
-  @@index([versionId, isCorrect])
   @@map("question_options")
 }
 
 model AnswerKey {
   id             String   @id @default(uuid())
   versionId      String   @unique
+  // Authoritative MCQ correctness (review, request D). The composite FK to
+  // question_options(version_id, key) is hand-written SQL (request C, §3.11.6).
   mcqCorrectOptionKey String?
   cqRubric       Json?
   isVerified     Boolean  @default(false)
@@ -1619,12 +1716,13 @@ model QuestionAsset {
 }
 
 model QuestionVersionAsset {
+  id         String   @id @default(uuid())
   versionId  String
   assetId    String
-  blockRef   String?
+  blockRef   String   // NOT NULL: rooted pointer, "/content/..." or "/options/{KEY}/..."
   version    QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
   asset      QuestionAsset   @relation(fields: [assetId], references: [id], onDelete: Restrict)
-  @@id([versionId, assetId])
+  @@unique([versionId, blockRef])
   @@index([assetId])
   @@map("question_version_assets")
 }
@@ -1672,9 +1770,9 @@ model QuestionSource {
 
 **Supplementary migration SQL (partial indexes and `CHECK` constraints Prisma cannot express):**
 
-The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (domain `CHECK` constraints), [§3.10](#310-partial-and-expression-unique-index-sql) (partial and expression unique indexes) and [§3.11.6](#3116-optional-declarative-hardening-for-the-key-and-the-hierarchy) (optional composite foreign keys). The earlier draft's inline SQL is superseded and deliberately not repeated: two copies of a constraint list is how a "fixed" index gets re-broken by a partial edit. The three artifact groups it contained are all still required — one published version per question, at most one correct option per version, and the OD-08 board/college guard — each with a documented rationale in §3.
+The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (domain `CHECK` constraints), [§3.10](#310-partial-and-expression-unique-index-sql) (partial and expression unique indexes) and [§3.11.6](#3116-composite-foreign-keys-request-c) (the five composite foreign keys of request **C**). The earlier draft's inline SQL is superseded and deliberately not repeated: two copies of a constraint list is how a "fixed" index gets re-broken by a partial edit. **Two of the three artifact groups it contained survive** — one published version per question, and the OD-08 board/college guard. The third, "at most one correct option per version", is **gone**: it depended on `question_options.is_correct`, which this revision removes (request **D**); the guarantee now comes from `UNIQUE (answer_keys.version_id)` plus composite FK C‑5.
 
-**Model-level deviations from the SQL in §3.** Where the Prisma sketch above and §3 disagree, §3 wins; the differences are enumerated in [§3.15](#315-corrections-and-tightenings-relative-to-the-earlier-proposal) (`sort_order` vs `order`, surrogate `id` on `question_version_assets`, `RESTRICT` on `level_subjects`, `updated_at` on two tables, `timestamptz(3)` everywhere).
+**Model-level deviations from the SQL in §3.** Where the Prisma sketch above and §3 disagree, §3 wins; the differences are enumerated in [§3.15](#315-corrections-and-tightenings--individual-review-request-e) (`sort_order` vs `order` — **E‑3**; surrogate `id` + `UNIQUE (version_id, block_ref)` + non-null rooted `block_ref` on `question_version_assets` — **E‑2**, resolved; `RESTRICT` on `level_subjects` — **E‑1**; `updated_at` on `question_versions`/`question_assets` — **E‑4/E‑5**; `timestamptz(3)` everywhere — **E‑6**).
 
 ---
 
@@ -1688,7 +1786,7 @@ The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (doma
 - **Composite `(education_level_id, subject_id)`** — serves the level→subject filter cascade entry point.
 - **Composite `(subject_id, chapter_id, topic_id)`** — serves the chapter→topic cascade.
 - **`(status, type, difficulty)`** — published listing with type/difficulty facets.
-- **Partial unique indexes** — publish-safety (one current version, §3.10 `uq_question_versions_one_published_per_question`), answer integrity (`uq_question_options_one_correct_per_version`), source dedup (`uq_question_sources_identity`) — declarative where PostgreSQL allows it.
+- **Partial unique indexes** — publish-safety (one current version, §3.10 `uq_question_versions_one_published_per_question`), source dedup (`uq_question_sources_identity`), active-taxonomy uniqueness. The former `uq_question_options_one_correct_per_version` is **removed** with `question_options.is_correct` (request D); MCQ correctness is now `answer_keys.mcq_correct_option_key` under `UNIQUE (answer_keys.version_id)` plus the request‑C composite FK to `question_options(version_id, key)`.
 - **Checks** — `marks >= 0`, `negative_marks >= 0`, `version_number > 0`, single-char option key, at-most-one organisation per source. §3.9 keeps all of these and adds hierarchy-chain, CQ-total, envelope and format guards.
 - **`WHERE is_active` partial uniques** *(new in this revision)* — a retired chapter number or topic order must be reusable after a curriculum revision, which a plain unique constraint forbids.
 - **No GIN/full-text indexes yet** — search indexing/tokenization is **OD-32**; a `GIN` on `question_versions.content` can be added additively.
@@ -1713,7 +1811,7 @@ Three columns hold JSONB, and they are **not** interchangeable:
 | Document profile | `mcq_stem` or `cq_stem` ([§7.5](#75-document-profiles)) | `option` | `cq_rubric` |
 | Block types allowed | all ten (profile-restricted) | `paragraph`, `math`, `image`, `code` only | none — rubrics are structured criteria, not blocks |
 | May contain `subquestion` | only in `cq_stem` | **no** | **no** |
-| May contain correctness information | **never** | **never** (`is_correct` lives in the column, not the JSON) | **yes** — this is the only home for it |
+| May contain correctness information | **never** | **never** (options carry no correctness at all — it lives only in `answer_keys`) | **yes** — the **only** home of MCQ correctness and CQ rubrics |
 | Who may read it | student (authorized projection) | student (authorized projection) | server only; never any student-facing DTO, including results |
 | Validated by | `ContentDocumentSchema` + profile | `OptionContentSchema` | `CqRubricSchema` |
 
@@ -1939,13 +2037,13 @@ Rejected: row 2 has one cell, row 1 has two — the rendered table would misalig
 
 | Property (`data`) | Type | Required | Allowed values | Rules |
 |---|---|---|---|---|
-| `assetId` | string | yes | UUID | Must exist in `question_assets` and be linked to this version at this block's JSON Pointer ([§3.3.12](#3312-question_version_assets--version--asset-pin)) |
+| `assetId` | string | yes | UUID | Must exist in `question_assets` and be linked at **this block's rooted pointer** — `/content/blocks/{i}` in a stem, `/content/blocks/{i}/data/blocks/{j}` inside a CQ subquestion, or `/options/{KEY}/blocks/{i}` in an option ([§3.3.12](#3312-question_version_assets--version--asset-pin)) |
 | `alt` | string | no | 1 … 300 chars | Falls back to `question_assets.alt_text`, which is `NOT NULL`; an explicit `alt` may refine it |
 | `longDescription` | string | no | 1 … 2000 chars | For complex diagrams; falls back to `question_assets.long_description` |
 | `display` | string | no | `"inline"`, `"block"` | Default `"block"` |
 | `caption` | string | no | 1 … 300 chars | Rendered below the image |
 
-**Validation.** `assetId` must be a well-formed UUID; resolution is by asset id only — **no URL, no data URI, no path is accepted**. The service verifies that the asset exists, is linked to this version, and that its `mime_type` is an approved image type (**OD-19** still owns the type/size list; the schema does not pre-empt it). An `image` block whose asset cannot be resolved is a publish error, never a render-time fallback.
+**Validation.** `assetId` must be a well-formed UUID; resolution is by asset id only — **no URL, no data URI, no path is accepted**. The service verifies that the asset exists, is linked to this version **at the pointer where this block sits** (the pointer is computed from the block's position in the document being validated, including inside option documents and nested subquestions), and that its `mime_type` is an approved image type (**OD-19** still owns the type/size list; the schema does not pre-empt it). An `image` block whose asset cannot be resolved is a publish error, never a render-time fallback.
 
 **Valid.**
 
@@ -2056,7 +2154,7 @@ Rejected twice: empty `code`, and `highlight` is not an approved property (highl
 
 | Property (`data`) | Type | Required | Allowed values | Rules |
 |---|---|---|---|---|
-| `assetId` | string | yes | UUID | A vetted SVG (preferred) or high-resolution raster, linked to this version at this block's JSON Pointer |
+| `assetId` | string | yes | UUID | A vetted SVG (preferred) or high-resolution raster, linked at this block's rooted pointer (same namespace as `image`, [§3.3.12](#3312-question_version_assets--version--asset-pin)) |
 | `alt` | string | yes | 1 … 300 chars | **Required here, unlike `image`**, because a flowchart is a self-contained process description with no fallback text in the asset row |
 | `description` | string | no | 1 … 2000 chars | Prose walkthrough of the algorithm, used for print and long descriptions |
 | `caption` | string | no | 1 … 300 chars | |
@@ -2230,7 +2328,7 @@ Note what is **not** here: no `correctAnswer`, no option text, no explanation. T
 
 #### 7.6.2 Four-option MCQ — stem plus option content
 
-One question version (stem above) with four `question_options` rows. `key` is `A`–`D`; `sort_order` is 0–3; `is_correct` is `true` on exactly one row (mirrored by `answer_keys.mcq_correct_option_key`).
+One question version (stem above) with four `question_options` rows. `key` is `A`–`D`; `sort_order` is 0–3. **No option row carries correctness** — the single `answer_keys` row for this version holds `mcq_correct_option_key = "A"`, and the composite FK (request **C**) binds that value to this version's `(version_id, key)` set.
 
 **Option A — `question_options.content` (profile `option`).**
 
@@ -2283,12 +2381,14 @@ One question version (stem above) with four `question_options` rows. `key` is `A
 
 The four rows together:
 
-| `key` | `sort_order` | `is_correct` | Content |
-|---|---|---|---|
-| `A` | 0 | true | "Heading element" |
-| `B` | 1 | false | "Paragraph element" |
-| `C` | 2 | false | "Image element" |
-| `D` | 3 | false | code + math |
+| `key` | `sort_order` | Content |
+|---|---|---|
+| `A` | 0 | "Heading element" |
+| `B` | 1 | "Paragraph element" |
+| `C` | 2 | "Image element" |
+| `D` | 3 | code + math |
+
+Plus one `answer_keys` row for this version: `{ "version_id": …, "mcq_correct_option_key": "A", "cq_rubric": null }`. That row — not any option — is the authoritative answer, and it is never projected to a student.
 
 **Invalid option content.**
 
@@ -2513,6 +2613,62 @@ Rejected: no stimulus block. The CQ format requires stimulus (উদ্দীপ
 }
 ```
 
+#### 7.6.5 Asset pointers across the three content homes
+
+The same question version can carry assets in its stem, in an MCQ option, and inside a CQ subquestion. Each asset location gets exactly one `question_version_assets` row, and `block_ref` is the **rooted pointer** that says which document and which block ([§3.3.12](#3312-question_version_assets--version--asset-pin)).
+
+Given this version content:
+
+```json
+{
+  "format": "rich_blocks",
+  "version": 1,
+  "blocks": [
+    { "type": "paragraph", "data": { "text": "নিচের চিত্রটি লক্ষ করো:" } },
+    { "type": "image", "data": { "assetId": "0f7e6d5c-4b3a-4291-8877-665544332211", "alt": "বর্তনী" } },
+    { "type": "subquestion", "data": { "part": "গ", "maxMarks": 3, "instruction": "চিত্রসহ ব্যাখ্যা করো।",
+        "blocks": [
+          { "type": "flowchart", "data": { "assetId": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d", "alt": "ধাপ" } }
+        ] } }
+  ]
+}
+```
+
+and this option content for key `B`:
+
+```json
+{
+  "format": "rich_blocks",
+  "version": 1,
+  "blocks": [
+    { "type": "image", "data": { "assetId": "aa11bb22-cc33-4d44-8e55-ff6677889900", "alt": "সংকেত" } }
+  ]
+}
+```
+
+…the three link rows are exactly:
+
+| `version_id` | `asset_id` | `block_ref` | Root | Resolves to |
+|---|---|---|---|---|
+| *(same)* | `0f7e6d5c-…-665544332211` | `/content/blocks/1` | `/content` | `blocks[1]`, whose `data.assetId` matches |
+| *(same)* | `1a2b3c4d-…-0e1f2a3b4c5d` | `/content/blocks/2/data/blocks/0` | `/content` (nested) | the `flowchart` inside the গ subquestion |
+| *(same)* | `aa11bb22-…-ff6677889900` | `/options/B/blocks/0` | `/options/B` | `question_options` row with `key = 'B'`, `blocks[0]` |
+
+**Invalid pointers and why.**
+
+| `block_ref` | Rejected because |
+|---|---|
+| `/blocks/1` | No root — ambiguous between the stem document and an option document. |
+| `/content` | Names the document, not a block — an asset is always rendered by a block. |
+| `/content/1` | Missing the `blocks` segment; not the grammar. |
+| `/content/blocks/01` | Leading zero in the index: ambiguous, and `blocks[1]` is the only valid form. |
+| `/options/2/blocks/0` | Options are addressed by `key`, not by `sort_order` (order can be corrected; the key is immutable). |
+| `/options/A/blocks/0` on a version with no option `A` | Grammar-valid, but resolution fails at the publish gate (I‑8/I‑14). |
+| `NULL` | The column is `NOT NULL` (request E‑17): an asset the version renders always has a location. |
+| `/content/blocks/1` where `blocks[1].data.assetId` is a different UUID | The location exists but does not expose this asset — I‑8 rejects it. |
+
+**Why the pointer is stored at all rather than re-derived at render time.** Re-deriving means walking three JSONB documents on every render, for every asset, on every exam screen — and it cannot answer "is this asset still used?" without a full scan. Storing the pointer makes the mapping queryable and makes orphan detection a join.
+
 ### 7.7 `answer_keys.cq_rubric` schema and example
 
 The rubric is **not** a block document. It is a small, strict, part-indexed marking guide that mirrors the four subquestions and adds criteria. It is read only by staff-authorized surfaces.
@@ -2699,7 +2855,7 @@ Controls, in the order they apply. Each is mandatory; a renderer that implements
 5. **No HTML sink.** No renderer uses `dangerouslySetInnerHTML`, `innerHTML`, `v-html`, or equivalent for question content. Text is rendered as a React text node (escaped by construction).
 6. **Code blocks** are tokenised by Shiki at build/render time into spans the renderer owns, never by injecting a highlighter's HTML for arbitrary input, and never by `eval`. Copy and print use the stored `code` string verbatim.
 7. **Math** is rendered by KaTeX with `trust: false`, `strict: "ignore"` for authoring niceties but `throwOnError: false` plus an error boundary that shows the raw LaTeX and an inline error to staff — never a crash, never an unescaped fallback. Macros are limited to an allowlist; no `\href`, `\url`, `\includegraphics`, `\html*`, `\class`, `\style`, `\cssId`, `\unicode` (KaTeX's own `trust` gate plus the explicit denylist in [§7.4.6](#746-math)). KaTeX output is produced by a trusted library from validated input and is the *only* place HTML is generated, and only from the library's own templates.
-8. **Assets** are resolved server-side from `assetId` to a controlled URL on the object-storage host. No client-supplied URL is ever fetched. SVG is served as `<img src=…>` only (never inline SVG injected into the DOM, so its scripts cannot run) or sanitized per **OD-19** if inline rendering is ever approved; `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` and `Content-Disposition: inline` on the asset response. Approved image MIME types, size limits and scanning are **OD-19** and are not pre-empted here.
+8. **Assets** are resolved server-side from `assetId` to a controlled URL on the object-storage host, using only the link rows whose rooted `block_ref` covers stem, option and nested-subquestion content ([§3.3.12](#3312-question_version_assets--version--asset-pin)). A renderer never derives a URL from content, and never resolves an asset that has no link at the pointer it is rendering. No client-supplied URL is ever fetched. SVG is served as `<img src=…>` only (never inline SVG injected into the DOM, so its scripts cannot run) or sanitized per **OD-19** if inline rendering is ever approved; `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'` and `Content-Disposition: inline` on the asset response. Approved image MIME types, size limits and scanning are **OD-19** and are not pre-empted here.
 9. **Flowcharts** are assets for the same reason: a diagram engine that parses text is an execution surface in the request path.
 10. **No client-side computation of content.** The renderer receives a parsed, typed model. It never parses raw JSONB, never calls `JSON.parse` on markup and never allows a content string to select a component by name (`component: "…"` maps through a fixed table, if it exists at all).
 11. **CSP and framing.** The application CSP forbids inline scripts, allows no `unsafe-eval`, sets `object-src 'none'`, and restricts `img-src`/`font-src` to the storage host and the app origin. The exact CSP is an implementation-time review under [security-guidelines.md](../security/security-guidelines.md), not invented here.
@@ -2732,7 +2888,7 @@ lib/validation/content-blocks/
 3. **Strict objects everywhere.** `z.strictObject` (or `.strict()`) on the envelope, every block, every nested item and the rubric. Unknown keys are errors, so typos and injected answer fields fail loudly.
 4. **Recursion is explicit and bounded.** `subquestion.data.blocks` uses the nested allowlist with `z.lazy`. Depth is bounded structurally (no `subquestion` inside `subquestion`) rather than by a runtime depth counter, so there is no unbounded recursion to exploit.
 5. **Ordering and composition as refinements.** Rules a field schema cannot express — parts in ক→ঘ order, exactly four of them, `start` only on ordered lists, table row widths after `colspan`, rubric sums, cross-document part/mark agreement — are `.superRefine` checks that emit precise paths (`blocks[4].data.part: expected "গ"`).
-6. **Cross-document validation is a separate function.** `validateVersionForPublish({ question, version, options, answerKey })` composes `ContentDocumentSchema` (with the profile chosen from `question.type`), `OptionContentSchema` × 4, `CqRubricSchema`, and the asset-link and mark-total checks ([§3.13](#313-invariants-that-cannot-be-enforced-declaratively) I‑2, I‑4, I‑7, I‑8). Keeping it separate stops the pure schema from needing database access.
+6. **Cross-document validation is a separate function.** `validateVersionForPublish({ question, version, options, answerKey })` composes `ContentDocumentSchema` (with the profile chosen from `question.type`), `OptionContentSchema` × 4, `CqRubricSchema`, and the cross-document checks in [§3.13](#313-invariants-that-cannot-be-enforced-declaratively): **I‑4** (exactly four distinct option keys for MCQ, none for CQ), **I‑13** (exactly one valid MCQ answer key, or a rubric and no MCQ key), **I‑7** (rubric parts match subquestions), **I‑8** (every `assetId` linked at its computed rooted pointer, and every link used) and **I‑2**. Keeping it separate stops the pure schema from needing database access. The function **computes** each asset pointer from the block's position — it never trusts a client-supplied pointer.
 7. **Two call sites, two behaviours.** Publish/save uses `parse()` and lets the error propagate to the API layer as a validated 422 with field paths. Read/render uses `safeParse()`; on failure it logs a structured error (version id, pointer, schema version) and renders the unsupported-content state. Never `parse()` inside a render path — a validation failure must not become a 500 on an exam screen.
 8. **Version registry.** `versions.ts` maps `1 → v1Schema`. Parsing reads `version` **only after** confirming it is an integer, then dispatches; an unknown version is a validation error, not a fallback to the newest schema ([§7.8](#78-schema-versioning-strategy)).
 9. **Performance.** A document is parsed once per request at the boundary and once per publish; the parsed tree is what the renderer receives. `superRefine` checks stay O(blocks). No database round-trip inside a schema. If profiling ever shows the parse is hot on listing pages, the fix is to cache the parsed projection for a version id — not to skip validation.
@@ -2748,6 +2904,8 @@ lib/validation/content-blocks/
 | Blocks per document | 200 | Bounds render and PDF cost; a question with 200 blocks is a paper, not a question |
 | Nested blocks per `subquestion` | 10 | Keeps each part to roughly one printed column |
 | Document JSON size | 256 KiB | Matches `ck_question_versions_content_size` ([§3.9](#39-required-domain-check-constraints)) |
+| Assets per version | 50 | Each needs one `question_version_assets` row; 50 located assets in one question is already beyond any realistic ICT item, and the bound keeps the link table and the publish-time pointer walk cheap |
+| Pointer depth (`block_ref` segments) | 5 | Follows from `/content/blocks/{i}/data/blocks/{j}` being the deepest legal pointer; a deeper pointer cannot exist because `subquestion` does not nest ([§3.3.12](#3312-question_version_assets--version--asset-pin)) |
 | `paragraph.text` | 5000 chars | Beyond this, use multiple paragraphs |
 | `heading.text` | 200 chars | Heading typography is fixed |
 | `list.items` | 30 items × 2000 chars | Print-column constraint |
@@ -2815,21 +2973,25 @@ Every limit is enforced in Zod and documented here; the only one duplicated in t
 Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured content/snapshots (L2, R6); server-authoritative exams (L3); answer keys never exposed to clients (task rule: extended to **all** student-facing exam APIs incl. results); structured, versioned question content; AI behind adapter, Gemini default, AI never awards marks (L6, L7, R8); print-first selectable-vector PDF; design tokens + WCAG 2.2 AA; audit logging and automated testing.
 
 ### Approved by reviewer (this report)
+
 1. OD-08 — Option B (`QuestionSource` exclusively).
 2. OD-09 — `levelSubjects` join + `educationLevelId` on `Question`; subject↔level membership enforced server-side; no `Group` table.
 3. OD-10 — Option B versioning with conditions (immutable once examined; corrections via new version; `Exam*` deferred).
-4. JSONB boundaries — in principle. The OD-18 content-block schema is now **specified in full** (§7) and awaits final approval; no JSONB column may be used before that approval.
+4. JSONB boundaries — in principle. The OD-18 content-block schema is **specified in full** (§7) and awaits final approval; no JSONB column may be used before that approval.
 5. Deletion/integrity policy — with clarifications.
+6. **MCQ correctness authority (review round 3)** — `answer_keys.mcq_correct_option_key` is the single source of MCQ correctness; `question_options.is_correct` and `uq_question_options_one_correct_per_version` are removed; four-options/one-key presence is enforced at the publish gate (I‑4, I‑13).
+7. **Asset-pointer integrity (review round 3)** — `question_version_assets.block_ref` is `NOT NULL` with the rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem, option and nested-subquestion content.
 
 ### Reviewed — direction noted, gated to Phase 05 (exams), not migration 0001
-6. OD-11 — grace window + `SUBMITTED_LATE`.
-7. OD-12 — per-answer idempotency key, one result per session.
-8. OD-13 — CQ rubric JSONB in `answer_keys` (included); responses/self-assessment/teacher override deferred.
+8. OD-11 — grace window + `SUBMITTED_LATE`.
+9. OD-12 — per-answer idempotency key, one result per session.
+10. OD-13 — CQ rubric JSONB in `answer_keys` (included); responses/self-assessment/teacher override deferred.
 
-### Completed in this revision (still awaiting approval, not yet approved)
-9. Migration 0001 scope — the 18-table inventory is now specified in full in §3 (columns, types, nullability, defaults, keys, FKs, constraints, indexes, archival rules, dependency order, ER diagram, creation order, supporting-table justification, partial unique index SQL, domain `CHECK`s, composite-FK analysis and rollback). Approval request **A**.
-10. OD-18 content-block schema — the ten block types, envelope, profiles, validation rules, valid/invalid examples, document versioning, rejection behaviour, sanitization controls, Zod strategy and hard limits are specified in full in §7. Approval request **B**.
-11. Schema tightenings and new declarative artifacts — approval requests **C**, **D** and **E** in §3.15 and §11.
+### Completed in earlier revisions (specified in full — still awaiting approval)
+11. Migration 0001 scope — the 18-table inventory is specified in full in §3. Approval request **A**.
+12. OD-18 content-block schema — the ten block types, envelope, profiles, validation, examples, document versioning, rejection behaviour, sanitization controls, Zod strategy and hard limits are specified in full in §7. Approval request **B**.
+13. Composite foreign keys — approval request **C** in §3.11.6 and §11; Prisma does not represent them, and the disposable-database drift spike is mandatory.
+14. Physical-schema tightenings — approval request **E**, reviewed item by item in §3.15.
 
 ### Explicitly unresolved (not decided here; do not implement against)
 Group entity; user linkage (OD-15); moderation states beyond draft/published/archived (OD-27); RLS (OD-16); full-text search (OD-32); retention periods (OD-20); rate-limit store (OD-06); CQ assessment modality (OD-01); strict-expiry vs auto-submit (OD-03); guest practice (OD-04); post-release answer review (OD-14); PDF worker host (OD-02); paper/export model (OD-28); AI cache/isolation (OD-29).
@@ -2838,16 +3000,18 @@ Group entity; user linkage (OD-15); moderation states beyond draft/published/arc
 
 ## 11. Decisions still awaiting your final approval
 
-Nothing in §3 or §7 is approved by being written down. The list below is the complete set of items that need an explicit disposition before `prisma/schema.prisma` is edited or migration 0001 is created.
+Nothing in §3 or §7 is approved by being written down. This register is the complete set of items needing an explicit disposition before `prisma/schema.prisma` is edited or migration 0001 is created.
 
-| ID | Request | Where | If declined |
-|---|---|---|---|
-| **A** | Approve the **18-table inventory**, the grouping (14 essential + 4 supporting), the dependency order and the migration-0001 scope. | §3.2, §3.3, §3.4, §3.6, §3.7, §3.8 | No migration 0001 is written; the question bank cannot be implemented. |
-| **B** | Approve the **OD-18 content-block specification**: envelope, ten block types, profiles, validation rules, examples, document versioning, unknown-type rejection, sanitization controls, Zod strategy and hard limits. | §7 (whole section) | JSONB content columns cannot be used; no editor, renderer or publish gate can be built. |
-| **C** | Approve the **optional composite foreign keys** (§3.11 Option B): `questions(education_level_id, subject_id) → level_subjects`, the chapter/topic/subtopic chain FKs, the parent `UNIQUE (id, parent_id)` support keys, and `answer_keys(version_id, mcq_correct_option_key) → question_options`. Includes a required disposable-database spike to confirm Prisma does not treat them as drift. | §3.11.3, §3.11.6 | Option A applies: service-only validation, with a scheduled integrity query and a publish-gate re-check. An invalid academic pair then remains *representable* but *prevented by the application*. |
-| **D** | Approve the **correctness-authority rule**: `answer_keys.mcq_correct_option_key` is the single authority for MCQ correctness; `question_options.is_correct` exists only to make the "one correct option" partial unique index possible and is written in the same transaction; a consistency test enforces agreement. | §3.3.9, §3.13 (I‑9) | The alternative is to drop `is_correct` (losing the declarative guarantee) or to drop `mcq_correct_option_key` (leaving correctness with no server-only home). Neither is recommended; the trade-off needs a decision, not a default. |
-| **E** | Approve the **tightening list** in §3.15 items 1–3, 5–6, 8–9 and 12: `RESTRICT` on `level_subjects`; surrogate `id` + `UNIQUE (version_id, block_ref)` on `question_version_assets`; `sort_order` naming; `updated_at` on `question_versions`/`question_assets`; `timestamptz(3)`; `WHERE is_active` partial uniques; `NULLS NOT DISTINCT` source de-duplication; the marks guards. Each is small, but each changes the physical schema and therefore needs a recorded decision. | §3.15 | Items are individually revertible to the earlier draft's form; the consequences are noted per item. |
+| ID | Request | Status | Where | If declined |
+|---|---|---|---|---|
+| **A** | Approve the **18-table inventory**, the 14/4 grouping, the dependency order and the migration-0001 scope. | **Pending** | §3.2–§3.8 | No migration 0001; the question bank cannot be implemented. |
+| **B** | Approve the **OD‑18 content-block specification**: envelope, ten block types, profiles, validation, examples, document versioning, unknown-type rejection, sanitization, Zod strategy, hard limits. | **Pending** | §7 | JSONB content columns unusable; no editor, renderer or publish gate. |
+| **C** | Approve the **five composite foreign keys** — C‑1 level+subject, C‑2 chapter+subject, C‑3 topic+chapter, C‑4 subtopic+topic, C‑5 answer key+option — plus the three `UNIQUE (id, parent_id)` support keys, **and** accept the mandatory disposable-PostgreSQL Prisma-drift spike as a pre-migration gate. | **Pending — strengthened by request D**: C‑5 is now the *only* declarative proof that the authoritative MCQ key exists in its version. | §3.11.6 | Option A: service-only validation, a scheduled integrity query and a publish-gate re-check. **Cost is now higher than before D**: no database guarantee that a key names an existing option. |
+| **D** | MCQ correctness authority: `answer_keys.mcq_correct_option_key` as the single source; remove `question_options.is_correct` and `uq_question_options_one_correct_per_version`; keep publish-time validation of exactly four distinct option keys and exactly one valid MCQ key. | **RESOLVED — accepted by review in this round**; implemented throughout this revision | §3.3.9, §3.3.10, §3.10, §3.13 (I‑4, I‑13), §5, §7.1, §7.6.2 | n/a — decided. Recorded here so the change is traceable, not silent. |
+| **E** | The individual physical-schema tightenings, reviewed one by one in §3.15. | **Pending — 14 items open**, 2 resolved (E‑16 = request D, E‑17 = asset pointers). **E‑7, E‑9 and E‑10 are explicitly *not* recommended for silent approval** (curriculum numbering policy; interaction with the open OD‑21 negative-mark floor; hard-coding the CQ total of 10). | §3.15 | Each item reverts to the earlier draft's form individually; consequences are stated per row. |
 
-**Not requested here, and deliberately left open:** OD-11, OD-12 and OD-13 (no values are invented in this revision — they remain exactly as the earlier report left them, deferred to Phase 05), plus the unapproved items listed under "Explicitly unresolved" in §10.
+**Also resolved in this round (not a standing request):** `question_version_assets.block_ref` is now `NOT NULL` with the rooted pointer grammar `/content/...` or `/options/{KEY}/...`, covering stem, option and nested-subquestion content, with `UNIQUE (version_id, block_ref)` and I‑8/I‑14 as the resolution checks (§3.3.12, §7.6.5). This includes the previous revision's request‑E item E‑2.
 
-**What happens on approval.** On approval of A and B (and a disposition for C, D, E), the next step is: edit `prisma/schema.prisma` to match §3 → generate migration 0001 against a disposable database → add the hand-written artifacts from §3.9/§3.10/§3.11.6 (if C is approved) → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate. **None of that happens in this documentation phase**, and no step begins without your explicit signal.
+**Not requested here, and deliberately left open:** OD‑11, OD‑12 and OD‑13 — no values are invented in this revision; they remain as the earlier report left them, deferred to Phase 05. Also open: OD‑09's curriculum-revision numbering rule (E‑7), OD‑21's negative-mark floor (E‑9) and the CQ total for future levels (E‑10), plus the unapproved items under "Explicitly unresolved" in §10.
+
+**What happens on approval.** On approval of A, B and a disposition for C and E: edit `prisma/schema.prisma` to match §3 → run the **Prisma-drift spike** from §3.11.6 on a disposable database and record the result here → generate migration 0001 → append the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the §3.14 verification checklist → implement the Zod schemas from §7.11 → wire the publish gate. **None of that happens in this documentation phase**, and no step begins without an explicit signal.
