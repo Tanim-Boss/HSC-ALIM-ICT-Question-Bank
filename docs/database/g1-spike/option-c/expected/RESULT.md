@@ -11,10 +11,14 @@ for the architectural comparison and the decision request.
 
 | Item | Value |
 |---|---|
-| Commit | `d1ead77` |
+| Commit | `3d982da` (prototype unchanged since `d1ead77`) |
 | Workflow | [`.github/workflows/phase04a-option-c-prototype.yml`](../../../../../.github/workflows/phase04a-option-c-prototype.yml) |
-| Run (push) | [45256308788](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45256308788) — **success** |
-| Run (pull_request) | [45256319664](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45256319664) — **success** |
+| Run (push) | [45257183221](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45257183221) — **success** |
+| Run (pull_request) | [45257197019](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45257197019) — **success** |
+
+The prototype was first brought to green at `d1ead77` (runs [45256308788](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45256308788) and
+[45256319664](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45256319664)); the runs above are the final ones at `3d982da`,
+where only documentation changed. Both triggers pass in both cases.
 | Prisma CLI | 7.10.1, asserted from `node_modules` |
 | Node.js | 22 |
 | PostgreSQL | 16, three disposable service containers |
