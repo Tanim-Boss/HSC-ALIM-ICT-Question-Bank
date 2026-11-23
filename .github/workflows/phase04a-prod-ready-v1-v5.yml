@@ -34,6 +34,12 @@ on:
 
 permissions:
   contents: read
+  # Needed only by the V-1 diagnostic step, which posts driver output to the PR.
+  # Raw run logs, job summaries and artifacts are all intermittently unreachable
+  # from an external client (EOF from *.blob.core.windows.net), which left two
+  # V-1 failures diagnosable only as "exit code 1". A PR comment is reachable, so
+  # the driver's own output is posted there when it fails.
+  pull-requests: write
 
 jobs:
   # ------------------------------------------------------------------
@@ -298,6 +304,36 @@ jobs:
       # (EOF from results-receiver.actions.githubusercontent.com), and
       # annotations are capped. The job summary is retrievable via the API,
       # so the driver log is written there on failure.
+      - name: Post the V-1 driver output to the PR (diagnostics)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Only on a PR, only on failure, and never for fork PRs (no write token).
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          if grep -q "^\[V-1\] ALL CHECKS PASSED" /tmp/v1.log 2>/dev/null; then
+            echo "V-1 passed; no diagnostic comment needed"; exit 0
+          fi
+          {
+            echo "<!-- v1-driver-diagnostics -->"
+            echo "### V-1 driver output (${GITHUB_SHA::7})"
+            echo
+            echo "Raw logs and artifacts were intermittent, so the driver output is posted here."
+            echo
+            echo '```'
+            if [ -f /tmp/v1.log ]; then
+              head -120 /tmp/v1.log
+              echo '...'
+              grep -nE "FAIL|ABORT|ERROR|error:|not found|No such file" /tmp/v1.log | head -40 || true
+            else
+              echo "no /tmp/v1.log was produced"
+            fi
+            echo '```'
+          } > /tmp/v1-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v1-comment.md \
+            || echo "::warning title=V-1 diagnostics::could not post the comment"
+
       - name: Publish the V-1 driver log to the job summary
         if: always()
         run: |
