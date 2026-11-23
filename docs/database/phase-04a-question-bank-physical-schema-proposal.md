@@ -1,8 +1,9 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 4 — FINAL APPROVAL)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 5 — FINAL APPROVAL)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
-**Revision 4 scope:** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
+**Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
+**Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
 **Status:** Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. Design authority is now approved; implementation is gated on G‑1 and G‑2 (§11.3).
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
@@ -16,7 +17,8 @@
 | 1 | Inspection findings, OD-08/OD-09/OD-10 review, abbreviated table list, ER sketch, Prisma sketch, index rationale, JSONB-in-principle, deletion policy | Preserved in full below; its approved decisions are unchanged |
 | 2 | **§3 completed** (full 18-table inventory with types, nullability, defaults, keys, FKs, constraints, indexes, archival rules, complete ER diagram, dependency-ordered creation, supporting-table justification, partial unique index SQL, domain `CHECK`s, the `educationLevelId`+`subjectId` composite-FK analysis, migration impact and rollback) and **§7 completed** (OD-18 envelope, ten block types with valid *and* invalid examples, profiles, document versioning, rejection behaviour, sanitization and Zod strategy, rubric schema, hard limits) | Documentation only. §3 and §7 await approval (requests **A** and **B**); three further schema decisions raised as **C**, **D** and **E** |
 | 3 | **Review findings applied.** ① Request **D resolved**: `question_options.is_correct` removed, `uq_question_options_one_correct_per_version` removed, `answer_keys.mcq_correct_option_key` made the single authority, guarantee re-expressed via `UNIQUE (answer_keys.version_id)` + composite FK, publish gate retained (I‑4, I‑13). ② **Asset pointers**: `block_ref` is `NOT NULL` with a rooted grammar covering stem, option and nested-subquestion content, `UNIQUE (version_id, block_ref)`, new §7.6.5 worked example. ③ **Request C** restated as five named composite FKs with a mandatory six-step Prisma-drift spike; no claim that Prisma represents them. ④ **Request E** split into 17 individually reviewed items with recommendation, consequence and "changes the model?" per item. ⑤ Consistency sweep across ER diagram, SQL, Prisma sketch, examples and the register. | Documentation only. Requests **A**, **B** and **C** plus 14 open **E** items awaited disposition; **D** (E‑16) and the asset-pointer decision (E‑2/E‑17) resolved. No migration, no schema change, no application code |
-| **4 (this revision — FINAL)** | **Final approval recorded.** A, B, C (conditional on G‑1), D and asset pointers **approved**. Request E fully dispositioned: **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15 accepted**; **E‑2, E‑16, E‑17 already resolved**; **E‑7 changed** to globally unique `(subject_id, chapter_number)` (no reuse without a curriculum-revision model); **E‑9 changed** — `negative_marks <= marks` retained, column type `integer` → `numeric` with **precision/scale left as an open pre-migration decision**; **E‑10 rejected** — global CQ-total `CHECK` removed, structure moved to the `cq_stem` profile + publish check I‑15. SQL, ER diagram, Prisma sketch, examples and §6 updated accordingly. | **Approved design, not yet implemented.** No migration, no schema change, no application code. Two gates remain: G‑1 Prisma-drift spike, G‑2 `numeric(p,s)` |
+| 4 | (superseded by revision 5, preserved for audit) **Final approval recorded.** A, B, C (conditional on G‑1), D and asset pointers **approved**. Request E fully dispositioned: **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15 accepted**; **E‑2, E‑16, E‑17 already resolved**; **E‑7 changed** to globally unique `(subject_id, chapter_number)` (no reuse without a curriculum-revision model); **E‑9 changed** — `negative_marks <= marks` retained, column type `integer` → `numeric` with **precision/scale left as an open pre-migration decision**; **E‑10 rejected** — global CQ-total `CHECK` removed, structure moved to the `cq_stem` profile + publish check I‑15. SQL, ER diagram, Prisma sketch, examples and §6 updated accordingly. | **Approved design, not yet implemented.** No migration, no schema change, no application code. Two gates remain: G‑1 Prisma-drift spike, G‑2 `numeric(p,s)` |
+| **5 (this revision — FINAL)** | **One correction to Revision 4.** The **E‑7 extension to `topics` is reverted**: `chapters` keeps the approved **global** `UNIQUE (subject_id, chapter_number)`; `topics` returns to the **active-only partial unique index** `(chapter_id, order_index) WHERE is_active = true`. Rationale: chapter numbers are curriculum identifiers (reuse makes "chapter 3" ambiguous), whereas `order_index` is a display position — retiring a topic must free its former position without changing the retired topic's identity or historical question references. Consistency sweep: §3.3.5 (unique/index/rationale), §3.10 hand-written SQL, §3.14 count 4 → **5** hand-written indexes with movement trail, §3.15 E‑7 row + §3.15.2, §5 Prisma `Topic` sketch, §6 rationale, §10 item 10, §11.2. **G‑1 and G‑2 remain open; `numeric(p,s)` still not chosen; OD‑21 floor still unresolved; OD‑11/12/13 still deferred.** | **Approved design, not yet implemented.** Documentation only — no migration, no schema change, no application code. Gates G‑1 (Prisma-drift spike) and G‑2 (`numeric(p,s)`) still open |
 
 ---
 
@@ -34,7 +36,7 @@
 | 8 | MCQ correctness authority (request **D**) | **APPROVED** — `answer_keys.mcq_correct_option_key` is the sole authority; `question_options.is_correct` and its partial unique index permanently removed |
 | 9 | Asset pointer integrity | **APPROVED** — `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem/option/nested-subquestion content |
 | 10 | Composite foreign keys (request **C**) | **APPROVED WITH CONDITION** — five FKs + three support keys, conditional on a **successful** disposable-PostgreSQL Prisma-drift spike (G‑1). Prisma does not represent them natively |
-| 11 | Physical-schema tightenings (request **E**) | **DECIDED IN FULL** — 11 accepted, 3 already resolved, **E‑7 changed** (no chapter-number reuse), **E‑9 changed** (`numeric`, precision open), **E‑10 rejected** (no global CQ-total `CHECK`). No E item open |
+| 11 | Physical-schema tightenings (request **E**) | **DECIDED IN FULL** — 11 accepted, 3 already resolved, **E‑7 changed** (no chapter-number reuse; *Revision 5 restores the active-only partial unique for topic display order, which is not a curriculum identifier*), **E‑9 changed** (`numeric`, precision open), **E‑10 rejected** (no global CQ-total `CHECK`). No E item open |
 | 12 | Pre-migration gates | **OPEN** — **G‑1** Prisma-drift spike (condition of C) and **G‑2** `numeric(p,s)` for `negative_marks`. Migration 0001 may not be created until both clear (§11.3) |
 
 ---
@@ -354,11 +356,11 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `chapter_id` → `chapters(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (id, chapter_id)` (support key for composite FK C‑3, request **C**); **`UNIQUE (chapter_id, order_index)`** — a plain global unique, applied on the same reasoning as E‑7 below; `CHECK (order_index >= 0)`; non-blank name checks.
+**Unique / CHECK.** `UNIQUE (id, chapter_id)` (support key for composite FK C‑3, request **C**); `CHECK (order_index >= 0)`; non-blank name checks. Display order is **not** a plain global unique: uniqueness is scoped to active rows by the partial unique index `(chapter_id, order_index) WHERE is_active = true` ([§3.10](#310-partial-and-expression-unique-index-sql)).
 
-**Indexes.** `UNIQUE (chapter_id, order_index)` covers `chapter_id` prefixes.
+**Indexes.** `uq_topics_chapter_order` — the partial unique index on `(chapter_id, order_index) WHERE is_active = true` — covers `chapter_id` prefixes. It is hand-written SQL because Prisma cannot express a partial index ([§3.10](#310-partial-and-expression-unique-index-sql)).
 
-**Topic order follows the chapter-numbering decision.** E‑7 as decided addresses chapter numbers explicitly. The partial `(chapter_id, order_index) WHERE is_active` index proposed earlier rested on exactly the same retire-and-reuse assumption — reuse of a retired position without a curriculum-revision model — so it is dropped with its chapter counterpart rather than left as the single surviving inconsistency. **This is a consequential extension of the E‑7 decision, not a separate approval**, and it is flagged for confirmation in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions).
+**Topic order is a display position, not a curriculum identifier — a retired position is reusable (E‑7, extension reverted in Revision 5).** The E‑7 "no reuse" decision applies to **chapter numbers**, because a number is a curriculum identifier: reusing it would make "chapter 3" mean two different things in the same subject. `topics.order_index` carries no such identity — it only says where a topic sits in a list. Retiring a topic must therefore allow its former position to be taken by a new topic **without** changing the identity of the retired topic or the historical question references that point at it (those references are by `topic_id`, not by position). The active-only partial unique index enforces exactly the rule that matters: **no two active topics share a position within a chapter**, while a retired row and a live row may. Global uniqueness here would instead make a retired position permanently unusable and would force renumbering of live topics. See [§3.15.2](#3152-note-on-the-reverted-e7-extension-to-topics).
 
 **Soft delete / archival.** As `chapters`.
 
@@ -1184,15 +1186,22 @@ CREATE UNIQUE INDEX uq_question_sources_identity
   ON question_sources (question_id, source_type, board_id, college_id, academic_year_id)
   NULLS NOT DISTINCT;
 
--- taxonomy uniqueness is now GLOBAL (E-7 decision): a retired chapter number is
--- NOT reusable while no curriculum-revision entity/versioning policy exists, so
--- these are ordinary unique constraints rather than `WHERE is_active` partials.
--- Prisma models plain uniques natively, so these are no longer hand-written SQL
--- in the final migration — they are listed here only to record the change.
+-- chapter numbering is GLOBAL (E-7 decision): a retired chapter number is NOT
+-- reusable while no curriculum-revision entity/versioning policy exists. Prisma
+-- models a plain unique natively, so this one is listed here only to record the
+-- decision — it is not hand-written SQL in the final migration.
 ALTER TABLE chapters ADD CONSTRAINT uq_chapters_subject_number
   UNIQUE (subject_id, chapter_number);
-ALTER TABLE topics ADD CONSTRAINT uq_topics_chapter_order
-  UNIQUE (chapter_id, order_index);
+
+-- topic display order stays ACTIVE-ONLY (Revision 5: the earlier E-7 extension
+-- to topics is reverted). order_index is a display position, not a curriculum
+-- identifier, so retiring a topic must free its position without altering the
+-- retired row's identity or the historical question references to it. No two
+-- ACTIVE topics may share a position in one chapter; a retired row and a live
+-- row may. Prisma cannot express a partial index, so this is hand-written SQL.
+CREATE UNIQUE INDEX uq_topics_chapter_order
+  ON topics (chapter_id, order_index)
+  WHERE is_active;
 
 -- human-facing uniqueness must ignore case
 CREATE UNIQUE INDEX uq_tags_name_lower ON tags (lower(name));
@@ -1360,8 +1369,8 @@ Each invariant needs at least one integration test against a disposable PostgreS
 
 **Impact at creation (greenfield).**
 
-- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys**, **5 composite foreign keys and 3 support `UNIQUE (id, parent_id)` keys** (Request **C**, approved — created only after gate G‑1), **49 hand-written `CHECK` constraints**, and **4 hand-written indexes**.
-- Count movement across revisions, so the numbers are auditable: `CHECK` count went 50 → **49** because **E‑10 rejected** `ck_questions_cq_total_marks`; hand-written index count went 7 → 6 (Request **D** removed the `is_correct` partial unique) → **4** now, because **E‑7** converted the two `WHERE is_active` partial uniques into Prisma-native plain unique constraints. The 4 remaining hand-written indexes are: `uq_question_versions_one_published_per_question` (`WHERE status = 'PUBLISHED'`), `uq_question_sources_identity` (`NULLS NOT DISTINCT`), `uq_tags_name_lower` and `uq_colleges_name_lower` (expression uniques). All in addition to what Prisma generates.
+- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys**, **5 composite foreign keys and 3 support `UNIQUE (id, parent_id)` keys** (Request **C**, approved — created only after gate G‑1), **49 hand-written `CHECK` constraints**, and **5 hand-written indexes**.
+- Count movement across revisions, so the numbers are auditable: `CHECK` count went 50 → **49** because **E‑10 rejected** `ck_questions_cq_total_marks`; hand-written index count went 7 → 6 (Request **D** removed the `is_correct` partial unique) → 4 (Revision 4's E‑7 conversion of **both** `WHERE is_active` partial uniques to plain uniques) → **5** now, because **Revision 5 reverts the `topics` half of that extension**: only the `chapters` partial unique became a Prisma-native plain unique, while `uq_topics_chapter_order` (`WHERE is_active`) is restored as hand-written SQL. The 5 remaining hand-written indexes are: `uq_question_versions_one_published_per_question` (`WHERE status = 'PUBLISHED'`), **`uq_topics_chapter_order` (`WHERE is_active`)**, `uq_question_sources_identity` (`NULLS NOT DISTINCT`), `uq_tags_name_lower` and `uq_colleges_name_lower` (expression uniques). All in addition to what Prisma generates.
 - **`questions.negative_marks` is `numeric` (E‑9)**; its `numeric(p, s)` is gate **G‑2** and is deliberately not fixed here.
 - Zero data migration: no production or staging data exists, so creation cannot corrupt anything. The only real risks are (a) a wrong `CHECK` that rejects legitimate seed data, and (b) a wrong delete action that makes a legitimate operation fail. Both are found by seeding the six ICT chapters, a handful of subjects/boards/years and one MCQ + one CQ end-to-end fixture in a disposable database **before** the migration is committed.
 - No application code is required: `lib/db.ts` is schema-agnostic and the generated client is git-ignored.
@@ -1404,7 +1413,7 @@ Legend: **Model change** = *No* means it is consistent with, or a clarification 
 | E‑4 | `question_versions.updated_at` added | **ACCEPTED** | `status` transitions `DRAFT → PUBLISHED → ARCHIVED` on an otherwise immutable row, so the timestamp is meaningful. Content immutability unaffected (I‑5). | No — timestamp presence was previously unspecified. |
 | E‑5 | `question_assets.updated_at` added | **ACCEPTED** | Metadata (alt text, long description) is correctable while bytes are immutable; without the column a metadata fix is invisible. | No |
 | E‑6 | All timestamps typed `timestamptz(3)` | **ACCEPTED** | Prisma's default `timestamp(3)` is timezone-naive, which is unsafe for server-authoritative exam timing. Requires `@db.Timestamptz(3)` on every `DateTime`, plus a schema test that fails if one lacks it. | No — physical expression of the L3 authority rule. |
-| **E‑7** | `WHERE is_active` partial uniques for chapter numbering / topic order | **CHANGED — reuse rejected** | **No chapter-number reuse while no curriculum-revision entity or versioning policy exists.** Both are now **plain global unique constraints**: `UNIQUE (subject_id, chapter_number)` on `chapters` and `UNIQUE (chapter_id, order_index)` on `topics`. The two partial indexes are removed. **A future curriculum-revision model may revisit this**; it becomes the constraint to relax by migration, with the historical-mapping question answered first. Side effect: plain uniques are Prisma-native, so they leave the hand-written SQL set. | **Yes** — a retire-and-reuse numbering policy was assumed and is now explicitly refused. |
+| **E‑7** | `WHERE is_active` partial uniques for chapter numbering / topic order | **CHANGED — chapter-number reuse rejected; topic order restored to the partial unique (Revision 5)** | **No chapter-number reuse while no curriculum-revision entity or versioning policy exists**, so `chapters` now carries a **plain global** `UNIQUE (subject_id, chapter_number)` and its partial index is gone. **`topics` is deliberately NOT treated the same way:** `order_index` is a display position rather than a curriculum identifier, so `uq_topics_chapter_order` remains an **active-only partial unique index** on `(chapter_id, order_index) WHERE is_active = true`, letting a retired position be reused without touching the retired topic's identity or historical question references. Revision 4 extended E‑7 to `topics`; **Revision 5 reverts that extension** ([§3.15.2](#3152-note-on-the-reverted-e7-extension-to-topics)). **A future curriculum-revision model may revisit the chapter-number constraint**; it becomes the thing to relax by migration, with the historical-mapping question answered first. Side effect: the chapter unique is Prisma-native and leaves the hand-written SQL set; the topic partial unique stays hand-written. | **Yes** — for `chapters`: a retire-and-reuse **numbering** policy was assumed and is now explicitly refused. **No further change for `topics`** — its original partial index is restored. |
 | E‑8 | Source de-duplication via `NULLS NOT DISTINCT` | **ACCEPTED** | The earlier `WHERE board_id IS NOT NULL AND college_id IS NOT NULL AND …` partial index silently skipped partially-specified sources, so duplicates slipped through. `NULLS NOT DISTINCT` closes that. Requires PostgreSQL 15+ (true for the planned Supabase instance); the three-partial-index fallback is documented in §3.10. | No — OD‑08 approved de-duplication; only the expression was wrong. |
 | **E‑9** | `negative_marks <= marks` and the column type | **CHANGED — accept bound, widen type** | The upper bound `negative_marks <= marks` is **retained**. The column type changes **`integer` → numeric** (decimal-capable) so fractional penalties are representable. **`numeric(p,s)` precision/scale is NOT decided and is not invented here** — it is a **pre-migration decision** (see [§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)). **The OD‑21 negative-mark floor is NOT decided**; this constraint is an upper bound on one question's penalty only. | **Yes** — column type changes; the floor remains open under OD‑21. |
 | **E‑10** | `CHECK (type <> 'CQ' OR marks = 10)` | **REJECTED — constraint removed** | The global CQ-total `CHECK` is **deleted**. The 1 + 2 + 3 + 4 = 10 structure is kept in the **`cq_stem` content profile** (§7.5), not in the table. Publish-time validation (**I‑15**) requires the question's `marks` to equal the sum of its rubric subquestion `maxMarks`. A future level with a different CQ shape therefore needs no migration. | **Yes** — a previously proposed constraint is withdrawn; the guarantee moves to the publish gate. |
@@ -1432,9 +1441,21 @@ E‑9 mandates a decimal-capable `numeric` type but deliberately leaves the prec
 
 Candidate questions the decision must answer: do penalties need sub-mark precision at all (e.g. 0.25 for a quarter-mark penalty), and does any scaling formula under OD‑21 produce more than two decimal places? The recommended starting point for review — **not adopted here** — is that the scale follows whatever OD‑21 permits, since the column cannot be narrower than the scoring rule that writes it.
 
-#### 3.15.2 Note on the E‑7 extension to `topics`
+#### 3.15.2 Note on the reverted E‑7 extension to `topics`
 
-The reviewer's E‑7 decision names chapter numbers. The topic ordering constraint rested on the identical retire-and-reuse assumption, so it is changed consistently (plain `UNIQUE (chapter_id, order_index)`) rather than left as the one surviving partial unique. This is recorded as a **consequential extension**, not a new request: if the reviewer prefers to keep partial uniqueness for topic order while chapter numbers are global, it is a one-line change to §3.10 and §3.3.5.
+Revision 4 extended E‑7's "no reuse" rule from chapter numbers to topic display order, turning `topics` into a plain `UNIQUE (chapter_id, order_index)`. **Revision 5 reverts that extension.** The two cases are not alike:
+
+| | `chapters.chapter_number` | `topics.order_index` |
+|---|---|---|
+| What the value means | A **curriculum identifier** — the thing teachers, students and papers call "chapter 3" | A **display position** — the order a topic is listed in, with no external meaning |
+| Consequence of reuse | "Chapter 3" becomes ambiguous across two different curricula in the same subject | None: a re-listed position identifies nothing; questions reference topics by `topic_id` |
+| Approved rule | **Plain global** `UNIQUE (subject_id, chapter_number)`; a retired number stays reserved | **Active-only** partial unique `(chapter_id, order_index) WHERE is_active = true`; a retired position is reusable |
+
+Retiring a topic is a content action, not a curriculum revision: the retired row keeps its `id`, its name and every historical question reference, while a replacement topic may take over its position so the chapter still reads `1, 2, 3, …` without a renumbering exercise. Forbidding that would force either renumbering of live topics on every retirement or permanently burned position numbers, and would buy no integrity that the topic identity does not already provide.
+
+The only integrity rule the partial index must carry is **"no two *active* topics share a position within one chapter"**, which `WHERE is_active` expresses exactly. It is hand-written SQL because Prisma cannot model partial indexes ([§3.10](#310-partial-and-expression-unique-index-sql)); the `topics` model in [§5](#5-proposed-prisma-model-sketch-illustrative--3-is-normative) therefore carries no `@@unique` for order.
+
+The approved chapter-number constraint is **unchanged by this correction** and remains global.
 
 ## 4. Entity map (candidate view — superseded by §3.5)
 
@@ -1606,7 +1627,12 @@ model Topic {
   chapter     Chapter  @relation(fields: [chapterId], references: [id], onDelete: Restrict)
   subtopics   Subtopic[]
   questions   Question[]
-  @@unique([chapterId, orderIndex])
+  // E-7 as corrected in Revision 5: order_index is a display position, not a
+  // curriculum identifier, so uniqueness is ACTIVE-ONLY and expressed as the
+  // hand-written partial unique index `uq_topics_chapter_order`
+  // (chapter_id, order_index) WHERE is_active — see §3.10. Prisma cannot model
+  // a partial index, so no @@unique is declared here; the index must exist in
+  // the migration SQL before it is first applied.
   @@map("topics")
 }
 
@@ -1832,7 +1858,7 @@ The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (doma
 - **`(status, type, difficulty)`** — published listing with type/difficulty facets.
 - **Partial unique indexes** — publish-safety (one current version, §3.10 `uq_question_versions_one_published_per_question`), source dedup (`uq_question_sources_identity`), active-taxonomy uniqueness. The former `uq_question_options_one_correct_per_version` is **removed** with `question_options.is_correct` (request D); MCQ correctness is now `answer_keys.mcq_correct_option_key` under `UNIQUE (answer_keys.version_id)` plus the request‑C composite FK to `question_options(version_id, key)`.
 - **Checks** — `marks >= 0`, `negative_marks >= 0`, `version_number > 0`, single-char option key, at-most-one organisation per source. §3.9 keeps all of these and adds the hierarchy-chain, envelope and format guards. **Two changes from the previous revision:** `negative_marks` is now `numeric` (E‑9) with `negative_marks <= marks` retained as an upper bound, and the global `type='CQ' ⇒ marks = 10` guard is **removed** (E‑10 rejected — the CQ total belongs to the `cq_stem` profile and publish check I‑15).
-- **Taxonomy uniqueness is global, not partial** *(E‑7 decision)* — `UNIQUE (subject_id, chapter_number)` and `UNIQUE (chapter_id, order_index)` are ordinary unique constraints. The earlier `WHERE is_active` partial indexes assumed a retired number could be reused, which the reviewer rejected while no curriculum-revision entity exists. Side benefit: plain uniques are Prisma-native, so they leave the hand-written SQL set and shrink the drift surface.
+- **Chapter numbering is global; topic display order is active-only** *(E‑7 decision, extension reverted in Revision 5)* — `chapters` carries the ordinary `UNIQUE (subject_id, chapter_number)`; the earlier `WHERE is_active` partial assumed a retired **number** could be reused, which the reviewer rejected while no curriculum-revision entity exists. That reasoning is about identifiers and does not transfer to `topics.order_index`, which only positions a topic in a list: `uq_topics_chapter_order` stays a hand-written `WHERE is_active` partial unique, so retiring a topic frees its position without changing the retired row's identity or any historical question reference. Side benefit of the chapter change: that plain unique is Prisma-native, so it leaves the hand-written SQL set and shrinks the drift surface.
 - **No GIN/full-text indexes yet** — search indexing/tokenization is **OD-32**; a `GIN` on `question_versions.content` can be added additively.
 - **No `ORDER BY RANDOM()`-friendly structures** — random selection is a service algorithm (README §7.1.3), not a schema concern.
 
@@ -3029,7 +3055,7 @@ Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured cont
 7. **Request C — five composite FKs + three support keys (APPROVED WITH CONDITION)**: C‑1…C‑5 plus `UNIQUE (id, subject_id)`, `UNIQUE (id, chapter_id)`, `UNIQUE (id, topic_id)`; conditional on a successful Prisma-drift spike (G‑1).
 8. **Request D — MCQ correctness authority (APPROVED)**: `answer_keys.mcq_correct_option_key` is the sole source; `question_options.is_correct` and `uq_question_options_one_correct_per_version` are permanently removed; four-options/one-key presence enforced at the publish gate (I‑4, I‑13).
 9. **Asset-pointer integrity (APPROVED)**: `question_version_assets.block_ref` is `NOT NULL` with the rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem, option and nested-subquestion content.
-10. **Request E (DECIDED IN FULL)** — eleven accepted (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15); three already resolved (E‑2, E‑16, E‑17); **E‑7 changed** (globally unique chapter numbering, no reuse); **E‑9 changed** (`negative_marks <= marks` retained, column becomes `numeric`, precision/scale open as G‑2); **E‑10 rejected** (no global CQ-total `CHECK`; the 1+2+3+4 = 10 structure lives in the `cq_stem` profile and publish check I‑15).
+10. **Request E (DECIDED IN FULL)** — eleven accepted (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15); three already resolved (E‑2, E‑16, E‑17); **E‑7 changed** (globally unique chapter numbering, no reuse; topic display order keeps its active-only partial unique — Revision 5 reverted the extension to `topics`); **E‑9 changed** (`negative_marks <= marks` retained, column becomes `numeric`, precision/scale open as G‑2); **E‑10 rejected** (no global CQ-total `CHECK`; the 1+2+3+4 = 10 structure lives in the `cq_stem` profile and publish check I‑15).
 
 ### Reviewed — direction noted, gated to Phase 05 (exams), not migration 0001
 11. OD-11 — grace window + `SUBMITTED_LATE`.
@@ -3066,7 +3092,7 @@ The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group enti
 |---|---|
 | **Accepted** | **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15** |
 | **Already resolved** | **E‑2, E‑16, E‑17** |
-| **Changed — E‑7** | Chapter-number reuse **not permitted** while no curriculum-revision entity or versioning policy exists. `UNIQUE (subject_id, chapter_number)` is now a plain global unique constraint. A future curriculum-revision model may revisit this. |
+| **Changed — E‑7** | Chapter-number reuse **not permitted** while no curriculum-revision entity or versioning policy exists. `UNIQUE (subject_id, chapter_number)` is now a plain global unique constraint. A future curriculum-revision model may revisit this. **Topic display order is not treated the same way:** `topics` keeps `uq_topics_chapter_order` as an active-only partial unique index `(chapter_id, order_index) WHERE is_active = true`, because `order_index` is a display position rather than a curriculum identifier. Revision 4 extended E‑7 to `topics`; **Revision 5 reverts that extension** ([§3.15.2](#3152-note-on-the-reverted-e7-extension-to-topics)). |
 | **Changed — E‑9** | `negative_marks <= marks` **retained** as an upper bound; `negative_marks` type changed **`integer` → `numeric`**. Precision and scale remain an **open pre-migration decision** ([§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)), not invented here. The **OD‑21 negative-mark floor is NOT decided** by this constraint. |
 | **Rejected — E‑10** | The global `CHECK (type <> 'CQ' OR marks = 10)` is **removed**. The HSC/ALIM ICT 1 + 2 + 3 + 4 = 10 structure is kept in the `cq_stem` content profile; **I‑15** requires publish-time validation that the question's total marks equal the sum of its rubric subquestion marks. |
 
