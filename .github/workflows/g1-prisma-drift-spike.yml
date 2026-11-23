@@ -118,11 +118,17 @@ jobs:
           psql --version
           psql -Atc "select 'server ' || current_setting('server_version');"
 
-      - name: Create the disposable databases
+      # Only g1_main is created here. The script creates and drops g1_dev
+      # itself, so the workflow never depends on the service image's own
+      # database template — on some images the default template is not
+      # usable, and a pre-created g1_dev would fail for reasons unrelated
+      # to G-1.
+      - name: Create the disposable database
         run: |
           set -euo pipefail
-          psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE g1_dev;'
-          psql -Atc '\l' | cut -d'|' -f1 | sed 's/ *$//' | grep -E '^g1_(main|dev)$'
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'DROP DATABASE IF EXISTS g1_main;'
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE g1_main;'
+          psql -Atc '\l' | cut -d'|' -f1 | sed 's/ *$//' | grep -E '^g1_main$'
 
       - name: Run the G-1 spike (all seven steps)
         env:
@@ -132,24 +138,25 @@ jobs:
           ./docs/database/g1-spike/run.sh \
             --url "postgresql://g1spike:g1spike@127.0.0.1:5432/g1_main"
 
+      # Independent of the script: re-read the catalog directly. Only g1_main
+      # is asserted here — g1_dev is created by the spike script itself, inside
+      # step 6, and is asserted there once its baseline has been applied.
       - name: Assert the five composite FKs are still in the catalog
         if: always()
         run: |
           set -euo pipefail
-          for db in g1_main g1_dev; do
-            n="$(psql -d "$db" -Atc "
-              SELECT count(*) FROM pg_constraint
-              WHERE connamespace = 'public'::regnamespace
-                AND conname IN (
-                  'fk_questions_level_subject','fk_questions_chapter_subject',
-                  'fk_questions_topic_chapter','fk_questions_subtopic_topic',
-                  'fk_answer_keys_options_of_version');" 2>/dev/null || echo 0)"
-            echo "$db: $n/5 composite FKs"
-            [ "$n" = "5" ] || {
-              echo "::error::$db has $n/5 composite FKs"
-              exit 1
-            }
-          done
+          n="$(psql -d g1_main -Atc "
+            SELECT count(*) FROM pg_constraint
+            WHERE connamespace = 'public'::regnamespace
+              AND conname IN (
+                'fk_questions_level_subject','fk_questions_chapter_subject',
+                'fk_questions_topic_chapter','fk_questions_subtopic_topic',
+                'fk_answer_keys_options_of_version');" 2>/dev/null || echo 0)"
+          echo "g1_main: $n/5 composite FKs"
+          [ "$n" = "5" ] || {
+            echo "::error::g1_main has $n/5 composite FKs"
+            exit 1
+          }
 
       - name: Publish the spike artefacts
         if: always()

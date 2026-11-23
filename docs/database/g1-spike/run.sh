@@ -86,6 +86,22 @@ SPIKE_CONFIG="$SPIKE_DIR/prisma/prisma.config.ts"
 # repository's own prisma.config.ts can never be picked up by accident.
 prisma_run() { ( cd "$REPO_ROOT" && "$PRISMA_BIN" "$@" ); }
 
+# Prisma 7's `migrate diff` has no `--from-url` and `migrate deploy` has no
+# `--url`: the live database is named by the `datasource` block of the Prisma
+# config file (`--from-config-datasource` / `to-config-datasource`). These
+# configs are generated at run time so no credential is ever committed.
+# mk_cli_config <path> <url>
+mk_cli_config() {
+  cat > "$1" <<CONFIG
+import { defineConfig } from 'prisma/config';
+export default defineConfig({
+  schema: '$SPIKE_DIR/prisma/schema.prisma',
+  migrations: { path: '$OUT_DIR/tmp/migrations' },
+  datasource: { url: process.env.G1_CLI_DATABASE_URL },
+});
+CONFIG
+}
+
 PRISMA_VERSION="$(node -p "require('$REPO_ROOT/node_modules/prisma/package.json').version")"
 [ "$PRISMA_VERSION" = "7.10.1" ] || fail "pinned Prisma is $PRISMA_VERSION, expected 7.10.1"
 ok "prisma CLI $PRISMA_VERSION (project dependency)"
@@ -164,9 +180,11 @@ ok "introspection produced $(wc -c < "$OUT_DIR/03-introspected.prisma") bytes co
 # --- step 4: no-change drift ------------------------------------------
 step "4. no-change drift: migrate diff (database -> datamodel) must contain no DROP"
 set +e
-prisma_run migrate diff \
-  --config "$SPIKE_CONFIG" \
-  --from-url "$URL" \
+mkdir -p "$OUT_DIR/tmp"
+mk_cli_config "$OUT_DIR/tmp/main.config.ts"
+G1_CLI_DATABASE_URL="$URL" prisma_run migrate diff \
+  --config "$OUT_DIR/tmp/main.config.ts" \
+  --from-config-datasource \
   --to-schema "$SPIKE_DIR/prisma/schema.prisma" \
   --script --exit-code \
   > "$OUT_DIR/04-drift-empty.sql" 2> "$OUT_DIR/04-drift-empty.err"
@@ -197,9 +215,9 @@ grep -q 'probeMarker' "$probe_schema" \
   || fail "failed to build the additive-change probe schema"
 
 set +e
-prisma_run migrate diff \
-  --config "$SPIKE_CONFIG" \
-  --from-url "$URL" \
+G1_CLI_DATABASE_URL="$URL" prisma_run migrate diff \
+  --config "$OUT_DIR/tmp/main.config.ts" \
+  --from-config-datasource \
   --to-schema "$probe_schema" \
   --script \
   > "$OUT_DIR/05-drift-additive.sql" 2> "$OUT_DIR/05-drift-additive.err"
@@ -226,10 +244,22 @@ step "6. migrate dev: no datamodel change must generate no destructive SQL"
 DEV_URL="${G1_DEV_DATABASE_URL:-}"
 [ -n "$DEV_URL" ] || fail "G1_DEV_DATABASE_URL must be set to a second, empty disposable database"
 
+# Recreate the dev database from scratch: `migrate dev` must not be handed a
+# database whose contents are any part of the question.
+DEV_DBNAME="${DEV_URL##*/}"
+DEV_DBNAME="${DEV_DBNAME%%\?*}"
+ADMIN_URL="$(printf '%s' "$DEV_URL" | sed 's#/[^/?]*\(\?.*\)\{0,1\}$#/postgres\1#')"
+"$PSQL" "$ADMIN_URL" -v ON_ERROR_STOP=1 -q \
+  -c "DROP DATABASE IF EXISTS \"$DEV_DBNAME\";" \
+  -c "CREATE DATABASE \"$DEV_DBNAME\";" \
+  > "$OUT_DIR/06-devdb.log" 2>&1 \
+  || { cat "$OUT_DIR/06-devdb.log"; fail "could not (re)create the dev database $DEV_DBNAME"; }
+ok "dev database $DEV_DBNAME recreated empty"
+
 work="$(mktemp -d)"
 mkdir -p "$work/prisma"
 cp "$SPIKE_DIR/prisma/schema.prisma" "$work/prisma/schema.prisma"
-cp "$SPIKE_CONFIG" "$work/prisma.config.ts"
+mk_cli_config "$work/prisma.config.ts"
 
 # baseline 0001: the spike schema exactly as 0001-schema.sql builds it,
 # minus the hand-written artifacts Prisma cannot express. Applying it with
@@ -241,7 +271,7 @@ prisma_run migrate diff --config "$SPIKE_CONFIG" --from-empty --to-schema "$SPIK
   || { cat "$OUT_DIR/06-baseline.err"; fail "could not generate the baseline migration SQL"; }
 assert_nonempty "$work/prisma/migrations/0001_g1_baseline/migration.sql" "baseline migration"
 
-( cd "$work" && "$PRISMA_BIN" migrate deploy --config "$work/prisma.config.ts" --url "$DEV_URL" ) \
+( cd "$work" && G1_CLI_DATABASE_URL="$DEV_URL" "$PRISMA_BIN" migrate deploy --config "$work/prisma.config.ts" ) \
   > "$OUT_DIR/06-deploy.log" 2>&1 || { cat "$OUT_DIR/06-deploy.log"; fail "migrate deploy failed"; }
 ok "baseline applied to the dev database"
 
