@@ -101,11 +101,32 @@ jobs:
           # npx must never be able to download a different Prisma.
           test -x node_modules/.bin/prisma || { echo "::error::pinned prisma binary missing"; exit 1; }
 
-      - name: Report PostgreSQL versions
+      # The runner image does not reliably ship a psql client, so install one
+      # if it is missing and report the real error if the connection itself
+      # is the problem. Without this, a missing client looks like a failed
+      # experiment, which would be misleading.
+      - name: Ensure a PostgreSQL client and report versions
         run: |
-          set -euo pipefail
-          psql -h localhost -p 5432 -U g1 -d g1_test   -Atc 'select current_setting(''server_version'');'
-          psql -h localhost -p 5433 -U g1 -d g1_shadow -Atc 'select current_setting(''server_version'');'
+          set -uo pipefail
+          if ! command -v psql >/dev/null 2>&1; then
+            echo "psql not found on the runner; installing postgresql-client"
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client >/dev/null
+          fi
+          command -v psql
+          psql --version
+          rc=0
+          for target in "5432 g1_test" "5433 g1_shadow"; do
+            set -- $target
+            port="$1"; db="$2"
+            if out="$(psql -h localhost -p "$port" -U g1 -d "$db" -Atc 'select current_setting(''server_version'');' 2>&1)"; then
+              echo "postgres on $port ($db): $out"
+            else
+              echo "::error::cannot reach $db on port $port: $out"
+              rc=1
+            fi
+          done
+          exit $rc
 
       - name: Run G-1 experiment 2
         run: |
