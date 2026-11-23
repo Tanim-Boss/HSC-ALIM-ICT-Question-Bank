@@ -79,3 +79,56 @@ run "H  NO-OP CONTROL: prev -> prev (an empty diff is the CORRECT answer)" \
   --from-schema="$SESS/prev.prisma" --to-schema="$SESS/prev.prisma" --script --config "$SESS/next.config.ts"
 run "I  --from-migrations vs --to-schema (the real workflow shape)" \
   --from-migrations "$REPO_ROOT/prisma/migrations" --to-schema="$SESS/next.prisma" --script --config "$SESS/next.config.ts"
+
+# ---------------------------------------------------------------------------
+# The decisive experiment.
+#
+# Cases A-I are ambiguous: an empty script could mean "no difference", or it
+# could mean "your --from/--to flags were ignored and something else was
+# compared". A one-model datamodel cannot be identical to the 18-model target,
+# so if diffing it against next.prisma ALSO yields nothing, the flags are not
+# being honoured and every empty result above is worthless as evidence.
+# ---------------------------------------------------------------------------
+cat > "$SESS/tiny.prisma" <<'TINY'
+datasource db {
+  provider = "postgresql"
+  url      = "postgresql://user:pass@localhost:5432/db"
+}
+
+model OnlyOne {
+  id UUID @id @default(uuid()) @db.Uuid
+  @@map("only_one")
+}
+TINY
+
+run "J  DECISIVE: one-model datamodel -> next.prisma (empty output = flags ignored)" \
+  --from-schema="$SESS/tiny.prisma" --to-schema="$SESS/next.prisma" --script --config "$SESS/next.config.ts"
+
+# Same, but with no config at all and from a directory with no config above it.
+echo "===== K  one-model -> next, run from /tmp with no config anywhere"
+( cd /tmp && "$P" migrate diff \
+    --from-schema="$SESS/tiny.prisma" --to-schema="$SESS/next.prisma" --script ) 2>&1
+echo "----- exit=$?"
+echo
+
+# Determinism: the same invocation three times.
+for i in 1 2 3; do
+  echo "===== L$i  determinism repeat of A"
+  ( cd "$REPO_ROOT" && "$P" migrate diff \
+      --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script \
+      --config "$SESS/next.config.ts" ) 2>&1
+  echo "----- exit=$?"
+  echo
+done
+
+# Engine logging, to see whether the schema engine is even starting.
+echo "===== M  same as A with DEBUG=* (engine diagnostics)"
+( cd "$REPO_ROOT" && DEBUG='*' "$P" migrate diff \
+    --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script \
+    --config "$SESS/next.config.ts" ) 2>&1 | grep -viE "^\s*$" | sed -n '1,60p'
+echo
+echo "===== N  environment"
+node -v 2>/dev/null; echo "prisma: $("$P" --version 2>/dev/null | tr '\n' ' ')"
+echo "DATABASE_URL set: ${DATABASE_URL:+yes}${DATABASE_URL:-no}"
+echo "engines present: $(ls "$REPO_ROOT/node_modules/@prisma/engines" 2>/dev/null | tr '\n' ' ')"
+"$P" migrate diff --help 2>&1 | grep -A2 "from-schema " | head -6
