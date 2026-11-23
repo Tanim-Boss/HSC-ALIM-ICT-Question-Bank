@@ -43,11 +43,25 @@ COMPOSITE_FKS=(
 )
 
 # --- helpers -----------------------------------------------------------
-fail()  { printf '\n[G-1] FAIL: %s\n' "$*" >&2; exit 1; }
+# Failures are printed, and also surfaced as a GitHub Actions annotation when
+# running in CI, so the reason is visible without downloading the job log.
+fail()  {
+  printf '\n[G-1] FAIL: %s\n' "$*" >&2
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    printf '::error title=G-1 gate failure::%s\n' "$(printf '%s' "$*" | tr '\n' ' ')"
+  fi
+  exit 1
+}
 step()  { printf '\n============================================================\n[G-1] %s\n============================================================\n' "$*"; }
 ok()    { printf '[G-1] ok: %s\n' "$*"; }
 
-trap 'printf "\n[G-1] FAIL: aborted at line %s (exit %s)\n" "$LINENO" "$?" >&2' ERR
+trap '
+  rc=$?
+  printf "\n[G-1] FAIL: aborted at line %s (exit %s)\n" "$LINENO" "$rc" >&2
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    printf "::error title=G-1 harness aborted::line %s exited %s\n" "$LINENO" "$rc"
+  fi
+' ERR
 
 # assert_nonempty <file> <description>
 assert_nonempty() {
