@@ -178,6 +178,8 @@ jobs:
       # using SQL directly, so the gate does not rely solely on the driver's own
       # bookkeeping. A driver bug that skipped an assertion would be caught here.
       - name: Independent schema inventory and catalog assertion
+        # Runs even when the gate failed, so a partial deployment is still
+        # inspected — but an empty database is reported, never faked into a pass.
         if: always() && steps.g3.outcome != 'skipped'
         run: |
           set -uo pipefail
@@ -190,7 +192,7 @@ jobs:
             echo "=== $db (port $port)"
             echo "--- inventory:"
             psql -h localhost -p "$port" -U g3 -d "$db" -Atc \
-              "SELECT 'tables=' || (SELECT count(*) FROM pg_tables WHERE schemaname='public')
+              "SELECT 'tables=' || (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations')
                     || ' enums=' || (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace)
                     || ' fks='    || (SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace)
                     || ' checks=' || (SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%')
@@ -212,7 +214,7 @@ jobs:
             fi
             # The whole inventory is asserted here too, not just the five.
             inv="$(psql -h localhost -p "$port" -U g3 -d "$db" -Atc \
-              "SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public') || '/' ||
+              "SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations') || '/' ||
                       (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace) || '/' ||
                       (SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace) || '/' ||
                       (SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%');")"

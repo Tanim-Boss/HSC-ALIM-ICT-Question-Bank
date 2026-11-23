@@ -4551,7 +4551,66 @@ Recorded so they are not mistaken for problems later:
   append-only evidence (§3.4.4).
 - **No `Group` table, no provenance columns on `questions`.** Correct per OD‑08/OD‑09.
 
-#### 11.9.8 Audit decisions requested
+#### 11.9.8 CI run 45272402867 — the full-schema gate FAILED on its first run, and why that is the useful result
+
+The first full-schema run failed, and the failure is recorded here rather than fixed
+silently, because it is more informative than a green first attempt would have been.
+
+**What passed in that run — the Prisma-dependent core:**
+
+| Criterion | Result in `45272402867` |
+|---|---|
+| 1 — workflow enforcement | **PASS** — repo guard clean, rejected `migrate dev`, accepted the approved commands |
+| 2a–2d — migration history | **PASS** — pending before deployment, **`prisma migrate deploy` applied the committed baseline**, status clean afterwards, 1 applied / 0 unfinished |
+| 2e — checksum control | **PASS** — the real applied migration matched its recorded SHA‑256 |
+| 3 — independent catalog read | `_prisma_migrations` + all 26 FKs present in the deployed database |
+
+That is the evidence the reduced prototype could never produce: **the committed
+`prisma/migrations/0001_phase04a_question_bank/migration.sql` deploys through Prisma and
+produces the real schema.** The transcription uncertainty is gone.
+
+**What failed — a defect in my harness, not in the schema.** The shape assertion reported:
+
+```
+shape (after deploying the real baseline): 19 tables, expected 18
+g3f_main inventory is 19/7/26/47, expected 18/7/26/47
+```
+
+`_prisma_migrations` is a real table in the `public` schema. It is Prisma's own
+bookkeeping, not part of the approved 18-table model, and the count must exclude it by
+name. **The reduced prototype never counted tables at all, so it never encountered
+this** — which is precisely why §11.6.5 called the prototype-divergence risk *High* and
+why this gate had to be run against the real path.
+
+The enums (7), foreign keys (26) and CHECKs (47) in the same assertion were **already
+correct** — the schema itself is right; only the table predicate was wrong.
+
+Measured fix, on PostgreSQL 16.2:
+
+```
+with the table present:  SELECT count(*) ... tablename <> '_prisma_migrations'  ->  18
+same database, unfiltered: SELECT count(*) FROM pg_tables ... 'public'          ->  19
+```
+
+**The assertion was corrected; the criterion was not weakened.** The gate still requires
+exactly 18, and it still fails on 17, 19 or any other count. Excluding a named
+Prisma bookkeeping table is a correct definition of "the domain tables", not a relaxation
+— a schema that lost `question_sources` would still fail.
+
+**Also removed: a misleading success message.** A line printed
+`ok: the guard accepts the approved baseline migration` outside any conditional, so it
+reported success on a path it had not taken. It is gone; the real assertion now fails
+loudly if the baseline is rejected.
+
+**Consequence:** the primary database was left partially deployed when the gate aborted,
+so the follow-up "Independent schema inventory" step read an empty `g3f_replay` and
+correctly reported `0/0/0/0`. That step is intentionally `always()` so a partial state is
+inspected rather than hidden.
+
+**Status after the fix: re-run pending.** Nothing in the corrected run's outcome is
+claimed here in advance.
+
+#### 11.9.9 Audit decisions requested
 
 | # | Question | Recommendation |
 |---|---|---|

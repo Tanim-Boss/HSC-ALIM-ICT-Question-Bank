@@ -106,7 +106,11 @@ assert_catalog() {
 # shape is asserted, not just the protected part.
 assert_shape() {
   local url="$1" label="$2" t e f c i
-  t="$("$PSQL" "$url" -Atc "SELECT count(*) FROM pg_tables WHERE schemaname='public';")"
+  # NOTE: _prisma_migrations is a real table in public and would make the count
+  # 19. It is Prisma's own bookkeeping, not part of the approved 18-table model,
+  # so it is excluded BY NAME. (Found by CI run 45272402867, which reported
+  # 19 tables. The reduced prototype never counted tables, so it never saw this.)
+  t="$("$PSQL" "$url" -Atc "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations';")"
   e="$("$PSQL" "$url" -Atc "SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace;")"
   f="$("$PSQL" "$url" -Atc "SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace;")"
   c="$("$PSQL" "$url" -Atc "SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%';")"

@@ -57,7 +57,7 @@ ok "migration applies cleanly to PostgreSQL $("$PSQL" "$URL" -Atc 'SHOW server_v
 
 printf '\n=== 2. schema shape (18 / 7 / 26 / 47 / 6) ===\n'
 shape="$("$PSQL" "$URL" -Atc "
-SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public') || '/' ||
+SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations') || '/' ||
        (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace) || '/' ||
        (SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace) || '/' ||
        (SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%') || '/' ||
