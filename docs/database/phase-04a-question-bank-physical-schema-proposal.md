@@ -1,16 +1,18 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 10 — Request C alternatives analysed; Option C prototyped and passing; decision requested)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 11 — Option C conditionally approved; G‑3 opened for workflow production-readiness)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
 **Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
+**Revision 11 scope:** **Option C conditionally approved; G‑3 opened; G‑1 left FAILED.** The reviewer resolved D‑1…D‑4 (§11.4.8): Option C is **conditionally approved** as the migration workflow, **Option A is not approved**, **Option B is rejected for this schema**, and **G‑1 remains FAILED — it is not re-scored and its history is not rewritten**. A new gate, **G‑3** (§11.6), covers production-readiness of the Option C workflow with six mandatory criteria, an explicit acceptance list, and a residual-risk table. Hardening implemented in this revision: a repository/CI guard rejecting `prisma migrate dev` (`option-c/repo-guard.sh`), a shared protected-FK definition (`option-c/guard.py`), a pre/post-deployment `migrate status` check, a live-catalog assertion for C‑1…C‑5 after every deployment, a migration-SQL integrity check, and documented approved commands. **G‑3 is NOT PASSED at this revision** — criteria 2 and 6 and sub-criteria 4a and 5b are not yet evidenced; §11.6.4 states exactly what is and is not proven. The constrained-column study (§11.6.2) overturned an earlier assumption: a *coercible* change leaves the constraint intact, and only a *non-coercible* change forces a hand-written drop+re-create. No constraint was weakened, C‑1…C‑5 are unchanged, `prisma/schema.prisma` is untouched and there is no `prisma/migrations/` directory.
 **Revision 10 scope:** **Request C's architectural alternatives analysed; Option C prototyped and verified; decision requested.** G‑1 remains **FAILED** and is not re-scored. Option A is **not** adopted. The approved physical design and C‑1…C‑5 are unchanged. Option C (controlled migration workflow) passed a nine-claim CI prototype, including confirmation that a schema-to-schema diff never proposes dropping the five constraints, and a negative test proving the CI guard detects an injected destructive migration. See [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request) for the decision matrix and the four open decisions (D‑1…D‑4).
 **Revision 9 scope:** **G‑1 experiment 2 executed; still FAILED, now precisely isolated.** Prisma's workflow *can* create, deploy and enforce all five composite FKs when they are appended to a Prisma-generated migration — but its no-change `migrate dev` treats them as drift and generates a migration that removes them. The diff is confined to exactly the five, with no ordinary FK or unique involved, so the earlier ambiguity is gone. [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive). Option A is not adopted; Option B remains the approved design and implementation stays blocked.
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
-**Status (Revision 10):** **G‑1 remains FAILED; Request C is still not approved for implementation.** A viable workflow (Option C) has now been prototyped and passes, but adopting it is your decision (D‑1), as is how the workflow result interacts with G‑1 (D‑2). The Option A fallback remains **not adopted**.
+**Status (Revision 11):** **Option C is conditionally approved and G‑3 is open.** G‑1 remains **FAILED** and its record is unchanged. The approved physical design and C‑1…C‑5 are unchanged. Implementation is **not** authorised: G‑3 must pass in full (it has not), and G‑2 and OD‑21 remain undecided. Documentation and an isolated, disposable prototype only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**.
+**Status (Revision 10, historical):** **G‑1 remains FAILED; Request C was not approved for implementation at that revision.** A viable workflow (Option C) has now been prototyped and passes, but adopting it is your decision (D‑1), as is how the workflow result interacts with G‑1 (D‑2). The Option A fallback remains **not adopted**.
 **Status (Revision 9):** **G‑1 has FAILED again, and this time the finding is unambiguous: Prisma generates a migration that would delete the constraint layer.** Request C remains the approved architectural design (Option B) but is **not approved for implementation**. The Option A fallback is **not adopted**. A reviewer decision is required. The fallback — service validation plus a scheduled integrity query plus a publish-gate re-check — requires an explicit reviewer decision before migration 0001 can be written. Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The `g1-spike/` directory is an isolated, disposable test harness and is not part of the application build. Design authority remains approved; implementation is still gated on G‑1 and G‑2 (§11.3).
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
 
@@ -136,7 +138,7 @@ Direction noted in the earlier report; required before Phase 05 (examinations), 
 
 **Status: SPECIFICATION COMPLETE — APPROVED (Request A), with two pre-migration gates open.** This section replaces the earlier abbreviated inventory. It is a reviewable design, not authorization to create a migration: `prisma/schema.prisma` stays untouched and no `prisma/migrations/` directory is created until the reviewer approves §3 and §7 ([§11](#11-approval-register--final-state)).
 
-Every table below is **APPROVED** (Request A), with per-item dispositions recorded in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions). Three schema decisions were taken by the reviewer and are marked accordingly: MCQ correctness authority (Request **D**), asset-pointer integrity, and the Request E dispositions. The two items still open are **not** schema design questions — they are the Prisma-drift spike (**G‑1**, a condition of Request C) and `negative_marks` precision/scale (**G‑2**, E‑9) — both in [§11.3](#113-pre-migration-gates--both-must-clear-before-migration-0001-is-created). Nothing in this section changes an approved decision: [§3.1.4](#314-approved-decisions-this-section-preserves) maps each preserved decision to the artifact that enforces it.
+Every table below is **APPROVED** (Request A), with per-item dispositions recorded in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions). Three schema decisions were taken by the reviewer and are marked accordingly: MCQ correctness authority (Request **D**), asset-pointer integrity, and the Request E dispositions. The two items still open are **not** schema design questions — they are the Prisma-drift spike (**G‑1**, a condition of Request C) and `negative_marks` precision/scale (**G‑2**, E‑9) — both in [§11.3](#113-pre-migration-gates--all-must-clear-before-migration-0001-is-created). Nothing in this section changes an approved decision: [§3.1.4](#314-approved-decisions-this-section-preserves) maps each preserved decision to the artifact that enforces it.
 
 ### 3.1 Scope, conventions and preserved decisions
 
@@ -3109,14 +3111,15 @@ The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group enti
 
 No Request E item remains open. Full per-item rationale, consequence and model-change assessment: [§3.15](#315-corrections-and-tightenings--final-request-e-decisions).
 
-### 11.3 Pre-migration gates — both must clear before migration 0001 is created
+### 11.3 Pre-migration gates — all must clear before migration 0001 is created
 
 | Gate | Requirement | Blocks |
 |---|---|---|
 | **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Executed twice. [§11.3.2](#1132-g1-verdict--fail): FAIL (confounded). [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive): FAIL and decisive** — with real migration history Prisma's no-change `migrate dev` generates `DROP CONSTRAINT` for exactly the five. | Request C (all five FKs + three support keys) — **failed; Option A not adopted; reviewer decision required** |
 | **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | Settle `numeric(p, s)` and record it in §3.15.1 and the Prisma `@db.Decimal(p, s)` annotation. | The `questions.negative_marks` column definition only |
+| **G‑3 — Option C workflow production-readiness (new, [§11.6](#116-g3--production-readiness-gate-for-the-option-c-workflow))** | Six mandatory criteria: workflow enforcement, migration-history consistency, protected-constraint integrity, constrained-column safety, tampering detection, reproducibility. **Currently NOT PASSED** — see §11.6.4. | Option C adoption as the migration workflow; therefore migration 0001 |
 
-Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested.
+Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested. **G‑1 remains FAILED** and is not re-scored by G‑3: G‑1 asked whether the *ordinary* Prisma workflow preserves the constraints (it does not), while G‑3 asks whether the *replacement* workflow is safe enough to operate production with. Both must be settled before implementation, and neither is settled by the other.
 
 #### 11.3.1 G‑1 result (Revision 6–7) — BLOCKED — superseded by §11.3.2
 
@@ -3692,8 +3695,37 @@ via `prisma migrate status`; (b) a repository check that greps every changed
 `migration.sql` for `DROP CONSTRAINT` on a protected name — the guard prototyped here,
 which is already negative-tested.
 
+> **Correction (Revision 11), recorded rather than quietly edited:** D‑4(b) as worded
+> above is **wrong**, and it was disproved during implementation. Rejecting every
+> `DROP CONSTRAINT` on a protected name also rejects the *correct* migration for a
+> non-coercible constrained-column change, which cannot be written any other way.
+> The rule that survived testing is "a protected FK may be dropped only if the same
+> migration re-adds it with an equivalent definition" — see [§11.6.3](#1163-why-the-guard-is-not-a-simple-drop-constraint-grep).
+> D‑4 was therefore implemented in the corrected form plus the expanded control set
+> in §11.6.1, not as originally worded.
+
 **Still explicitly not decided by this section:** G‑2 (`negative_marks`
 precision/scale), OD‑21 (negative-mark floor). OD‑11/OD‑12/OD‑13 remain deferred.
+
+#### 11.4.8 Decision received — D‑1 … D‑4 resolved
+
+The decisions in §11.4.7 were taken by the reviewer. Recorded here verbatim in
+effect, because three of them constrain everything that follows:
+
+| # | Decision | Disposition |
+|---|---|---|
+| **D‑1** | Adopt Option C as the Phase 04A migration workflow | **CONDITIONALLY APPROVED** — conditional on G‑3 (§11.6) passing. `migrate dev` is prohibited for this repository. |
+| **D‑2** | Does a passing workflow prototype clear G‑1? | **No.** Reading (iii) was chosen: **G‑1 remains FAILED** and is *not* re-scored. A new gate, **G‑3**, is opened for the workflow. |
+| **D‑3** | Accept the residual risks? | **Accepted for this phase, recorded, and mitigated** — see §11.6.5. Each risk now has a named, tested control rather than a process convention. |
+| **D‑4** | Optional hardening | **Required**, and expanded from (a)+(b) to the five controls in §11.6.1. |
+
+**G‑1 is not rewritten.** Its two FAIL results in §11.3.2 and §11.3.3 stand exactly
+as recorded. Nothing in this revision or any earlier one changes them, and no
+wording here should be read as a retroactive pass. G‑1 asked whether Prisma's
+ordinary workflow preserves C‑1…C‑5; the answer was no, twice, and it stays no.
+
+**Option A: not approved.** **Option B: rejected for this schema.** Option C2
+(§11.4.4) is not selected: it is unmeasured and adds a second toolchain.
 
 ### 11.5 Still deferred — unchanged by this approval
 
@@ -3705,7 +3737,158 @@ precision/scale), OD‑21 (negative-mark floor). OD‑11/OD‑12/OD‑13 remain 
 
 Also unchanged and still open: the **OD‑21** negative-mark floor, the Group entity, user linkage (OD‑15/OD‑16), moderation states beyond the three approved values (OD‑27), RLS (OD‑16), full-text/Bangla search (OD‑32), retention periods (OD‑20), rate-limit store (OD‑06), CQ assessment modality (OD‑01), expiry policy (OD‑03), guest practice (OD‑04), answer review release (OD‑14), PDF worker host (OD‑02), paper/export model (OD‑28) and AI cache/isolation (OD‑29).
 
-### 11.5 What approval now authorises — and what it does not
+### 11.6 G‑3 — production-readiness gate for the Option C workflow
+
+**Status at this revision: NOT PASSED.** Two mandatory criteria (2 and 6) and two
+sub-criteria (4a, 5b) are **not tested** in the evidence available at the time of
+writing, and G‑3 explicitly may not be declared PASSED until every mandatory
+criterion has been tested successfully. The prototype and its controls exist and
+are negative-tested; the gate itself is open.
+
+**G‑3 is a separate gate from G‑1 and does not touch it.** G‑1 asked whether
+Prisma's ordinary migration workflow preserves C‑1…C‑5. G‑3 asks a different
+question:
+
+> Given that the project will **not** use Prisma's ordinary migration workflow, is
+> the replacement workflow safe enough to operate production with?
+
+#### 11.6.1 The six mandatory criteria and the control that satisfies each
+
+| # | Criterion | Control (implemented) | Evidence |
+|---|---|---|---|
+| 1 | **Workflow enforcement** | `option-c/repo-guard.sh` — scans every executed surface (`scripts/`, `.github/workflows/`) and fails on `prisma migrate dev`, `migrate reset`, `db push`. Runs as a separate CI job. | Guard clean on the real repository; **negative-tested** against a script that invokes `migrate dev` (rejected) and against an allow-list script using `deploy`/`status`/`diff` (accepted, no false positive). |
+| 2 | **Migration-history consistency** | `migrate status` **before** deployment (pending expected, exit 1) and **after** (clean, exit 0), plus a direct comparison of migrations on disk against `_prisma_migrations`. | Driver steps 2a–2d. **NOT TESTED** in this revision — see §11.6.4. |
+| 3 | **Protected constraint integrity** | `guard.py catalog` — compares the **live catalog** (`pg_constraint`: referencing columns, referenced columns, `ON UPDATE`, `ON DELETE`) against the five approved definitions. Runs after every deployment in CI. | **PASS and negative-tested**: it rejected an `ON DELETE CASCADE` weakening and reported a dropped C‑5 as `MISSING from the catalog`. A count of five would have passed both tampered cases. |
+| 4 | **Constrained-column migration safety** | Measured behaviour of the two change classes (§11.6.2), plus the guard's drop-must-be-re-added rule. | **PASS (SQL level), 4a NOT TESTED**: coercible widening preserved C‑5 and it still enforced; non-coercible change was refused by PostgreSQL and then by C‑1/C‑2 with the ordinary FK removed; the safe hand-written pattern restored integrity; CI rejected the unsafe variant. |
+| 5 | **Tampering detection** | `guard.py sql` before deployment; Prisma's checksum refusal for edits to an applied migration. | **PASS, 5b NOT TESTED**: 5/5 textual variants rejected before deployment (drop-only, weakened `ON DELETE`, narrowed columns, retargeted reference, `DROP TABLE`). |
+| 6 | **Reproducibility** | `migrate deploy` into an independent empty database, followed by the catalog assertion and the 14/14 enforcement suite. | Driver step 6. **NOT TESTED** in this revision — see §11.6.4. |
+
+Nothing is claimed about a criterion whose test did not run. A skipped test is
+reported as `NOT TESTED` by the driver and appears that way in `RESULT.txt`.
+
+#### 11.6.2 Constrained-column change — what was actually measured
+
+This is the finding that changed the design, so it is stated in full.
+
+| Change under test | PostgreSQL | Composite FK afterwards |
+|---|---|---|
+| `answer_keys.mcq_correct_option_key` `text` → `varchar(16)` (inside C‑5) | **accepted** — binary-coercible | C‑5 untouched; still enforcing; **no hand-editing required** |
+| `questions.subject_id` `uuid` → `varchar(64)` (inside C‑1, C‑2) | **refused** — `Key columns … are of incompatible types` | must be dropped and re-created by hand |
+
+Four specific answers, and nothing beyond them:
+
+- **(a) Does snapshot-to-snapshot diffing detect it?** The datamodel change is
+  visible to the diff (CI step 4a). The diff proposes `ALTER COLUMN` and **zero**
+  `DROP` statements, because it cannot see the constraint at all. It therefore
+  neither removes the constraint nor re-creates it.
+- **(b) Does the generated migration preserve referential integrity?** For a
+  **coercible** change, yes — measured, C‑5 intact and enforcing. For a
+  **non-coercible** change, PostgreSQL refuses the statement outright, so the
+  generated migration fails safe rather than silently degrading. In the
+  non-coercible case, with the ordinary single-column FK removed first, the
+  composite FK itself is what refuses — so this is the composite constraint
+  behaving, not an accident of a neighbouring FK.
+- **(c) Must the manual composite FK be dropped and re-created?** For a
+  non-coercible change, **yes**. There is no way to alter such a column with the
+  constraint in place. This is precisely why a guard that rejects every
+  `DROP CONSTRAINT` on a protected name would be wrong: it would block the only
+  correct fix. Both `guard.py` and `repo-guard.sh` were rewritten after this was
+  measured, and both were then re-tested against the legitimate drop+re-add
+  pattern to prove no false positive.
+- **(d) Does CI catch an unsafe migration?** Yes. A migration that drops C‑5,
+  widens the column, and never restores the constraint is rejected by the textual
+  guard **before** deployment **and** — if it were ever applied — reported by the
+  catalog assertion afterwards as `MISSING from the catalog`. The second control
+  was proven necessary by applying that migration to a disposable database: it
+  applied cleanly and afterwards accepted `mcq_correct_option_key = 'Z'` with no
+  matching option.
+
+**Explicitly not generalised.** Two representative changes were tested on a
+reduced 10-table reproduction. No claim is made about other columns, other types,
+`NULL`-ability changes, primary-key changes, or the full 18-table schema. Each new
+class of change needs its own measurement.
+
+#### 11.6.3 Why the guard is not a simple `DROP CONSTRAINT` grep
+
+The intuitive guard — reject any `DROP CONSTRAINT` naming a protected FK — was
+implemented first, then **disproved**: it rejects the legitimate drop+re-add
+migration that a non-coercible column change requires. The rule that survives
+testing is:
+
+> A protected FK may be dropped **only if the same migration re-adds it with an
+> equivalent definition** — the same referencing columns, the same referenced
+> columns, and `ON UPDATE CASCADE` / `ON DELETE RESTRICT`.
+
+`option-c/guard.py` is the single definition of that rule, imported by both the
+repository guard and the CI job so the two cannot drift apart. The textual check is
+a fast pre-deployment filter; the **catalog assertion is the authoritative one**,
+because text can be made to look right while the database is wrong.
+
+#### 11.6.4 Evidence status at this revision — stated precisely
+
+**What is committed and green:** the G‑1 Option C prototype evidence at
+[`g1-spike/option-c/expected/RESULT.md`](g1-spike/option-c/expected/RESULT.md)
+(9/9 claims, CI runs `45257808002`, `45257828308`).
+
+**What is new and verified locally:** the repository guard (clean, negative-tested,
+no false positive on approved commands); the catalog assertion (positive and two
+negative cases); the textual guard (5/5 tampering variants rejected, and the
+legitimate drop+re-add pattern accepted); the constrained-column measurements in
+§11.6.2; and a full local run of the driver in PostgreSQL-only mode whose
+`RESULT.txt` reports criteria 3 and 5 as PASS and 1, 2, 4, 4a, 5b and 6 as partial
+or not tested.
+
+**What is not yet evidenced:** criteria 2 and 6 and sub-criteria 4a and 5b need the
+Prisma CLI and a PostgreSQL service with real migration history. That is the
+[`phase04a-g3-workflow-gate.yml`](../../../.github/workflows/phase04a-g3-workflow-gate.yml)
+workflow's job. **Until a green run of that workflow exists, G‑3 stays NOT PASSED**
+and no part of this document claims otherwise. A PostgreSQL-only run is never
+presented as Prisma compatibility evidence, here or anywhere else in this
+document.
+
+#### 11.6.5 Residual risks and their mitigations
+
+| Risk | Severity | Mitigation now in place | Residual |
+|---|---|---|---|
+| Someone runs `migrate dev` and a generated migration drops C‑1…C‑5 | High | `repo-guard.sh` in CI; `migrate dev` documented as prohibited; textual guard on every migration | A developer can still run it locally before committing. The catalog assertion catches the result only at deployment time. |
+| A hand-edited migration weakens a constraint | High | Textual guard before deployment **and** catalog assertion after | An edit to an already-applied migration is caught by Prisma's checksum only (4a/5b realm — not yet exercised in CI). |
+| A constrained-column change is "fixed" by deleting the constraint | High | `guard.py` rejects drop-without-restore; catalog assertion reports `MISSING` | Requires the guard to actually be run. It is not a database-level protection. |
+| Coercible widening silently changes types (e.g. truncating to `varchar(n)`) | Medium | Catalog assertion confirms the constraint; enforcement suite confirms it still rejects bad rows | The assertion checks constraints, **not** whether `varchar(16)` is wide enough for real data. That is a review responsibility, not an automated one. |
+| The reduced 10-table prototype diverges from the 18-table schema | Medium | Same constraint definitions, verbatim from §3.11.6; guard definitions are shared, not copied | The full schema has not been through G‑3. Migration 0001 must re-run the gate against the real model. |
+| CI unavailable or the workflow is disabled | Medium | Gate is a required check; approval is conditional on it | Organisation-level, not technical. |
+| A second toolchain is needed for a change Prisma cannot express | Low | Option C keeps hand-written SQL inside `migration.sql`, which stays in the Prisma history | Reviewer load on every such change. |
+
+#### 11.6.6 G‑3 acceptance criteria — the gate
+
+G‑3 is **PASSED** only when **all** of the following hold, on the full model, with
+a run URL recorded:
+
+1. The repository guard is green on `main` and fails on a deliberately injected
+   `migrate dev` script (negative test in the same run).
+2. `migrate status` reports the pending migration before deployment and a clean
+   history after it, and the applied count matches the migrations directory.
+3. The catalog assertion passes after deployment and **fails** on a deliberately
+   weakened and on a deliberately dropped protected FK in the same run.
+4. A constrained-column change is generated, applied through the workflow, and
+   leaves all five constraints present, correct and still enforcing — with the
+   coercible and non-coercible cases distinguished rather than conflated.
+5. Five textual tampering variants are rejected before deployment, and an edit to
+   an already-applied migration is refused.
+6. An independent empty database replays to a state that passes both the catalog
+   assertion and the 14/14 enforcement suite.
+
+Any `NOT TESTED` in that list means **G‑3 is not passed**. There is no partial
+pass, no "passed with exceptions", and no substitution of a PostgreSQL-only run
+for a Prisma run.
+
+#### 11.6.7 What G‑3 does not decide
+
+G‑2 (`negative_marks` precision/scale) and OD‑21 (negative-mark floor) remain
+**open and undecided**. OD‑11/OD‑12/OD‑13 remain deferred. C‑1…C‑5 are unchanged:
+no constraint was weakened, relaxed or removed to make any test pass, and the
+guard's encoded definitions are the approved §3.11.6 definitions.
+
+### 11.7 What approval now authorises — and what it does not
 
 **Authorised only once G‑1 is resolved (it has now FAILED — a fallback decision is required) and G‑2 clears:** edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
 

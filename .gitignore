@@ -49,3 +49,8 @@ next-env.d.ts
 /docs/database/g1-spike/out/
 /docs/database/g1-spike/experiment-2/out/
 /docs/database/g1-spike/option-c/out/
+/docs/database/g1-spike/option-c/g3/out/
+
+# Python bytecode from the G-3 guard
+__pycache__/
+*.pyc
