@@ -361,8 +361,10 @@ tail -25 "$OUT_DIR/06-enforcement.log"
 
 # Parse the summary. psql right-aligns computed columns, so match the token,
 # never the start of the line.
+# Strip up to the '=' FIRST: the label itself ("G1_...") contains a digit, so
+# extracting [0-9]+ from the whole match yields both the 1 in G1 and the value.
 read_counter() {
-  grep -oE "G1_$1= *[0-9]+" "$OUT_DIR/06-enforcement.log" | head -1 | grep -oE '[0-9]+'
+  grep -oE "G1_$1= *[0-9]+" "$OUT_DIR/06-enforcement.log" | head -1 | sed 's/.*= *//'
 }
 TOTAL="$(read_counter TOTAL || true)"; PASSED="$(read_counter PASS || true)"; FAILED="$(read_counter FAIL || true)"
 [ -n "${TOTAL:-}" ] || fail "the enforcement suite did not emit its summary"
