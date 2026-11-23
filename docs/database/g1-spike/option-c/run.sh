@@ -286,37 +286,87 @@ ok "no protected composite FK appears anywhere in the diff"
 ci_note "step4 schema-to-schema diff: 0 DROP statements, 0 mentions of C-1..C-5"
 
 # --- 5. the CI drift check that Option C relies on --------------------
-step "5. DRIFT CHECK — 'migrate diff --from-migrations --to-schema' must be clean"
-[ -n "$SHADOW_URL" ] || fail "--shadow-url is required: diffing a migrations directory needs a shadow database (Prisma v7 requires datasource.shadowDatabaseUrl)"
-info "tests: can CI detect that migration history has drifted from the"
-info "       datamodel WITHOUT the composite FKs producing false positives?"
+step "5. TWO CANDIDATE DRIFT CHECKS — only one of them works"
+info "This step compares the two obvious ways to give CI a drift safety net,"
+info "because the difference between them is the whole ballgame."
 info ""
-info "This is the mechanism that replaces 'migrate dev' as the safety net."
-info "It replays history into a shadow database, then compares that data model"
-info "with the datamodel. Composite FKs are invisible on BOTH sides, so they"
-info "should not appear as drift — that is the claim being tested."
+info "5a: --from-migrations  (replays history into the SHADOW database, then"
+info "    INTROSPECTS the result). Despite the name this is a"
+info "    database->datamodel diff in disguise."
+info "5b: --from-schema A --to-schema B  (compares two committed data models;"
+info "    never opens a database)."
+info ""
+info "Option C's premise only survives one of them. Recording both is the"
+info "point: a reader must be able to see WHY the workflow is shaped as it is."
+
+# --- 5a: the tempting mechanism that does not work --------------------
+info ""
+info "--- 5a: migrate diff --from-migrations ---"
 set +e
 prisma_run migrate diff --from-migrations "$MIGRATIONS" --to-schema "$BASELINE_SCHEMA" --script \
-  --config "$SESS/deploy.config.ts" --exit-code > "$OUT_DIR/05-drift.sql" 2> "$OUT_DIR/05-drift.err"
+  --config "$SESS/deploy.config.ts" --exit-code > "$OUT_DIR/05a-drift-migrations.sql" 2> "$OUT_DIR/05a-drift-migrations.err"
 rc=$?
 set -e
 info "exit code: $rc (0 = no drift, 2 = drift detected, 1 = error)"
 if [ "$rc" -eq 1 ]; then
-  cat "$OUT_DIR/05-drift.err"
-  ci_note "step5 drift check ERRORED: $(tail -c 900 "$OUT_DIR/05-drift.err" | tr '\n' ' ')"
-  fail "the drift check errored: $(tail -c 600 "$OUT_DIR/05-drift.err" | tr '\n' ' ')"
+  cat "$OUT_DIR/05a-drift-migrations.err"
+  fail "5a errored: $(tail -c 400 "$OUT_DIR/05a-drift-migrations.err" | tr '\n' ' ')"
 fi
 if [ "$rc" -eq 0 ]; then
-  ok "NO drift: migration history matches the datamodel; C-1..C-5 cause no false positive"
-  ci_note "step5 drift check: exit 0 (clean)"
+  ok "5a reports NO drift"
+  ci_note "step5a from-migrations: exit 0 (clean)"
 else
-  printf '\n----- drift reported -----\n'; cat "$OUT_DIR/05-drift.sql"; printf -- '-----\n'
-  ci_note "step5 drift DETECTED (exit $rc): $(head -c 800 "$OUT_DIR/05-drift.sql" | tr '\n' ' ')"
-  if grep -qiE 'CONSTRAINT|fk_' "$OUT_DIR/05-drift.sql"; then
-    fail "the drift check reports constraint differences — composite FKs DO produce false-positive drift, which breaks this CI mechanism"
-  fi
-  fail "the drift check reports drift (exit $rc) — see 05-drift.sql"
+  printf '\n----- 5a drift (from-migrations) -----\n'; cat "$OUT_DIR/05a-drift-migrations.sql"; printf -- '-----\n'
+  n5a="$(grep -c 'DROP CONSTRAINT' "$OUT_DIR/05a-drift-migrations.sql" || true)"
+  ci_note "step5a from-migrations: exit ${rc}, ${n5a} DROP CONSTRAINT statement(s) — it reports the composite FKs as drift"
+  info ""
+  info "FINDING (5a): '--from-migrations' reports ALL FIVE composite FKs as drift."
+  info "Reason: it replays the migration history into the shadow database and"
+  info "then introspects the resulting CATALOG. The composite FKs are present"
+  info "there, and the datamodel cannot express them, so they look like drift."
+  info "It is a database->datamodel comparison wearing a different name."
+  info "=> This mechanism CANNOT be used as Option C's CI drift check."
+  [ "$n5a" -gt 0 ] || fail "5a reported drift but produced no DROP CONSTRAINT statement — investigate"
 fi
+
+# --- 5b: the mechanism Option C actually specifies --------------------
+info ""
+info "--- 5b: migrate diff --from-schema (previous) --to-schema (current) ---"
+info "This compares two committed datamodel snapshots and never opens a"
+info "database, so the composite FKs are equally invisible on both sides."
+mk_config "$ADDITIVE_SCHEMA" "$SESS/snapshot.config.ts"
+set +e
+prisma_run migrate diff --from-schema "$BASELINE_SCHEMA" --to-schema "$ADDITIVE_SCHEMA" --script \
+  --config "$SESS/snapshot.config.ts" --exit-code > "$OUT_DIR/05b-drift-snapshot.sql" 2> "$OUT_DIR/05b-drift-snapshot.err"
+rc=$?
+set -e
+cat "$OUT_DIR/05b-drift-snapshot.sql" 2>/dev/null || true
+[ "$rc" -eq 1 ] && { cat "$OUT_DIR/05b-drift-snapshot.err"; fail "5b errored"; }
+if [ "$rc" -eq 2 ]; then
+  fail "5b reported drift between two datamodel snapshots — snapshot drift checking does not work, so Option C has no CI safety net"
+fi
+if grep -qiE 'DROP|fk_|CONSTRAINT' "$OUT_DIR/05b-drift-snapshot.sql"; then
+  fail "5b produced destructive or constraint-related SQL between snapshots"
+fi
+ok "5b is clean and mentions no constraint — snapshot-to-snapshot diffing IS a usable drift check"
+ci_note "step5b snapshot diff: clean, no constraint traffic"
+
+# --- 5c: demonstrate that 5b actually detects real drift ---------------
+info ""
+info "--- 5c: does 5b actually DETECT drift, or is it vacuously clean? ---"
+info "A check that never fires is worthless. Comparing the current datamodel"
+info "against the PREVIOUS snapshot must show a difference (the probe column)."
+set +e
+prisma_run migrate diff --from-schema "$ADDITIVE_SCHEMA" --to-schema "$BASELINE_SCHEMA" --script \
+  --config "$SESS/snapshot.config.ts" --exit-code > "$OUT_DIR/05c-reverse.sql" 2> "$OUT_DIR/05c-reverse.err"
+rc=$?
+set -e
+info "reverse diff exit code: $rc (2 = differences found, as required)"
+[ "$rc" -eq 1 ] && { cat "$OUT_DIR/05c-reverse.err"; fail "5c errored"; }
+[ "$rc" -eq 2 ] || fail "the snapshot comparison reports no difference in either direction — it cannot detect drift"
+grep -qi 'drop' "$OUT_DIR/05c-reverse.sql" && info "reverse diff (expected to remove the probe column): $(tr '\n' ' ' < "$OUT_DIR/05c-reverse.sql" | cut -c1-200)"
+ok "5c confirms the snapshot mechanism really does detect schema differences"
+ci_note "step5c snapshot diff detects real drift (exit 2) — the check is not vacuous"
 
 # --- 6. apply the additive migration ----------------------------------
 step "6. APPLY — deploy the schema-to-schema migration and re-verify"
