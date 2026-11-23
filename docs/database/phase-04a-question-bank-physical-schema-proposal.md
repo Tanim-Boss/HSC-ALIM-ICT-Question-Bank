@@ -1,17 +1,19 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 11 — Option C conditionally approved; G‑3 passed on the prototype; G‑1 left FAILED)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 12 — G‑2 `negative_marks` precision/scale investigated and recommended)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
 **Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
+**Revision 12 scope:** **G‑2 investigated, recommended, and left open for approval.** The `negative_marks` precision/scale question is answered with evidence rather than convention: **`numeric(4,2)` is recommended**, because two decimals are *necessary* (the MBBS/BDS admission test — the same HSC cohort — deducts exactly **0.25** per wrong answer against a pass mark of 40, so `39.75` is a real failing score) and because `numeric(4,1)` was **measured** to store `0.3` instead of `0.25`, silently, with every `CHECK` unable to see it. Scale 3 is rejected as having no evidenced use case. The investigation also found that **E‑12 alone does not exclude `NaN`** (`'NaN' >= 0` is true) and that **E‑9 is what excludes it**. **G‑2 is not passed** — approval is requested in §3.15.3.8. **OD‑21 remains completely untouched**, G‑1 remains FAILED, G‑3 remains closed for the prototype only, and no schema, migration or application code changed. §3.15.1 is preserved verbatim with a status banner; nothing earlier was rewritten.
 **Revision 11 scope:** **Option C conditionally approved; G‑3 opened; G‑1 left FAILED.** The reviewer resolved D‑1…D‑4 (§11.4.8): Option C is **conditionally approved** as the migration workflow, **Option A is not approved**, **Option B is rejected for this schema**, and **G‑1 remains FAILED — it is not re-scored and its history is not rewritten**. A new gate, **G‑3** (§11.6), covers production-readiness of the Option C workflow with six mandatory criteria, an explicit acceptance list, and a residual-risk table. Hardening implemented in this revision: a repository/CI guard rejecting `prisma migrate dev` (`option-c/repo-guard.sh`), a shared protected-FK definition plus a checksum check of applied migrations (`option-c/guard.py`), a pre/post-deployment `migrate status` check, a live-catalog assertion for C‑1…C‑5 after every deployment, a migration-SQL integrity check, and documented approved commands. All six G‑3 criteria passed in CI run `45263567929`, **three earlier runs failed on real defects that are recorded rather than hidden**, and the gate must be re-run on the full 18-table model before migration 0001. **G‑3 PASSED for the reduced prototype** in CI run `45263567929` (all six criteria, every control negative-tested); it must still be re-run on the full 18-table model before migration 0001. §11.6.4 states exactly what that run does and does not prove. The constrained-column study (§11.6.2) overturned an earlier assumption: a *coercible* change leaves the constraint intact, and only a *non-coercible* change forces a hand-written drop+re-create. No constraint was weakened, C‑1…C‑5 are unchanged, `prisma/schema.prisma` is untouched and there is no `prisma/migrations/` directory.
 **Revision 10 scope:** **Request C's architectural alternatives analysed; Option C prototyped and verified; decision requested.** G‑1 remains **FAILED** and is not re-scored. Option A is **not** adopted. The approved physical design and C‑1…C‑5 are unchanged. Option C (controlled migration workflow) passed a nine-claim CI prototype, including confirmation that a schema-to-schema diff never proposes dropping the five constraints, and a negative test proving the CI guard detects an injected destructive migration. See [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request) for the decision matrix and the four open decisions (D‑1…D‑4).
 **Revision 9 scope:** **G‑1 experiment 2 executed; still FAILED, now precisely isolated.** Prisma's workflow *can* create, deploy and enforce all five composite FKs when they are appended to a Prisma-generated migration — but its no-change `migrate dev` treats them as drift and generates a migration that removes them. The diff is confined to exactly the five, with no ordinary FK or unique involved, so the earlier ambiguity is gone. [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive). Option A is not adopted; Option B remains the approved design and implementation stays blocked.
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
-**Status (Revision 11):** **Option C is conditionally approved; G‑3 passed for the reduced prototype and must be re-run on the full model.** G‑1 remains **FAILED** and its record is unchanged. The approved physical design and C‑1…C‑5 are unchanged. Implementation is **not** authorised: G‑3 has not passed on the full schema, and G‑2 and OD‑21 remain undecided. Documentation and an isolated, disposable prototype only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**.
+**Status (Revision 12):** **G‑2 is investigated and recommended, not passed.** `numeric(4,2)` is proposed with technical justification; the reviewer must approve (Q‑G2‑1). **G‑1 remains FAILED**, **G‑3 remains passed on the prototype only** with full 18-table validation pending, and **OD‑21 remains open and untouched**. Documentation and research only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The approved physical model is unchanged pending the G‑2 approval.
+**Status (Revision 11, historical):** **Option C is conditionally approved; G‑3 passed for the reduced prototype and must be re-run on the full model.** G‑1 remains **FAILED** and its record is unchanged. The approved physical design and C‑1…C‑5 are unchanged. Implementation is **not** authorised: G‑3 has not passed on the full schema, and G‑2 and OD‑21 remain undecided. Documentation and an isolated, disposable prototype only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**.
 **Status (Revision 10, historical):** **G‑1 remains FAILED; Request C was not approved for implementation at that revision.** A viable workflow (Option C) has now been prototyped and passes, but adopting it is your decision (D‑1), as is how the workflow result interacts with G‑1 (D‑2). The Option A fallback remains **not adopted**.
 **Status (Revision 9):** **G‑1 has FAILED again, and this time the finding is unambiguous: Prisma generates a migration that would delete the constraint layer.** Request C remains the approved architectural design (Option B) but is **not approved for implementation**. The Option A fallback is **not adopted**. A reviewer decision is required. The fallback — service validation plus a scheduled integrity query plus a publish-gate re-check — requires an explicit reviewer decision before migration 0001 can be written. Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The `g1-spike/` directory is an isolated, disposable test harness and is not part of the application build. Design authority remains approved; implementation is still gated on G‑1 and G‑2 (§11.3).
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
@@ -50,7 +52,8 @@
 | 9 | Asset pointer integrity | **APPROVED** — `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem/option/nested-subquestion content |
 | 10 | Composite foreign keys (request **C**) | **APPROVED WITH CONDITION** — five FKs + three support keys, conditional on a **successful** disposable-PostgreSQL Prisma-drift spike (G‑1). Prisma does not represent them natively |
 | 11 | Physical-schema tightenings (request **E**) | **DECIDED IN FULL** — 11 accepted, 3 already resolved, **E‑7 changed** (no chapter-number reuse; *Revision 5 restores the active-only partial unique for topic display order, which is not a curriculum identifier*), **E‑9 changed** (`numeric`, precision open), **E‑10 rejected** (no global CQ-total `CHECK`). No E item open |
-| 12 | Pre-migration gates | **OPEN — both.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, and a second experiment with real Prisma migration history isolates them cleanly — yet Prisma's own no-change `migrate dev` generates a migration that `DROP`s exactly those five ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)). Option A is not adopted. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) |
+| 12 | Pre-migration gates | **OPEN — three gates now tracked.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, and a second experiment with real Prisma migration history isolates them cleanly — yet Prisma's own no-change `migrate dev` generates a migration that `DROP`s exactly those five ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)). Option A is not adopted. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) |
+| 13 | G‑2 `negative_marks` precision/scale | **INVESTIGATED — RECOMMENDATION `numeric(4,2)`; NOT PASSED.** Two decimals are *necessary* (0.25 is in live use in the MBBS/BDS admission test for this cohort, where a pass mark of 40 makes `39.75` a failing score), and `numeric(4,1)` was measured to store `0.3` for an input of `0.25` silently, before any `CHECK` can see it. Scale 3 has **no evidenced use case** and is rejected as invented precision. Measured on PostgreSQL 16.2: storage is identical across precisions, widening precision is a metadata-only change, and decreasing scale silently rewrote stored values. Also found: **E‑12 (`>= 0`) does not exclude `NaN`** — `'NaN' >= 0` is true — and **E‑9 (`<= marks`) is what excludes it**. Approval requested in §3.15.3.8. **OD‑21 untouched; G‑1 still FAILED; G‑3 still prototype-only.** No schema, migration or code change. |
 
 ---
 
@@ -426,7 +429,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 | `topic_id` | `uuid` | yes | `NULL` | FK → `topics.id` (RESTRICT); requires `chapter_id` |
 | `subtopic_id` | `uuid` | yes | `NULL` | FK → `subtopics.id` (RESTRICT); requires `topic_id` |
 | `marks` | `integer` | no | `1` | MCQ: mark value. CQ: total, which must equal the sum of the rubric's subquestion marks at publish (I‑15) |
-| `negative_marks` | `numeric` — **precision/scale NOT YET DECIDED** | no | `0` | Changed from `integer` to decimal-capable `numeric` by the E‑9 decision. The exact `numeric(p,s)` is a **pre-migration decision**; this document deliberately does not invent it |
+| `negative_marks` | `numeric` — **`numeric(4,2)` RECOMMENDED, not yet approved** | no | `0` | Changed from `integer` to decimal-capable `numeric` by the E‑9 decision. **Revision 12 recommends `numeric(4,2)`** with evidence and PostgreSQL measurements in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation); approval is requested there (Q‑G2‑1). The row above stays `numeric` until approved — **the physical model is unchanged by this revision** |
 | `created_at` | `timestamptz(3)` | no | `now()` | |
 | `updated_at` | `timestamptz(3)` | no | none | |
 
@@ -438,7 +441,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **No `CHECK (type <> 'CQ' OR marks = 10)` — E‑10 rejected.** The global CQ-total constraint is removed. The 1 + 2 + 3 + 4 = 10 structure is a property of the **current HSC/ALIM ICT curriculum**, not of the `CQ` question type, and enforcing it in the database would block any future level whose CQ structure differs — which OD‑09 explicitly requires the model to support. The structure is retained in the **`cq_stem` content profile** ([§7.5](#75-document-profiles)) and enforced at publish by **I‑15**: a question's `marks` must equal the sum of its rubric parts' marks and of the `maxMarks` declared by the content's four subquestions.
 
-**`negative_marks` is `numeric`, and its precision/scale is an open pre-migration decision (E‑9).** The reviewer changed the type from `integer` to a decimal-capable `numeric` so a fractional penalty is representable, but **did not decide precision and scale**, and this document does not invent them. Before migration 0001 the reviewer must settle `numeric(p,s)`: the choice affects the `CHECK` casts, the `@db.Decimal(p,s)` annotation in the Prisma sketch, and every scoring comparison downstream (**OD‑21**). Until settled, read `numeric` here as "a `numeric(p,s)` still to be named". Both `negative_marks >= 0` and `negative_marks <= marks` hold for any `(p,s)` — they compare `numeric` against an `integer` that widens implicitly.
+**`negative_marks` is `numeric`. Its precision/scale was an open pre-migration decision (E‑9); Revision 12 investigated it and recommends `numeric(4,2)` ([§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation)), but the reviewer has not approved it, so **this document does not treat `numeric(4,2)` as decided and the column definition is unchanged.** The reviewer changed the type from `integer` to a decimal-capable `numeric` so a fractional penalty is representable, but did not decide precision and scale at that time. Before migration 0001 the reviewer must settle `numeric(p,s)`: the choice affects the `CHECK` casts, the `@db.Decimal(p,s)` annotation in the Prisma sketch, and every scoring comparison downstream (**OD‑21**). Until settled, read `numeric` here as "a `numeric(p,s)` still to be named". Both `negative_marks >= 0` and `negative_marks <= marks` hold for any `(p,s)` — they compare `numeric` against an `integer` that widens implicitly.
 
 **The OD‑21 negative-mark floor is NOT decided here.** `negative_marks <= marks` is an upper bound on one question's penalty. It says nothing about exam-level score floors, per-item versus per-paper application, or unanswered-question handling — all still **OD‑21**.
 
@@ -886,7 +889,7 @@ erDiagram
         uuid topic_id FK
         uuid subtopic_id FK
         integer marks
-        numeric negative_marks "numeric(p,s) TBD pre-migration"
+        numeric negative_marks "numeric(4,2) recommended, not approved (§3.15.3)"
     }
     QUESTION_VERSION {
         uuid id PK
@@ -1061,9 +1064,17 @@ ALTER TABLE subtopics
 
 -- ── Questions: marks, hierarchy chain ─────────────────────────────────────
 -- negative_marks is `numeric` (E-9 decision). Its precision/scale is NOT yet
--- decided: the CREATE TABLE column is written `numeric(<p>,<s>)` once approved.
--- Nothing below depends on the choice — the CHECKs compare numeric to integer,
--- which widens implicitly.
+-- APPROVED: the CREATE TABLE column is written `numeric(<p>,<s>)` once it is.
+-- Revision 12 RECOMMENDS numeric(4,2) with evidence in §3.15.3 — but this file
+-- shows `numeric` until the reviewer approves, so quoting it cannot imply a
+-- settled type. Nothing below depends on the choice — the CHECKs compare
+-- numeric to integer, which widens implicitly.
+--
+-- Measured on PostgreSQL 16.2 while preparing §3.15.3, and worth knowing before
+-- reading these constraints as complete protection:
+--   * E-12 alone does NOT exclude NaN: 'NaN'::numeric >= 0 is TRUE.
+--   * E-9 (negative_marks <= marks) IS what excludes it: 'NaN' <= 1 is FALSE.
+--   Both constraints are therefore load-bearing; neither is redundant.
 ALTER TABLE questions
   ADD CONSTRAINT ck_questions_marks_nonnegative CHECK (marks >= 0),
   ADD CONSTRAINT ck_questions_negative_marks_nonnegative CHECK (negative_marks >= 0),
@@ -1384,7 +1395,7 @@ Each invariant needs at least one integration test against a disposable PostgreS
 
 - 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys**, **5 composite foreign keys and 3 support `UNIQUE (id, parent_id)` keys** (Request **C**, approved — created only after gate G‑1), **49 hand-written `CHECK` constraints**, and **5 hand-written indexes**.
 - Count movement across revisions, so the numbers are auditable: `CHECK` count went 50 → **49** because **E‑10 rejected** `ck_questions_cq_total_marks`; hand-written index count went 7 → 6 (Request **D** removed the `is_correct` partial unique) → 4 (Revision 4's E‑7 conversion of **both** `WHERE is_active` partial uniques to plain uniques) → **5** now, because **Revision 5 reverts the `topics` half of that extension**: only the `chapters` partial unique became a Prisma-native plain unique, while `uq_topics_chapter_order` (`WHERE is_active`) is restored as hand-written SQL. The 5 remaining hand-written indexes are: `uq_question_versions_one_published_per_question` (`WHERE status = 'PUBLISHED'`), **`uq_topics_chapter_order` (`WHERE is_active`)**, `uq_question_sources_identity` (`NULLS NOT DISTINCT`), `uq_tags_name_lower` and `uq_colleges_name_lower` (expression uniques). All in addition to what Prisma generates.
-- **`questions.negative_marks` is `numeric` (E‑9)**; its `numeric(p, s)` is gate **G‑2** and is deliberately not fixed here.
+- **`questions.negative_marks` is `numeric` (E‑9)**; its `numeric(p, s)` is gate **G‑2**. Revision 12 investigated it and **recommends `numeric(4,2)`** with evidence in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation); the reviewer has not approved it, so it is still **not fixed here**.
 - Zero data migration: no production or staging data exists, so creation cannot corrupt anything. The only real risks are (a) a wrong `CHECK` that rejects legitimate seed data, and (b) a wrong delete action that makes a legitimate operation fail. Both are found by seeding the six ICT chapters, a handful of subjects/boards/years and one MCQ + one CQ end-to-end fixture in a disposable database **before** the migration is committed.
 - No application code is required: `lib/db.ts` is schema-agnostic and the generated client is git-ignored.
 - Exam tables are unaffected and will attach additively in Phase 05 through `question_versions.id`.
@@ -1442,17 +1453,199 @@ Legend: **Model change** = *No* means it is consistent with, or a clarification 
 
 #### 3.15.1 Open pre-migration decision: `negative_marks` precision and scale
 
+> **Status change in Revision 12.** This section originally recorded the decision as
+> fully open. It is now **investigated and recommended**: see
+> [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation)
+> for the evidence, the candidate comparison, and the recommendation
+> **`numeric(4,2)`**. The text below is **preserved unaltered** as the record of what
+> was open at Revision 4, and its propagation table remains accurate. **G‑2 is still
+> not PASSED** — approval is requested in §3.15.3.8.
+
 E‑9 mandates a decimal-capable `numeric` type but deliberately leaves the precision and scale open. **This document does not choose them.** Before migration 0001 is created, the reviewer must settle `numeric(p, s)`, because the choice propagates to:
 
 | Affected artefact | What the choice fixes |
 |---|---|
-| `questions.negative_marks` column definition | `numeric(p, s)` in the `CREATE TABLE` |
+| `questions.negative_marks` column definition | `numeric(p, s)` in the `CREATE TABLE`. **Recommendation: `numeric(4, 2)`** — see [§3.15.3.4](#31534-recommendation) |
 | Prisma model | `@db.Decimal(p, s)` annotation on `negativeMarks`; the §5 sketch shows `Decimal` with the annotation left to be filled in |
 | `ck_questions_negative_marks_not_above_marks` | No change needed — `numeric` vs `integer` widens implicitly for any `(p, s)` |
 | Scoring and analytics (**OD‑21**) | Rounding and comparison behaviour when penalties are summed or averaged |
 | API/JSON serialisation (**OD‑17**) | Decimal-as-string versus number, and the maximum representable penalty |
 
 Candidate questions the decision must answer: do penalties need sub-mark precision at all (e.g. 0.25 for a quarter-mark penalty), and does any scaling formula under OD‑21 produce more than two decimal places? The recommended starting point for review — **not adopted here** — is that the scale follows whatever OD‑21 permits, since the column cannot be narrower than the scoring rule that writes it.
+
+#### 3.15.3 G‑2 investigation: `negative_marks` precision and scale — evidence and recommendation
+
+**Status: RECOMMENDED, awaiting approval.** G‑2 asked for a defensible `numeric(p, s)`.
+The investigation below produces one recommendation with a specific technical
+justification, plus **one question that only the reviewer can answer** (§3.15.3.8).
+No requirement was invented: where the domain evidence was thin, that is stated
+rather than filled in.
+
+##### 3.15.3.1 What was actually established about HSC/ALIM marking
+
+| Finding | Evidence | Consequence for G‑2 |
+|---|---|---|
+| **The HSC/ALIM ICT board examination has no negative marking.** 25 MCQs × 1 mark, 25 marks total, no deduction for a wrong answer. CQ is 50 marks, practical 25. | Board paper structure and 2026 MCQ coverage consistently describe "no negative marking" [1](https://allresultnet.com/hsc-ict-mcq-solution-2026-tricky-questions-explained-expected-answers-marks-breakdown/), [2](https://www.teachers.gov.bd/blog/details/850510) | The **board** case stores `0` everywhere. It sets no precision requirement at all. |
+| **`negative_marks` exists for platform practice tests, not for reproducing board scoring.** | The scoring formula in [`docs/modules/examination-engine.md`](../modules/examination-engine.md) is "correct × marks − incorrect × negativeMarks", with edge rules deferred to OD‑21 | The deciding evidence must come from **practice-test** conventions, which the product controls — not from the board. |
+| **`0.25` is the real, current convention for this exact student cohort.** The Bangladesh MBBS/BDS admission test — HSC-level syllabus, taken by the same students — deducts **exactly 0.25 per wrong answer**, with a **pass mark of 40**: a candidate scoring **39.75 fails**. | DGME admission policy as reported across sources [3](https://bdadmissions.com/medical-admission-result/), [4](https://mbbs.bd/), [5](https://teachingbd24.com/medical-admission-test-bd/) | **This is the single strongest piece of evidence.** It is a two-decimal, exact-quarter penalty whose *rounding changes a pass/fail outcome*. |
+| **CQ parts are marked in whole marks** (1 + 2 + 3 + 4 = 10). No source describes a fractional CQ penalty. | [§3.3.7](#337-questions--question-identity-and-classification), [§7.5](#75-document-profiles), E‑10 | CQ needs no fraction **for its own marks**. But CQ **total** marks reach 10, which bounds the ceiling a penalty must accommodate. |
+| **No source anywhere describes a penalty needing a thousandth** (0.001 or smaller). | Absence across every marking document consulted | **Scale 3 has no evidenced use case.** Recommending it would be inventing a requirement. |
+
+**Stated limit on this evidence.** The board-side finding is well corroborated and the
+QB product's own formula is documented. But **no approved product document states which
+practice-test penalty values the platform must support.** The 0.25 figure is evidence
+that two decimals are *necessary*, not proof of the *complete* set of values the
+platform will ever offer. That gap is what §3.15.3.8 asks the reviewer to close.
+
+##### 3.15.3.2 PostgreSQL `numeric(p,s)` behaviour — verified, not assumed
+
+Everything in this table was executed on **PostgreSQL 16.2** while preparing this
+section; the values are measured output, not recollection. Behaviour is specified in
+the PostgreSQL manual [6](https://www.postgresql.org/docs/16/datatype-numeric.html).
+
+| Behaviour | Measured result | Why it matters for G‑2 |
+|---|---|---|
+| **Scale coerces silently on input** — it is not a validation error | `0.25` into `numeric(4,1)` stores **`0.3`**; `0.05` → `0.1` | A too-small scale **inflates the penalty by 20 %** and says nothing. This is the decisive technical fact. |
+| Rounding is **half away from zero** for `numeric` (ties away from zero) | `0.125 → 0.13` at scale 2; `0.25 → 0.3` at scale 1 | `0.25` is *exactly* a tie at scale 1, so it always rounds **up**. The error is systematic, not random. |
+| **Rounding happens before the `CHECK` sees the value** | `0.04` into a `numeric(4,1)` column with `CHECK (nm >= 0)` stored **`0.0`** — a penalty silently became *no penalty* | `CHECK` constraints cannot guard against scale rounding. They run on the already-rounded value. |
+| **Precision overflow raises an error** | `100.00` into `numeric(4,2)`: `A field with precision 4, scale 2 must round to an absolute value less than 10^2` | Failing loudly is safe. Too-small *scale* is the dangerous direction; too-small *precision* is not. |
+| **`NaN` is not stopped by `>= 0`** | `'NaN'::numeric >= 0` is **`true`**, but `'NaN'::numeric <= 1` is **`false`** | E‑12 alone would *not* exclude `NaN`. **E‑9 (`negative_marks <= marks`) is what excludes it.** Verified: `NaN` is rejected by `ck_negative_marks_not_above_marks`, not by the non-negativity check. |
+| **Storage does not depend on declared precision** | `0.25` occupies **5 bytes** as `numeric(4,2)`, `numeric(6,2)` and `numeric(4,1)` alike | The "don't waste storage" argument for a small `p` is **false** for `numeric`. Precision costs correctness, not bytes. |
+| **Widening precision is metadata-only** | `numeric(4,2) → numeric(6,2)`: `relfilenode` unchanged, **no table rewrite** | Choosing a larger `p` than strictly needed is cheap to correct later — and the correction is forward-compatible. |
+| **Decreasing scale silently rewrites data** | `numeric(4,2) → numeric(4,1)` on stored `0.25` produced **`0.3, 0.3, 0.3`** in every existing row, with **no error** | The asymmetry: a scale chosen too small is **destructive to fix** later, because the original value is already gone. |
+| Declarable maximum | precision ≤ 1000; scale −1000…1000; `numeric` unconstrained is far larger | No practical constraint on any candidate below. |
+
+**The asymmetry above is the core of the G‑2 decision.** Too large a scale costs
+nothing (storage is identical, precision widening is a metadata change). Too small a
+scale silently corrupts the penalty and the corruption cannot be undone. Given that
+asymmetry, the burden of proof sits with anyone arguing for the *smaller* scale.
+
+##### 3.15.3.3 Candidate comparison
+
+`marks` is `integer`, so the SMALLINT ceiling (32 767) is not the binding limit; the
+constraint that binds is `negative_marks <= marks`, which needs far less room.
+
+| Candidate | Max value | Steps in (0, 1] | Stores `0.25` exactly? | Verdict |
+|---|---|---|---|---|
+| `integer` (the pre‑E‑9 type) | 2 147 483 647 | 1 | **No** — no fractions at all | **Rejected by E‑9** (reviewer already widened the type) |
+| `numeric(4,1)` | 999.9 | 10 | **No** — silently becomes `0.3` | **Rejected.** Cannot represent the only evidenced fractional penalty. |
+| `numeric(3,2)` | 9.99 | 100 | Yes | **Rejected** — a valid `marks` of 10 (an approved CQ total) would make `nm <= 10` unsatisfiable for the 10.00 case; ceiling too tight and E‑9's bound becomes fragile. |
+| **`numeric(4,2)`** | **99.99** | **100** | **Yes** | **RECOMMENDED** — see §3.15.3.4 |
+| `numeric(6,3)` | 999.999 | 1 000 | Yes | Over-provisioned by one decade of scale with **no evidenced use case**; also invites false precision in reports. Not rejected as *unsafe*, rejected as unjustified. |
+| `numeric` unconstrained | ~10^131072 | arbitrary | Yes | **Rejected** — accepts `0.123456`, which no marking rule will ever mean, and moves the whole validation burden into application code (see §3.15.3.6). |
+| Prisma's bare `Decimal` (default `decimal(65,30)`) | 10^35 | 10^30 | Yes | **Rejected** — same problem as unconstrained, plus a measured ecosystem failure: 30 fractional digits overflow .NET's `System.Decimal` [7](https://github.com/nakita628/hekireki/issues/202). A default is not a decision. |
+
+`numeric(5,2)` and `numeric(6,2)` are *safe* but not *recommended*: they buy ceiling
+(999.99 / 9 999.99) that `negative_marks <= marks` can never reach while `marks` is an
+`integer` CQ total of 10. `numeric(4,2)`'s ceiling is already **99.99 — 89.99 marks
+above the largest CQ** — so headroom is not the constraint anyone is worried about.
+
+##### 3.15.3.4 Recommendation
+
+> **`negative_marks numeric(4, 2) NOT NULL DEFAULT 0`**
+> Prisma: `negativeMarks Decimal @default(0) @map("negative_marks") @db.Decimal(4, 2)`
+
+**Technical justification, in order of weight:**
+
+1. **It is the smallest scale that represents the only evidenced fractional penalty,
+   exactly.** `0.25` is stored as `0.25`, not `0.3`. Every smaller scale silently
+   inflates it (§3.15.3.2) — and at the 40-mark medical-test boundary that turns a
+   failing `39.75` into a *different* failing `39.7`, while at 40 correct / 4 wrong the
+   same rounding moves `39.00` to `38.80`. A penalty type that misreports by 20 % is
+   not fit for purpose, and no `CHECK` can catch it.
+2. **Two decimals matches how the domain is written.** Every penalty value in
+   circulation — `0.25`, `0.5`, `1.00` — is a two-decimal quantity. Taka and GPA in the
+   same jurisdiction are also two-decimal. Scale 2 is the notation of the domain, not a
+   habit borrowed from elsewhere.
+3. **The ceiling is not the binding constraint, and 99.99 clears it comfortably.** E‑9
+   requires `negative_marks <= marks`; `marks` is an `integer` whose largest realistic
+   value is a 10-mark CQ. A 99.99 ceiling leaves 89.99 marks of headroom, so a future
+   level with a larger CQ total needs no migration.
+4. **Scale 3 has no evidenced use case.** Recommending it would be inventing a
+   requirement (§3.15.3.1). If one ever appears, widening `numeric(4,2)` →
+   `numeric(6,3)` is a metadata-only change; choosing scale 3 now would be free, but
+   it would also assert a precision the domain does not have — see §3.15.3.5.
+5. **Scale is the asymmetric risk, so it is the one to get right.** Precision 4 vs 6
+   costs nothing either way (identical storage, no rewrite to widen). Scale 1 vs 2 is
+   the difference between corrupting every penalty and not — and it cannot be undone
+   after data exists.
+
+**Why not simply "pick the maximum, it is free"?** Because precision and scale are
+also a **contract**: `numeric(6,3)` tells every future reader that a thousandth of a
+mark is a meaningful quantity in this system, and nothing in the domain says that. The
+recommendation deliberately picks the tightest scale that is *evidenced*, and the
+loosest precision that is *convenient* — the two choices are governed by different
+risks, and conflating them is how a schema acquires false precision.
+
+##### 3.15.3.5 Implications for validation, rounding, and serialisation
+
+| Concern | Consequence of `numeric(4,2)` | Owner |
+|---|---|---|
+| **Database acceptance** | Values with more than 2 decimals are **silently rounded, not rejected** (§3.15.3.2). The database is not a validator for sub-scale input. | Accepted limitation, documented |
+| **Application validation** | Input must be **rejected, not rounded**, at the API boundary when it has more than 2 decimals or is negative or exceeds `marks`. Rounding must never be the mechanism. | Phase 04A API/Zod layer (§7.11) — **not written** |
+| **`CHECK` constraints** | E‑12 (`>= 0`) and E‑9 (`<= marks`) are **unchanged and sufficient**, and both are needed: E‑9 is what excludes `NaN` (§3.15.3.2). No new constraint is required for G‑2. | §3.9 — no change |
+| **Atomicity of scoring** | Penalty arithmetic must stay in integer **hundredths** or `Decimal`, never a JS `number`. `0.1 + 0.2 !== 0.3`; a fine of 0.25 summed 100 times must be exactly 25.00. Prisma returns `Decimal` as a string-backed type, which is correct. | Scoring service — **not written** (OD‑21) |
+| **Rounding at aggregate boundaries** | Round **only** at presentation, and only once. Sum exact penalties, round the final score. Never round per item then sum. | OD‑21 — **remains open, not decided here** |
+| **JSON serialisation** | `Decimal` must serialise as a **string** (`"0.25"`), not a float, or two-decimal precision is lost silently at the API edge. | OD‑17 — **remains open** |
+| **Reporting / analytics** | Averages over penalties will produce more than 2 decimals; that is a *derived* value and must not be stored back into this column. | OD‑21 |
+
+**Database storage precision is not the scoring rule.** The column guarantees the
+penalty *is representable and exact to two decimals*. It says nothing about floors,
+per-item versus per-paper application, unanswered handling, or rounding policy — those
+are OD‑21 and are **not** decided by G‑2.
+
+##### 3.15.3.6 Why not push this to the application instead
+
+A defensible alternative is unconstrained `numeric` plus strict application validation.
+It is rejected because it **moves a guarantee that the database can enforce for free
+into code that has not been written yet**. E‑9 and E‑12 exist precisely so a bad row
+cannot be written by *any* client, including a reviewed SQL script; an unconstrained
+column gives that up. `numeric(4,2)` keeps the refusal at the storage boundary for
+input that is too large, and confines the one thing it cannot catch (sub-scale rounding)
+to a documented, single place in the API layer.
+
+##### 3.15.3.7 What this recommendation does NOT decide
+
+- **OD‑21 is untouched.** The negative-mark floor, unanswered-question handling,
+  per-item vs per-paper application, and all rounding policy remain open. G‑2 fixes the
+  *width of the box*, not what goes in it.
+- **No CQ sub-part fractional marking** is introduced. CQ parts stay whole marks.
+- **No application code** is written. The validation and serialisation rules above are
+  requirements for a later phase, recorded here so they are not rediscovered.
+- **G‑1 stays FAILED**; **G‑3 stays closed-for-prototype-only** with full 18-table
+  validation pending. Neither is affected by G‑2.
+
+##### 3.15.3.8 The one open question requiring explicit human approval
+
+> **Q‑G2‑1. Which penalty values must the platform support, and is `numeric(4,2)`
+> approved as the type?**
+>
+> The evidence establishes that **two decimals are necessary** (0.25 is in live use in
+> this cohort) and that **three decimals have no evidenced use case**. It does **not**
+> establish the complete set of penalty values the product intends to offer, because no
+> approved document enumerates them.
+>
+> - **(a) Approve `numeric(4,2)`** as recommended — two decimals, ceiling 99.99.
+> - **(b) Approve `numeric(6,3)`** instead, if thousandths are already planned (e.g. a
+>   future scaling formula that divides a penalty). Costs nothing at rest; asserts more
+>   precision than the domain shows.
+> - **(c) Direct a different value**, with the intended penalty set stated so the width
+>   follows from it.
+>
+> **I will not mark G‑2 as passed on my own initiative.** The recommendation is
+> technically defensible, but the choice is a product decision about which penalty
+> values the platform offers, and only the reviewer can settle it. If (a) is approved,
+> §3.15.1 closes and the two artefacts in it are updated in the same revision.
+
+##### 3.15.3.9 Sources
+
+1. HSC ICT 2026 MCQ structure, "no negative marking" — [allresultnet.com](https://allresultnet.com/hsc-ict-mcq-solution-2026-tricky-questions-explained-expected-answers-marks-breakdown/)
+2. HSC marks distribution (ICT: CQ 50 + MCQ 25 + practical 25) — [teachers.gov.bd](https://www.teachers.gov.bd/blog/details/850510)
+3. MBBS/BDS admission test: −0.25 per wrong answer, pass mark 40, `39.75` fails — [bdadmissions.com](https://bdadmissions.com/medical-admission-result/)
+4. DGME admission policy 2026‑27: 100 MCQ × 1, −0.25 each, pass 40 — [mbbs.bd](https://mbbs.bd/)
+5. Medical admission pattern and negative marking — [teachingbd24.com](https://teachingbd24.com/medical-admission-test-bd/)
+6. **PostgreSQL 16, §8.1 Numeric Types** — precision/scale semantics, silent coercion to declared scale, ties-away-from-zero rounding, `NaN` ordering, variable-length storage, precision ≤ 1000 — [postgresql.org/docs/16/datatype-numeric.html](https://www.postgresql.org/docs/16/datatype-numeric.html)
+7. Prisma `Decimal` defaults to `decimal(65,30)`; `@db.Decimal(p,s)` maps to `numeric(p,s)` — [Prisma schema reference](https://www.prisma.io/docs/orm/v7/reference/prisma-schema-reference), and the measured `System.Decimal` overflow at scale 30 — [hekireki#202](https://github.com/nakita628/hekireki/issues/202)
 
 #### 3.15.2 Note on the reverted E‑7 extension to `topics`
 
@@ -1709,9 +1902,11 @@ model Question {
   topicId        String?
   subtopicId     String?
   marks          Int              @default(1)
-  // E-9: numeric, decimal-capable. Precision/scale is an OPEN pre-migration
-  // decision — this sketch deliberately does not pick @db.Decimal(p, s).
-  negativeMarks  Decimal          @default(0) // @db.Decimal(<p>, <s>) TBD
+  // E-9: numeric, decimal-capable. Revision 12 recommends @db.Decimal(4, 2)
+  // (§3.15.3) but it is NOT approved yet, so this sketch does not adopt it.
+  // Note: leaving the annotation off is NOT neutral — Prisma's Decimal defaults
+  // to decimal(65,30), which is neither the recommendation nor constrained.
+  negativeMarks  Decimal          @default(0) // @db.Decimal(4, 2) RECOMMENDED, not approved
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   educationLevel EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Restrict)
@@ -3078,7 +3273,7 @@ Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured cont
 ### Open before migration 0001 (not design decisions — gates)
 
 14. **G‑1** — Prisma-drift spike for Request C. **Executed twice in CI and FAILED both times.** Experiment 1 ([§11.3.2](#1132-g1-verdict--fail)) was confounded by the absence of migration history; experiment 2 ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)) removed that confound and produced the decisive result: the five composite FKs deploy and enforce correctly, but Prisma's no-change `migrate dev` generates a migration that deletes them. Option A is not adopted.
-15. **G‑2** — `negative_marks` `numeric(p, s)` precision and scale, recorded in §3.15.1.
+15. **G‑2** — `negative_marks` `numeric(p, s)` precision and scale. **Investigated in Revision 12 (§3.15.3): `numeric(4,2)` recommended, awaiting approval (Q‑G2‑1).** Recorded in §3.15.1 once approved.
 
 ### Explicitly unresolved (not decided here; do not implement against)
 The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group entity; user linkage (OD-15); moderation states beyond draft/published/archived (OD-27); RLS (OD-16); full-text search (OD-32); retention periods (OD-20); rate-limit store (OD-06); CQ assessment modality (OD-01); strict-expiry vs auto-submit (OD-03); guest practice (OD-04); post-release answer review (OD-14); PDF worker host (OD-02); paper/export model (OD-28); AI cache/isolation (OD-29).
@@ -3116,7 +3311,7 @@ No Request E item remains open. Full per-item rationale, consequence and model-c
 | Gate | Requirement | Blocks |
 |---|---|---|
 | **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Executed twice. [§11.3.2](#1132-g1-verdict--fail): FAIL (confounded). [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive): FAIL and decisive** — with real migration history Prisma's no-change `migrate dev` generates `DROP CONSTRAINT` for exactly the five. | Request C (all five FKs + three support keys) — **failed; Option A not adopted; reviewer decision required** |
-| **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | Settle `numeric(p, s)` and record it in §3.15.1 and the Prisma `@db.Decimal(p, s)` annotation. | The `questions.negative_marks` column definition only |
+| **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | Settle `numeric(p, s)` and record it in §3.15.1 and the Prisma `@db.Decimal(p, s)` annotation. **Investigated in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation): `numeric(4,2)` recommended with technical justification; approval requested (Q‑G2‑1). Not yet passed.** | The `questions.negative_marks` column definition only |
 | **G‑3 — Option C workflow production-readiness (new, [§11.6](#116-g3--production-readiness-gate-for-the-option-c-workflow))** | Six mandatory criteria: workflow enforcement, migration-history consistency, protected-constraint integrity, constrained-column safety, tampering detection, reproducibility. **PASSED on the reduced prototype** (CI run `45263567929`); **must be re-run on the full 18-table model** before migration 0001. | Option C adoption as the migration workflow; therefore migration 0001 |
 
 Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested. **G‑1 remains FAILED** and is not re-scored by G‑3: G‑1 asked whether the *ordinary* Prisma workflow preserves the constraints (it does not), while G‑3 asks whether the *replacement* workflow is safe enough to operate production with. Both must be settled before implementation, and neither is settled by the other.
@@ -3705,7 +3900,7 @@ which is already negative-tested.
 > in §11.6.1, not as originally worded.
 
 **Still explicitly not decided by this section:** G‑2 (`negative_marks`
-precision/scale), OD‑21 (negative-mark floor). OD‑11/OD‑12/OD‑13 remain deferred.
+precision/scale — investigated and recommended in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation), awaiting approval), OD‑21 (negative-mark floor). OD‑11/OD‑12/OD‑13 remain deferred.
 
 #### 11.4.8 Decision received — D‑1 … D‑4 resolved
 
@@ -3922,11 +4117,71 @@ for a Prisma run.
 #### 11.6.7 What G‑3 does not decide
 
 G‑2 (`negative_marks` precision/scale) and OD‑21 (negative-mark floor) remain
-**open and undecided**. OD‑11/OD‑12/OD‑13 remain deferred. C‑1…C‑5 are unchanged:
+**open and undecided** — G‑2 is investigated and recommended in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation) but not passed. OD‑11/OD‑12/OD‑13 remain deferred. C‑1…C‑5 are unchanged:
 no constraint was weakened, relaxed or removed to make any test pass, and the
 guard's encoded definitions are the approved §3.11.6 definitions.
 
-### 11.7 What approval now authorises — and what it does not
+### 11.7 G‑2 — `negative_marks` precision and scale: investigation record
+
+**Status at Revision 12: INVESTIGATED, RECOMMENDED, NOT PASSED.** Approval is
+requested in [§3.15.3.8](#31538-the-one-open-question-requiring-explicit-human-approval).
+The full evidence, the PostgreSQL measurements and the candidate comparison are in
+[§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation);
+this section is the decision record only.
+
+#### 11.7.1 What the investigation changed, and what it did not
+
+| Item | Before Revision 12 | After Revision 12 |
+|---|---|---|
+| `negative_marks` type | `numeric`, precision/scale **undecided** | `numeric`, **`numeric(4,2)` recommended** — not yet approved |
+| G‑2 status | Open, no investigation | **Investigated; recommendation issued; still NOT PASSED** |
+| E‑9 (`negative_marks <= marks`) | Decided | **Unchanged** — and now shown to be load-bearing: it is the constraint that excludes `NaN` |
+| E‑12 (`negative_marks >= 0`) | Decided | **Unchanged** — but measured to be insufficient on its own for `NaN` |
+| OD‑21 (negative-mark floor) | Open | **Still open. Not touched, not implied, not resolved.** |
+| Physical model | Approved | **Unchanged.** No column definition changes until approval |
+
+**Nothing earlier was rewritten.** §3.15.1 keeps its original text with a status banner
+added above it, so the record of what was open at Revision 4 survives verbatim.
+
+#### 11.7.2 The findings that decide the recommendation
+
+1. **The board exam has no negative marking at all**, so the board case sets no
+   precision requirement. `negative_marks` exists for practice tests.
+2. **`0.25` is in live use in this exact cohort** — the MBBS/BDS admission test deducts
+   0.25 per wrong answer with a pass mark of 40, so `39.75` is a real failing score.
+   Two decimals are therefore **necessary**, not merely plausible.
+3. **`numeric(4,1)` cannot store 0.25.** Measured: it stores `0.3`. The coercion is
+   silent, happens before every `CHECK`, and cannot be detected by any constraint.
+4. **Scale is the asymmetric risk.** Storage is identical across precisions and widening
+   precision is a metadata-only change; decreasing scale silently rewrote stored `0.25`
+   values to `0.3` in every row during testing. A scale chosen too small is destructive
+   to correct later.
+5. **Scale 3 has no evidenced use case.** Recommending it would invent a requirement.
+
+#### 11.7.3 Residual uncertainty this record accepts
+
+| Uncertainty | Why it is not resolved here | What would resolve it |
+|---|---|---|
+| The **complete set** of penalty values the platform will offer | No approved document enumerates them; the QB product's own penalty catalogue does not exist yet | Reviewer answers **Q‑G2‑1** (§3.15.3.8) |
+| Whether any future OD‑21 scaling formula produces thousandths | OD‑21 is open and may divide a penalty | If it does, widen `numeric(4,2)` → `numeric(6,3)`: metadata-only, no rewrite |
+| Rounding policy for aggregate scores | OD‑21 owns it | OD‑21 decision; G‑2 deliberately does not decide it |
+| Decimal JSON serialisation | OD‑17 owns it | OD‑17 decision |
+
+**The recommendation is safe under every one of those uncertainties.** If thousandths
+ever become real, the widening is free. If they do not, the schema never claimed a
+precision the domain does not have.
+
+#### 11.7.4 What G‑2 does not decide, restated because it matters
+
+- **OD‑21 is untouched.** The floor, unanswered handling, per-item vs per-paper
+  application and rounding policy remain open. G‑2 fixes the width of the column, not
+  the scoring rule.
+- **G‑1 remains FAILED** and is not affected.
+- **G‑3 remains closed for the prototype only**; full 18-table validation is still
+  pending. G‑2 does not touch it.
+- **No schema, migration or application code** is changed by this record.
+
+### 11.8 What approval now authorises — and what it does not
 
 **Authorised only once G‑1 is resolved (it has now FAILED — a fallback decision is required) and G‑2 clears:** edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
 
