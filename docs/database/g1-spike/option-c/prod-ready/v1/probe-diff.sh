@@ -51,8 +51,10 @@ P="$REPO_ROOT/node_modules/.bin/prisma"
 run() { # <label> <args...>
   local label="$1"; shift
   echo "===== $label"
-  ( cd "$REPO_ROOT" && "$P" migrate diff "$@" ) 2>&1 | sed -n '1,25p'
-  echo "----- exit=${PIPESTATUS[0]}"
+  # Do NOT truncate: the schema engine's diagnostic follows a blank
+  # "Error in Schema engine:" line, and cutting it hid the only useful text.
+  ( cd "$REPO_ROOT" && "$P" migrate diff "$@" ) 2>&1
+  echo "----- exit=$?"
   echo
 }
 
@@ -68,3 +70,12 @@ run "E  human-readable summary, no --script" \
   --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --config "$SESS/next.config.ts"
 run "F  --exit-code (2 = changes detected, 0 = empty)" \
   --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --exit-code --config "$SESS/next.config.ts"
+run "G  -o writes the script to a FILE (bypasses stdout handling)" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script -o "$SESS/g.sql" --config "$SESS/next.config.ts"
+echo "G file: $( [ -f "$SESS/g.sql" ] && wc -c < "$SESS/g.sql" || echo 0 ) bytes"
+[ -f "$SESS/g.sql" ] && sed -n '1,10p' "$SESS/g.sql"
+echo
+run "H  NO-OP CONTROL: prev -> prev (an empty diff is the CORRECT answer)" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/prev.prisma" --script --config "$SESS/next.config.ts"
+run "I  --from-migrations vs --to-schema (the real workflow shape)" \
+  --from-migrations "$REPO_ROOT/prisma/migrations" --to-schema="$SESS/next.prisma" --script --config "$SESS/next.config.ts"

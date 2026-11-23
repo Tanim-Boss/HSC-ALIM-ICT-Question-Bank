@@ -336,7 +336,7 @@ jobs:
             if [ -f /tmp/v1-probe.txt ]; then
               echo "#### diff-invocation probe"
               echo '```'
-              head -160 /tmp/v1-probe.txt
+              sed -n '1,400p' /tmp/v1-probe.txt
               echo '```'
             fi
             if [ -f /tmp/v1.log ]; then
