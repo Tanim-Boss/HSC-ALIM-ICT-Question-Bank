@@ -1,8 +1,12 @@
 # G-1 spike — Prisma drift test for the five composite foreign keys
 
-**Status: BLOCKED.** See [§11.3.1](../phase-04a-question-bank-physical-schema-proposal.md#1131-g1-result--blocked-not-passed-not-failed)
-of the proposal for the recorded outcome. Nothing in this directory is a passing result:
-the PostgreSQL half has been executed and passes; the Prisma half has never run anywhere.
+**Status: FAILED.** The experiment has been run end to end in CI and it does not pass: on a
+disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1, all five composite FKs are
+created and enforced (14/14 cases) and introspection sees all ten tables, but Prisma's
+no-change diff proposes `DROP CONSTRAINT` for all five — and for every plain foreign key in
+the schema as well. See [§11.3.2](../phase-04a-question-bank-physical-schema-proposal.md#1132-g1-verdict--fail)
+of the proposal, and [`expected/ci-evidence.md`](expected/ci-evidence.md) for the run URLs
+and the verbatim diff.
 
 This directory holds the reproducible experiment for pre-migration gate **G-1**: do the
 five approved hand-written composite foreign keys (Request **C**, §3.11.6 of the
@@ -85,11 +89,18 @@ Harness guarantees, each deliberate:
   the schema is in sync; silence is a failure.
 - No output is written outside `out/`.
 
-## Environment note from the first attempt
+## Result of the CI run
+
+Steps 0–3b pass. **Step 4 fails**: the no-change `migrate diff` exits 2 and its script
+drops all five composite FKs and every plain FK/unique in the schema. Steps 5–7 never
+run. Full detail, run URLs and the verbatim SQL: [`expected/ci-evidence.md`](expected/ci-evidence.md).
+
+## Environment note from the first attempt (historical — now superseded)
 
 The first attempt was made in a sandbox whose only reachable hosts were `github.com`,
 `codeload.github.com`, `api.github.com`, `registry.npmjs.org`, `pypi.org` and
 `files.pythonhosted.org`. `binaries.prisma.sh` — where the Prisma schema engine is
 fetched from — is not among them, so no Prisma command could start there. PostgreSQL
 itself ran fine (16.2), so steps 0–2 were executed for real and steps 3–7 were not.
-That is why G‑1 is BLOCKED rather than PASS or FAIL.
+That was why G‑1 was recorded as BLOCKED at the time. The GitHub Actions workflow now
+provides the network access that the sandbox lacked, and it has produced the result above.

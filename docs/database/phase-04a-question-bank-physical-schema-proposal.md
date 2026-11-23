@@ -1,13 +1,14 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 7 — G‑1 harness hardened, still BLOCKED)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 8 — G‑1 FAILED: Prisma drops the composite FKs)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
 **Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
+**Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed). No approved constraint was changed or weakened.
-**Status:** Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The `g1-spike/` directory is an isolated, disposable test harness and is not part of the application build. Design authority remains approved; implementation is still gated on G‑1 and G‑2 (§11.3).
+**Status (Revision 8):** **G‑1 has FAILED; Request C is not approved for implementation.** The fallback — service validation plus a scheduled integrity query plus a publish-gate re-check — requires an explicit reviewer decision before migration 0001 can be written. Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The `g1-spike/` directory is an isolated, disposable test harness and is not part of the application build. Design authority remains approved; implementation is still gated on G‑1 and G‑2 (§11.3).
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
 
 ---
@@ -22,7 +23,8 @@
 | 4 | (superseded by revision 5, preserved for audit) **Final approval recorded.** A, B, C (conditional on G‑1), D and asset pointers **approved**. Request E fully dispositioned: **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15 accepted**; **E‑2, E‑16, E‑17 already resolved**; **E‑7 changed** to globally unique `(subject_id, chapter_number)` (no reuse without a curriculum-revision model); **E‑9 changed** — `negative_marks <= marks` retained, column type `integer` → `numeric` with **precision/scale left as an open pre-migration decision**; **E‑10 rejected** — global CQ-total `CHECK` removed, structure moved to the `cq_stem` profile + publish check I‑15. SQL, ER diagram, Prisma sketch, examples and §6 updated accordingly. | **Approved design, not yet implemented.** No migration, no schema change, no application code. Two gates remain: G‑1 Prisma-drift spike, G‑2 `numeric(p,s)` |
 | 5 (superseded by revision 6, preserved for audit) | **One correction to Revision 4.** The **E‑7 extension to `topics` is reverted**: `chapters` keeps the approved **global** `UNIQUE (subject_id, chapter_number)`; `topics` returns to the **active-only partial unique index** `(chapter_id, order_index) WHERE is_active = true`. Rationale: chapter numbers are curriculum identifiers (reuse makes "chapter 3" ambiguous), whereas `order_index` is a display position — retiring a topic must free its former position without changing the retired topic's identity or historical question references. Consistency sweep: §3.3.5 (unique/index/rationale), §3.10 hand-written SQL, §3.14 count 4 → **5** hand-written indexes with movement trail, §3.15 E‑7 row + §3.15.2, §5 Prisma `Topic` sketch, §6 rationale, §10 item 10, §11.2. **G‑1 and G‑2 remain open; `numeric(p,s)` still not chosen; OD‑21 floor still unresolved; OD‑11/12/13 still deferred.** | **Approved design, not yet implemented.** Documentation only — no migration, no schema change, no application code. Gates G‑1 (Prisma-drift spike) and G‑2 (`numeric(p,s)`) still open |
 | 6 (superseded by revision 7, preserved for audit) | **G‑1 attempted.** A disposable PostgreSQL 16.2 instance was built and the five composite FKs of Request C plus their three support keys were created and exercised: all five reject invalid writes with `23503` and accept consistent ones, and C‑5's `MATCH SIMPLE` skip works for a NULL key. **The Prisma half could not run** — `binaries.prisma.sh`, where the Prisma CLI fetches its schema engine, was unreachable, so `validate`, `format`, `generate`, `db pull`, `migrate diff`, `migrate dev` and `migrate status` all failed before reaching a database. **G‑1 is recorded as BLOCKED, not PASS.** No constraint was weakened. A reproducible, self-checking spike is added under [`g1-spike/`](g1-spike/README.md) with the exact procedure to clear the gate. G‑2, OD‑21, OD‑11/12/13 untouched. | **Still approved design, not implemented; G‑1 and G‑2 both open.** Documentation and isolated spike artifacts only — no migration, no `prisma/schema.prisma` change, no application code |
-| **7 (this revision)** | **G‑1 harness hardened and made CI-runnable; the gate is still BLOCKED.** The first `run.sh` had defects that could have turned an incomplete run into a pass — no `set -e`, a `tee` pipeline masking the suite's exit status, no assertion on the number of enforcement cases, empty Prisma output treated as success, and a `migrate dev` step that could pass on producing nothing. All are listed and fixed in [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed). A dedicated GitHub Actions workflow (`.github/workflows/g1-prisma-drift-spike.yml`) now runs the complete seven-step procedure against a disposable `postgres:16` with the pinned Prisma 7.10.1. **The workflow has not been executed** — there is no run URL and no Prisma evidence, and none is claimed. | **Still BLOCKED, still approved-with-condition.** Documentation, isolated spike artefacts and a CI workflow only — no production migration, no `prisma/schema.prisma` change, no application code |
+| 7 (superseded by revision 8, preserved for audit) | **G‑1 harness hardened and made CI-runnable; the gate is still BLOCKED.** The first `run.sh` had defects that could have turned an incomplete run into a pass — no `set -e`, a `tee` pipeline masking the suite's exit status, no assertion on the number of enforcement cases, empty Prisma output treated as success, and a `migrate dev` step that could pass on producing nothing. All are listed and fixed in [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed). A dedicated GitHub Actions workflow (`.github/workflows/g1-prisma-drift-spike.yml`) now runs the complete seven-step procedure against a disposable `postgres:16` with the pinned Prisma 7.10.1. **The workflow has not been executed** — there is no run URL and no Prisma evidence, and none is claimed. | **Still BLOCKED, still approved-with-condition.** Documentation, isolated spike artefacts and a CI workflow only — no production migration, no `prisma/schema.prisma` change, no application code |
+| **8 (this revision)** | **G‑1 ran in CI and FAILED.** With the harness corrected, GitHub Actions ran the complete procedure on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. PostgreSQL creates and enforces all five composite FKs (14/14 cases), introspection sees all ten tables, and the spike datamodel matches the SQL schema exactly (fidelity diff: 0 bytes). **Prisma's no-change diff then proposes `DROP CONSTRAINT` for all five composite FKs — and for every other foreign key in the schema.** Per the gate's own acceptance criteria that is **FAIL**, not PASS; Request C reverts to its documented fallback pending re-approval ([§11.3.2](#1132-g1-verdict--fail)). No constraint was weakened to change the result. | **G‑1 FAILED — fallback decision required.** Documentation, spike artefacts and a CI workflow only: no production migration, no `prisma/schema.prisma` change, no application code |
 
 ---
 
@@ -41,7 +43,7 @@
 | 9 | Asset pointer integrity | **APPROVED** — `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem/option/nested-subquestion content |
 | 10 | Composite foreign keys (request **C**) | **APPROVED WITH CONDITION** — five FKs + three support keys, conditional on a **successful** disposable-PostgreSQL Prisma-drift spike (G‑1). Prisma does not represent them natively |
 | 11 | Physical-schema tightenings (request **E**) | **DECIDED IN FULL** — 11 accepted, 3 already resolved, **E‑7 changed** (no chapter-number reuse; *Revision 5 restores the active-only partial unique for topic display order, which is not a curriculum identifier*), **E‑9 changed** (`numeric`, precision open), **E‑10 rejected** (no global CQ-total `CHECK`). No E item open |
-| 12 | Pre-migration gates | **OPEN — both.** **G‑1** Prisma-drift spike (condition of C) is **BLOCKED**, not passed: the constraint layer is verified on PostgreSQL 16.2 (14/14 enforcement cases), but the Prisma half has never executed. The harness is now hardened and a CI workflow exists to run it; **no workflow run has been recorded yet** ([§11.3.1](#1131-g1-result--blocked-not-passed-not-failed)). **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) |
+| 12 | Pre-migration gates | **OPEN — both.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, yet Prisma 7.10.1's no-change diff proposes `DROP CONSTRAINT` for all five ([§11.3.2](#1132-g1-verdict--fail)). Request C's fallback requires a reviewer decision. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) |
 
 ---
 
@@ -1259,7 +1261,7 @@ Three costs must be accepted explicitly:
 
 #### 3.11.5 Decision status
 
-**Option B is APPROVED (Request C), with one condition.** The five composite foreign keys and three support unique keys are authorised; they are created only after the **mandatory disposable-PostgreSQL Prisma-drift spike** (**G‑1**, [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed)) passes and its result is recorded in the approval register. **Current state: BLOCKED.** PostgreSQL 16.2 creates and enforces all five (verified); the Prisma-drift half was not run because the schema engine could not be obtained in the test environment. The condition is therefore still outstanding. If the spike fails, Option B is not silently dropped: the documented fallback is service validation plus a scheduled integrity query, which requires re-approval because it removes the declarative guarantees C‑1…C‑5.
+**Option B is APPROVED (Request C), with one condition.** The five composite foreign keys and three support unique keys are authorised; they are created only after the **mandatory disposable-PostgreSQL Prisma-drift spike** (**G‑1**, [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed)) passes and its result is recorded in the approval register. **Current state: the condition was tested in CI and FAILED.** PostgreSQL creates and enforces all five; Prisma 7.10.1's no-change diff proposes dropping them ([§11.3.2](#1132-g1-verdict--fail)). The constraints below are unchanged; migration 0001 is not authorised to create them, and the fallback needs re-approval. If the spike fails, Option B is not silently dropped: the documented fallback is service validation plus a scheduled integrity query, which requires re-approval because it removes the declarative guarantees C‑1…C‑5.
 
 #### 3.11.6 Composite foreign keys (Request C)
 
@@ -1320,7 +1322,7 @@ Since request **D** removed `question_options.is_correct`, **C‑5 is the only d
 
 **Prisma does not represent any of these natively.** Prisma models one relation per foreign key between *models*, and it cannot express a foreign key over a composite key that is not the referenced model's own `@@id`, cannot express two relations that share a column, and does not understand `MATCH SIMPLE` skip semantics. The candidate model sketch in [§5](#5-proposed-prisma-model-sketch-illustrative--3-is-normative) therefore keeps only the single-column relations, and these five constraints exist **only** as hand-written SQL appended to the generated migration. Claims to the contrary would be false; that is the whole reason for the gate below.
 
-**Mandatory pre-migration gate — the disposable PostgreSQL Prisma-drift spike.** These constraints must not be merged on the assumption that Prisma will tolerate them. **Status: BLOCKED — see [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed); the reproducible spike lives in [`g1-spike/`](g1-spike/README.md).** Nothing below has been established as passing; it is the procedure that must still be executed. Before migration 0001 is created, on a **disposable** database and never on a shared one:
+**Mandatory pre-migration gate — the disposable PostgreSQL Prisma-drift spike.** These constraints must not be merged on the assumption that Prisma will tolerate them. **Status: FAILED — see [§11.3.2](#1132-g1-verdict--fail).** The procedure below was executed in CI and Prisma 7.10.1 proposes dropping all five constraints. They remain the approved design; they are not authorised for creation in migration 0001. Before migration 0001 is created, on a **disposable** database and never on a shared one:
 
 1. Create the schema with the composite FKs applied by hand-written SQL in the migration.
 2. Run `prisma migrate dev` with **no** schema change and confirm it generates an **empty** migration (no `DROP CONSTRAINT` for the five).
@@ -3068,7 +3070,7 @@ Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured cont
 
 ### Open before migration 0001 (not design decisions — gates)
 
-14. **G‑1** — Prisma-drift spike for Request C, on a disposable PostgreSQL database. **Attempted and currently BLOCKED** (the Prisma schema engine could not be downloaded in the test environment); steps 1–2 were executed and pass, steps 3–6 are untested. Full record, evidence and the reproducible procedure: [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed).
+14. **G‑1** — Prisma-drift spike for Request C. **Executed in CI and FAILED:** PostgreSQL creates and enforces all five, but Prisma 7.10.1 proposes dropping them. Evidence, run URLs and the reasoning: [§11.3.2](#1132-g1-verdict--fail). Request C's fallback now requires re-approval.
 15. **G‑2** — `negative_marks` `numeric(p, s)` precision and scale, recorded in §3.15.1.
 
 ### Explicitly unresolved (not decided here; do not implement against)
@@ -3086,7 +3088,7 @@ The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group enti
 |---|---|---|---|---|
 | **A** | Migration 0001 scope — **all 18 tables (14 essential + 4 supporting)**, the grouping, the dependency order and the scope boundary | **APPROVED** | The 18-table inventory, creation order and exclusions of §3 are approved as specified. `prisma/schema.prisma` may be edited to match §3 once the pre-migration gates below are met. | §3.2–§3.8, §3.6 |
 | **B** | **OD‑18 content-block schema** — envelope, ten block types, profiles, validation rules, examples, document versioning, unknown-type rejection, sanitization controls, Zod strategy, hard limits | **APPROVED** | JSONB content may be used for `question_versions.content`, `question_options.content` and `answer_keys.cq_rubric` under the §7 specification. | §7 (whole section) |
-| **C** | **Five composite foreign keys and three supporting unique keys**, **subject to a mandatory successful disposable-PostgreSQL Prisma-drift spike** | **APPROVED WITH CONDITION** | C‑1 level+subject, C‑2 chapter+subject, C‑3 topic+chapter, C‑4 subtopic+topic, C‑5 answer key+option; plus `UNIQUE (id, subject_id)` on `chapters`, `UNIQUE (id, chapter_id)` on `topics`, `UNIQUE (id, topic_id)` on `subtopics`. **Condition: the spike in [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed) must pass and be recorded there before the migration is created. It is currently BLOCKED — the constraint layer passed, the Prisma-drift layer has not been run.** If the spike fails, C is not silently abandoned — the fallback is service validation plus an integrity query, recorded as an explicit deviation requiring re-approval. | §3.11.3, §3.11.6 |
+| **C** | **Five composite foreign keys and three supporting unique keys**, **subject to a mandatory successful disposable-PostgreSQL Prisma-drift spike** | **CONDITION FAILED — G‑1 FAIL ([§11.3.2](#1132-g1-verdict--fail))** | C‑1 level+subject, C‑2 chapter+subject, C‑3 topic+chapter, C‑4 subtopic+topic, C‑5 answer key+option; plus `UNIQUE (id, subject_id)` on `chapters`, `UNIQUE (id, chapter_id)` on `topics`, `UNIQUE (id, topic_id)` on `subtopics`. **The condition has been tested and FAILED: Prisma 7.10.1's no-change diff proposes dropping all five composite FKs ([§11.3.2](#1132-g1-verdict--fail)). C‑1…C‑5 remain the approved design and are unchanged, but they are NOT authorised for creation in migration 0001. The documented fallback (Option A: service validation + scheduled integrity query + publish-gate re-check) removes the declarative guarantees and therefore requires explicit re-approval.** If the spike fails, C is not silently abandoned — the fallback is service validation plus an integrity query, recorded as an explicit deviation requiring re-approval. | §3.11.3, §3.11.6 |
 | **D** | `AnswerKey.mcq_correct_option_key` is the **sole** MCQ correctness authority | **APPROVED** | `question_options.is_correct` and `uq_question_options_one_correct_per_version` are permanently removed. Correctness is `answer_keys.mcq_correct_option_key`, protected by `UNIQUE (answer_keys.version_id)` plus composite FK C‑5, with four-options/one-key presence enforced at publish (I‑4, I‑13). | §3.3.9, §3.3.10, §3.10, §3.13 |
 | **—** | **Asset pointer integrity** — mandatory non-null rooted `block_ref` grammar | **APPROVED** | `question_version_assets.block_ref` is `NOT NULL` with the rooted grammar `/content/blocks/{i}`, `/content/blocks/{i}/data/blocks/{j}`, `/options/{KEY}/blocks/{i}`; `UNIQUE (version_id, block_ref)`; resolution checked by I‑8/I‑14. | §3.3.12, §3.9, §7.6.5 |
 
@@ -3106,13 +3108,15 @@ No Request E item remains open. Full per-item rationale, consequence and model-c
 
 | Gate | Requirement | Blocks |
 |---|---|---|
-| **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Record the result (outcome, Prisma version, date) in [§11.3.1](#1131-g1-result--blocked-not-passed-not-failed).** If it fails, C reverts to the documented fallback and requires re-approval. | Request C (all five FKs + three support keys) |
+| **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Executed — result [§11.3.2](#1132-g1-verdict--fail): FAIL.** Prisma 7.10.1 proposes `DROP CONSTRAINT` for the five. | Request C (all five FKs + three support keys) — **now failed; fallback requires re-approval** |
 | **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | Settle `numeric(p, s)` and record it in §3.15.1 and the Prisma `@db.Decimal(p, s)` annotation. | The `questions.negative_marks` column definition only |
 
 Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested.
 
-#### 11.3.1 G‑1 result — **BLOCKED** (not PASSED, not FAILED)
+#### 11.3.1 G‑1 result (Revision 6–7) — **BLOCKED** — *superseded by [§11.3.2](#1132-g1-verdict--fail)*
 
+> **Revision 8: this gate has now been executed and it FAILED — see [§11.3.2](#1132-g1-verdict--fail).**
+>
 > **Revision 7 update.** The spike harness has been hardened and a GitHub Actions workflow added to run the complete procedure on an independent, disposable environment. **The workflow has not been run yet.** G‑1 therefore stays BLOCKED: the PostgreSQL half is verified (14/14 enforcement cases), the Prisma half has still never executed, and no run URL or Prisma evidence exists to record. See *Harness corrections* and *Required procedure* below.
 
 **Status: BLOCKED.** Request C therefore remains **conditional**: the five composite FKs are approved but may not be created in migration 0001 until G‑1 has actually run and passed. Nothing in this section should be read as evidence that Prisma tolerates them — the drift check itself has not been performed. The approved constraints are **unchanged**; nothing was weakened to obtain a result.
@@ -3205,7 +3209,105 @@ G1_SPIKE_DATABASE_URL="…" ./node_modules/.bin/prisma generate \
 # then attempt an inconsistent pair through raw SQL and confirm 23503 still fires
 ```
 
-**Decision status while BLOCKED.** Request C stays *approved with condition*. Migration 0001 may not be created. If the run above produces a `DROP`, G‑1 **fails**, and C reverts to its documented fallback — Option A service validation plus a scheduled integrity query and a publish-gate re-check — which requires **re-approval**, because it removes the declarative guarantees C‑1…C‑5. That fallback is not adopted now.
+#### 11.3.2 G‑1 verdict — **FAIL**
+
+**G‑1 has been executed and it does not pass.** The five composite foreign keys are
+correct and PostgreSQL enforces all five, but Prisma 7.10.1 does not leave them alone:
+its no-change diff proposes dropping them.
+
+| Acceptance criterion (§11.3) | Result |
+|---|---|
+| 1. All five composite FKs are created | **PASS** — 5/5 in `pg_constraint` |
+| 2. PostgreSQL enforces all five | **PASS** — 14/14 enforcement cases |
+| 3. Prisma does not remove or alter them | **FAIL** — `DROP CONSTRAINT` emitted for all five |
+| 4. Migration-diff behaviour understood | **YES** — it drops them, and the cause is understood (below) |
+| 5. The test is reproducible | **YES** — CI workflow, deterministic across runs |
+
+**Evidence.** Two independent runs of the same commit
+(`45200051044`, `45200035151`) produced identical output. The gate pipeline is
+[`.github/workflows/g1-prisma-drift-spike.yml`](../../.github/workflows/g1-prisma-drift-spike.yml),
+running on `ubuntu-24.04`, `postgres:16`, Node 22, Prisma CLI and client **7.10.1**.
+
+Steps 0–3b passed, and they are the steps that make step 4 trustworthy:
+
+- 0: pinned Prisma **7.10.1** confirmed from `node_modules`, PostgreSQL 16.
+- 1: all five composite FKs created (`fk_questions_level_subject`,
+  `fk_questions_chapter_subject`, `fk_questions_topic_chapter`,
+  `fk_questions_subtopic_topic`, `fk_answer_keys_options_of_version`) plus the three
+  support keys.
+- 2: **14/14** enforcement cases `PASS`, `G1_FAIL=0` — each composite FK rejects its
+  invalid write with `23503` naming that exact constraint.
+- 3: `prisma db pull` succeeded and saw **10 models** — so Prisma was connected to the
+  right database, in the same `public` schema.
+- 3b (**new**): the introspected schema diffed against the spike datamodel produced
+  **0 bytes** — the datamodel describes the SQL schema exactly, so the drift in step 4
+  cannot be blamed on a modelling mistake.
+
+Step 4 then failed. `prisma migrate diff --from-config-datasource --to-schema … --script`
+exits **2** (non-empty) and its script contains, verbatim:
+
+```sql
+-- DropForeignKey
+ALTER TABLE "answer_keys" DROP CONSTRAINT "fk_answer_keys_options_of_version";
+ALTER TABLE "questions"    DROP CONSTRAINT "fk_questions_chapter_subject";
+ALTER TABLE "questions"    DROP CONSTRAINT "fk_questions_level_subject";
+ALTER TABLE "questions"    DROP CONSTRAINT "fk_questions_subtopic_topic";
+ALTER TABLE "questions"    DROP CONSTRAINT "fk_questions_topic_chapter";
+```
+
+It also drops `fk_answer_keys_version`, `chapters_subject_id_fkey`,
+`level_subjects_*_fkey`, `question_options_version_id_fkey`,
+`question_versions_question_id_fkey`, `questions_{chapter,education_level,subject,
+subtopic,topic}_id_fkey`, `subtopics_topic_id_fkey`, `topics_chapter_id_fkey`, plus the
+unique indexes `uq_answer_keys_version`, `uq_chapters_id_subject`,
+`uq_chapters_subject_number`, `uq_question_options_version_key`,
+`uq_subtopics_id_topic` and `uq_topics_id_chapter`.
+
+**Why the scope is wider than the five, and what it means.** Plain single-column foreign
+keys and plain unique constraints are exactly what Prisma *can* model. Prisma dropping
+those too is therefore not a statement about composite keys; it is what Prisma does when,
+on a hand-built schema with **no migration history**, it treats the database as
+unmanaged and wants to rebuild it in its own image. That is an artefact of the
+experimental setup, and it is why this verdict must be read precisely:
+
+- **What is proven:** on a database whose schema was created by hand-written SQL and
+  which carries no Prisma migration history, `prisma migrate diff` proposes dropping
+  every foreign key and every plain unique constraint. Any workflow that applies
+  hand-written SQL outside Prisma's migration tracking will be fought by Prisma.
+- **What is *not* proven by step 4:** that Prisma drops the five composite FKs
+  *specifically* because they are composite and unmodellable. Step 4 cannot isolate that,
+  because every other constraint is dropped alongside them.
+- **What remains untested:** steps 5–7 — the additive-change diff, `migrate dev` against a
+  baseline migration, and the post-migration catalog assertion never ran, because the run
+  stops at the first failing step by design.
+
+**An earlier "drift" result was a false alarm, and it was corrected rather than
+reported.** The first CI run also reported drift, but for a different and entirely
+self-inflicted reason: the spike datamodel used camelCase column names with no `@map`,
+so Prisma believed the database had no `mcq_correct_option_key` column at all and treated
+every relation as new. That was fixed (`@map` on every column,
+`@default(dbgenerated("gen_random_uuid()"))`, `onUpdate: Cascade`), and **step 3b was
+added precisely so that a datamodel mistake can never again be presented as a Prisma
+verdict.** Step 3b passing is the reason the step-4 result above can be trusted.
+
+**Consequence for Request C — this is a FAIL and it is not being retried away.** §3.11.6
+and §11.1 state that if the spike fails, C is *not* silently abandoned: it reverts to the
+documented fallback, **Option A** — service-level validation plus a scheduled integrity
+query plus a publish-gate re-check — and that fallback **removes the declarative
+guarantees C‑1…C‑5 and therefore requires explicit re-approval.** This document does not
+adopt the fallback, does not weaken any constraint, and does not decide the outcome. The
+five composite FKs remain exactly as approved in §3.11.6; what has changed is that their
+creation in migration 0001 is **not authorised** on the strength of G‑1.
+
+**What would still have to be established before C could be re-proposed.** A future
+attempt would need to isolate the composite-FK question from the unmanaged-schema
+effect — for example by generating the entire migration through Prisma (so the database
+has migration history), then appending only C‑1…C‑5 as hand-written SQL *inside* a
+Prisma-generated migration, and re-running steps 4–7 against that history-bearing
+database. That is a different experiment from the one just run, and it has **not** been
+performed.
+
+**Decision status while BLOCKED (this paragraph is now historical — see [§11.3.2](#1132-g1-verdict--fail)).** Request C stayed *approved with condition*. Migration 0001 may not be created. If the run above produces a `DROP`, G‑1 **fails**, and C reverts to its documented fallback — Option A service validation plus a scheduled integrity query and a publish-gate re-check — which requires **re-approval**, because it removes the declarative guarantees C‑1…C‑5. That fallback is not adopted now.
 
 **Known limitation to carry into the migration workflow regardless of the outcome.** Prisma does not represent C‑1…C‑5 or the three support keys natively, so from the first migration onward the generated SQL must be reviewed for `DROP CONSTRAINT` on every `prisma migrate dev`, and §3.11.6's five constraints must be re-asserted by a post-migration verification query. Until G‑1 runs, **no statement in this document claims Prisma preserves them.**
 
@@ -3221,6 +3323,6 @@ Also unchanged and still open: the **OD‑21** negative-mark floor, the Group en
 
 ### 11.5 What approval now authorises — and what it does not
 
-**Authorised once G‑1 and G‑2 clear:** edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
+**Authorised only once G‑1 is resolved (it has now FAILED — a fallback decision is required) and G‑2 clears:** edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
 
 **Not authorised, and not done in this phase:** any change to `prisma/schema.prisma`, any migration, any application code or UI. This revision is documentation only.
