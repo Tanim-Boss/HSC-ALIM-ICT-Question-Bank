@@ -4709,6 +4709,13 @@ the expected case count stayed at 33, and the expected table count stayed at 18.
 | **Q‑AUD‑4** | Drop `ck_question_options_key_single_char` as redundant (CHECK count 47 → 46), or keep it? | **Keep** — a CHECK count change is a reviewer decision, and the redundancy is harmless |
 | **Q‑AUD‑5** | Delete §3.3.1's reference to a non-existent `education_levels` support key? | **Yes** — cosmetic |
 
+> **A full decision package for these five questions is at
+> [`phase-04a-audit-decision-package.md`](phase-04a-audit-decision-package.md).** It
+> reproduces each question verbatim, analyses each one independently with PostgreSQL 16.2
+> measurements, and prepares the **separate** authorisation question of whether to proceed
+> with Option C while G‑1 remains FAILED. **It implements nothing** and answers none of the
+> five — they remain open pending owner approval.
+
 **None of these blocks the 18-table migration**, and none was resolved by inventing a
 decision: Findings 2 and 3 were settled by applying the document's own stated precedence
 (§3 is normative, §5 is illustrative), Finding 4 was left in place with the measurement
