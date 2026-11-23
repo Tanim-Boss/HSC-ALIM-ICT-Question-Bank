@@ -10,6 +10,11 @@ is rewritten.**
 | Result | **FAIL** — dropped everything, incl. ordinary FKs | **FAIL** — drops exactly the five composite FKs |
 | Evidence | [`expected/ci-evidence.md`](expected/ci-evidence.md) | [`experiment-2/expected/RESULT.md`](experiment-2/expected/RESULT.md) |
 
+**A third directory, [`option-c/`](option-c/README.md), is not a G‑1 experiment.** It is
+a prototype of an alternative *workflow* (keep the constraints, change how migrations
+are produced). It **passes**, and it does not change G‑1's status: G‑1 remains FAILED.
+Adopting that workflow is decision D‑1 in §11.4.7 of the proposal.
+
 Experiment 1 could not isolate the composite FKs, because with no migration history
 Prisma proposed rebuilding the whole schema. Experiment 2 removed that confound and
 produced the decisive answer: the constraint layer deploys and is *enforced* (14/14),

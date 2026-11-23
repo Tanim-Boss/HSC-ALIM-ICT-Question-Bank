@@ -1,14 +1,16 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 9 — G‑1 experiment 2: still FAILED, now precisely isolated)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 10 — Request C alternatives analysed; Option C prototyped and passing; decision requested)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
 **Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
+**Revision 10 scope:** **Request C's architectural alternatives analysed; Option C prototyped and verified; decision requested.** G‑1 remains **FAILED** and is not re-scored. Option A is **not** adopted. The approved physical design and C‑1…C‑5 are unchanged. Option C (controlled migration workflow) passed a nine-claim CI prototype, including confirmation that a schema-to-schema diff never proposes dropping the five constraints, and a negative test proving the CI guard detects an injected destructive migration. See [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request) for the decision matrix and the four open decisions (D‑1…D‑4).
 **Revision 9 scope:** **G‑1 experiment 2 executed; still FAILED, now precisely isolated.** Prisma's workflow *can* create, deploy and enforce all five composite FKs when they are appended to a Prisma-generated migration — but its no-change `migrate dev` treats them as drift and generates a migration that removes them. The diff is confined to exactly the five, with no ordinary FK or unique involved, so the earlier ambiguity is gone. [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive). Option A is not adopted; Option B remains the approved design and implementation stays blocked.
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
+**Status (Revision 10):** **G‑1 remains FAILED; Request C is still not approved for implementation.** A viable workflow (Option C) has now been prototyped and passes, but adopting it is your decision (D‑1), as is how the workflow result interacts with G‑1 (D‑2). The Option A fallback remains **not adopted**.
 **Status (Revision 9):** **G‑1 has FAILED again, and this time the finding is unambiguous: Prisma generates a migration that would delete the constraint layer.** Request C remains the approved architectural design (Option B) but is **not approved for implementation**. The Option A fallback is **not adopted**. A reviewer decision is required. The fallback — service validation plus a scheduled integrity query plus a publish-gate re-check — requires an explicit reviewer decision before migration 0001 can be written. Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The `g1-spike/` directory is an isolated, disposable test harness and is not part of the application build. Design authority remains approved; implementation is still gated on G‑1 and G‑2 (§11.3).
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
 
@@ -26,7 +28,8 @@
 | 6 (superseded by revision 7, preserved for audit) | **G‑1 attempted.** A disposable PostgreSQL 16.2 instance was built and the five composite FKs of Request C plus their three support keys were created and exercised: all five reject invalid writes with `23503` and accept consistent ones, and C‑5's `MATCH SIMPLE` skip works for a NULL key. **The Prisma half could not run** — `binaries.prisma.sh`, where the Prisma CLI fetches its schema engine, was unreachable, so `validate`, `format`, `generate`, `db pull`, `migrate diff`, `migrate dev` and `migrate status` all failed before reaching a database. **G‑1 is recorded as BLOCKED, not PASS.** No constraint was weakened. A reproducible, self-checking spike is added under [`g1-spike/`](g1-spike/README.md) with the exact procedure to clear the gate. G‑2, OD‑21, OD‑11/12/13 untouched. | **Still approved design, not implemented; G‑1 and G‑2 both open.** Documentation and isolated spike artifacts only — no migration, no `prisma/schema.prisma` change, no application code |
 | 7 (superseded by revision 8, preserved for audit) | **G‑1 harness hardened and made CI-runnable; the gate is still BLOCKED.** The first `run.sh` had defects that could have turned an incomplete run into a pass — no `set -e`, a `tee` pipeline masking the suite's exit status, no assertion on the number of enforcement cases, empty Prisma output treated as success, and a `migrate dev` step that could pass on producing nothing. All are listed and fixed in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). A dedicated GitHub Actions workflow (`.github/workflows/g1-prisma-drift-spike.yml`) now runs the complete seven-step procedure against a disposable `postgres:16` with the pinned Prisma 7.10.1. **The workflow has not been executed** — there is no run URL and no Prisma evidence, and none is claimed. | **Still BLOCKED, still approved-with-condition.** Documentation, isolated spike artefacts and a CI workflow only — no production migration, no `prisma/schema.prisma` change, no application code |
 | 8 (superseded by revision 9, preserved for audit) | **G‑1 ran in CI and FAILED.** With the harness corrected, GitHub Actions ran the complete procedure on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. PostgreSQL creates and enforces all five composite FKs (14/14 cases), introspection sees all ten tables, and the spike datamodel matches the SQL schema exactly (fidelity diff: 0 bytes). **Prisma's no-change diff then proposes `DROP CONSTRAINT` for all five composite FKs — and for every other foreign key in the schema.** Per the gate's own acceptance criteria that is **FAIL**, not PASS; Request C reverts to its documented fallback pending re-approval ([§11.3.2](#1132-g1-verdict--fail)). No constraint was weakened to change the result. | **G‑1 FAILED — fallback decision required.** Documentation, spike artefacts and a CI workflow only: no production migration, no `prisma/schema.prisma` change, no application code |
-| **9 (this revision)** | **G‑1 experiment 2 run in CI; still FAILED, but now decisive.** The schema is created BY Prisma (real migration history) and the five composite FKs are appended to Prisma's own generated migration, with the three support uniques declared in the datamodel so they cannot be the explanation. Baseline generation, ordinary FK/unique representation, deployment and enforcement all PASS (13 ordinary FKs + 5 composite = 18; 14/14 enforcement cases). The no-change diff is **confined to exactly the five composite FKs** — no ordinary FK, no ordinary unique. But Prisma's own no-change `migrate dev` generates a migration that would `DROP` all five: it reads them as drift. Criterion 4 fails, so 5–6 were never reached. [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive). Option A is **not** adopted; Option B remains the approved design and implementation stays blocked. | **G‑1 FAILED — decisive. Awaiting a reviewer decision on how to proceed.** Documentation, spike artefacts and a CI workflow only: no production migration, no `prisma/schema.prisma` change, no application code |
+| 9 (superseded by revision 10, preserved for audit) | **G‑1 experiment 2 run in CI; still FAILED, but now decisive.** The schema is created BY Prisma (real migration history) and the five composite FKs are appended to Prisma's own generated migration, with the three support uniques declared in the datamodel so they cannot be the explanation. Baseline generation, ordinary FK/unique representation, deployment and enforcement all PASS (13 ordinary FKs + 5 composite = 18; 14/14 enforcement cases). The no-change diff is **confined to exactly the five composite FKs** — no ordinary FK, no ordinary unique. But Prisma's own no-change `migrate dev` generates a migration that would `DROP` all five: it reads them as drift. Criterion 4 fails, so 5–6 were never reached. [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive). Option A is **not** adopted; Option B remains the approved design and implementation stays blocked. | **G‑1 FAILED — decisive. Awaiting a reviewer decision on how to proceed.** Documentation, spike artefacts and a CI workflow only: no production migration, no `prisma/schema.prisma` change, no application code |
+| **10 (this revision)** | **Architectural alternatives analysed and an Option C prototype built.** Option C — keep C‑1…C‑5, Prisma generates the baseline, the constraints are appended as reviewed SQL, later migrations come from schema-to-schema diffs, `migrate dev` is prohibited — was prototyped in CI at `d1ead77` and **passed all nine claims**, including a negative test of the CI guard. The crucial sub-finding: `migrate diff --from-migrations` does **not** work as a drift check (it introspects the shadow catalog and reports all five as drift), but snapshot-to-snapshot diffing does, and was shown not to be vacuous. **Nothing is adopted**; G‑1 remains FAILED; Option A is not adopted; decisions D‑1…D‑4 await review. [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request). | **Analysis + prototype only.** G‑1 stays FAILED. Documentation, spike artefacts and two CI workflows: no production migration, no `prisma/schema.prisma` change, no application code |
 
 ---
 
@@ -3434,7 +3437,265 @@ authoritative; or an accepted process that re-applies the appended SQL after eve
 
 **Known limitation to carry into the migration workflow regardless of the outcome.** Prisma does not represent C‑1…C‑5 or the three support keys natively, so from the first migration onward the generated SQL must be reviewed for `DROP CONSTRAINT` on every `prisma migrate dev`, and §3.11.6's five constraints must be re-asserted by a post-migration verification query. Until G‑1 runs, **no statement in this document claims Prisma preserves them.**
 
-### 11.4 Still deferred — unchanged by this approval
+## 11.4 Architectural alternatives for Request C — analysis and decision request
+
+**Status: analysis only. Nothing in this section is adopted. The approved physical
+database design is unchanged, Request C's constraints are unchanged, and G‑1 remains
+FAILED.** Adopting any option below requires the explicit decision requested in
+[§11.4.7](#1147-decision-request).
+
+§11.3.2 and §11.3.3 established one thing clearly: PostgreSQL creates and enforces
+C‑1…C‑5 correctly, and Prisma *deploys* them without complaint — but Prisma's
+migration tooling reads them as drift and generates a migration that deletes them.
+
+The question now is not "does Prisma like composite FKs" — it does not, and it never
+will. The question is **which of three workflows the project should live with**.
+
+### 11.4.1 Option A — drop the composite FKs, enforce in the service layer
+
+| Aspect | Assessment |
+|---|---|
+| **Database integrity** | **Lost.** C‑1…C‑5 stop being declarative. Referential correctness becomes a property of every code path that writes, plus a periodic audit query. |
+| **Migration safety** | **Best.** Ordinary `prisma migrate dev` works perfectly; nothing fights the tool. |
+| **Prisma compatibility** | **Perfect.** This is the only option with zero friction. |
+| **Operational complexity** | Low for migrations, **higher** for correctness: periodic integrity sweeps, publish-gate re-checks, and a backlog of data that can silently drift. |
+| **Maintainability** | The invariants live in application code, where any future service, script, import or manual `UPDATE` can violate them. |
+| **Failure modes** | Silent corruption. A direct DB write, a batch import, or a bug in one service creates a cross-subject chapter link that nothing rejects and nobody notices until a report is wrong. |
+| **Testing** | Every invariant needs an integration test on every write path, plus a scheduled audit. |
+
+**Status: not adopted, and I do not recommend it.** It trades a hard guarantee for a
+convention. The invariant is exactly the kind of rule a database should enforce,
+because it is cross-table and app-independent.
+
+### 11.4.2 Option B — keep the FKs, keep ordinary Prisma workflows
+
+| Aspect | Assessment |
+|---|---|
+| **Database integrity** | **Best in principle** — declarative, enforced, verified 14/14. |
+| **Migration safety** | **Unworkable.** Experiment 2: a no-change `migrate dev` generates `DROP CONSTRAINT` for all five and the next apply executes it. |
+| **Prisma compatibility** | **None** for the write path; the read/write API is unaffected, but every migration is adversarial. |
+| **Operational complexity** | Deceptively low until the first `migrate dev`. |
+| **Maintainability** | A trap that fires months later, when a routine schema change quietly removes the integrity layer. |
+| **Failure modes** | **Silent removal of constraints, after the schema was believed correct.** The worst failure mode in this whole analysis. |
+| **Testing** | Cannot be made safe by testing; the tool re-generates the destructive SQL every time. |
+
+**Status: FAILED, proven twice.** §11.3.2 and §11.3.3. This option is off the table
+as an ordinary workflow.
+
+### 11.4.3 Option C — controlled migration workflow (prototyped)
+
+Retain C‑1…C‑5. Prisma remains the ORM. The **workflow** changes:
+
+1. Prisma generates the baseline migration.
+2. C‑1…C‑5 are appended as reviewed SQL.
+3. Later changes come from **schema-to-schema** diffs (`--from-schema` /
+   `--to-schema`), never database-to-datamodel diffs.
+4. `migrate dev` is **prohibited** for this project after the constraints exist.
+5. CI rejects any migration that drops, alters or omits a protected FK.
+6. PostgreSQL catalog assertions run after every deployment.
+
+**Supported by Prisma 7.10.1 — verified, not assumed.** The prototype ran on
+`ubuntu-24.04` with pinned Prisma 7.10.1 and PostgreSQL 16, and passed
+([evidence](g1-spike/option-c/expected/RESULT.md)):
+
+| Claim | Result |
+|---|---|
+| Schema-to-schema diff proposes no drop of C‑1…C‑5 | **CONFIRMED** — the diff was `ADD COLUMN` only, 0 `DROP`, 0 mentions of the five |
+| Reviewed SQL deploys repeatedly and reproducibly | **CONFIRMED** — deployed, plus an independent second database replaying to 5/5 |
+| Migration history stays consistent | **CONFIRMED** — exactly one finished migration, no rollbacks |
+| All five remain present and enforced | **CONFIRMED** — 5/5 present, 14/14 enforcement after the whole workflow |
+| CI detects accidental constraint removal | **CONFIRMED, including a negative test** — an injected destructive migration was rejected |
+
+**The decisive technical detail, found by the prototype.** The obvious CI check,
+`migrate diff --from-migrations`, **does not work**: it replays history into the
+shadow database and introspects the resulting *catalog*, so all five composite FKs
+appear as drift (measured: exit 2, 5 × `DROP CONSTRAINT`). It is a
+database→datamodel diff in disguise. The usable check is a **snapshot-to-snapshot**
+diff, which never opens a database and is invisible to composite FKs — and the
+prototype also proved that check is **not vacuously clean** by requiring it to detect
+a real change.
+
+**Exact commands that work:**
+
+```bash
+# 1. baseline (no database consulted)
+prisma migrate diff --from-empty --to-schema schema.prisma --script > 0_init/migration.sql
+# ... append the reviewed C-1..C-5 SQL, commit, review ...
+
+# 2. deploy (never inspects drift, never uses a shadow database)
+prisma migrate deploy --config prisma.config.ts
+
+# 3. the migration for a normal change (data model to data model)
+prisma migrate diff --from-schema snapshots/prev.prisma --to-schema snapshots/next.prisma \
+  --script --exit-code > next/migration.sql
+
+# 4. the CI drift check (snapshot vs current datamodel; exit 2 = drift)
+prisma migrate diff --from-schema snapshots/committed.prisma --to-schema prisma/schema.prisma \
+  --script --exit-code
+
+# 5. post-deployment proof, run against the real database
+psql "$DATABASE_URL" -f assert-five-composite-fks.sql   # must return exactly 5
+```
+
+**Commands that must NOT be used on this project:**
+
+```bash
+prisma migrate dev          # generates DROP CONSTRAINT for C-1..C-5 (experiment 2)
+prisma migrate reset        # destroys and replays; combined with the above, unsafe
+prisma migrate diff --from-migrations ...   # reports C-1..C-5 as drift (prototype 5a)
+prisma db push              # forces the database to match the datamodel
+```
+
+**Documented limitations of the mechanism** (official sources, §11.4.6):
+`migrate diff` "can only compare database features that are supported by Prisma".
+Composite FKs are not such a feature, which is precisely why they are invisible to a
+data-model diff — the same property that makes the workflow viable also means Prisma
+will *never* manage them, verify them, or warn about them.
+
+| Aspect | Assessment |
+|---|---|
+| **Database integrity** | **Preserved** — declarative, enforced (14/14 verified). |
+| **Migration safety** | Good *if* the process holds; the diff mechanism itself cannot propose removing the constraints. |
+| **Prisma compatibility** | Partial by construction. Prisma owns tables, columns and ordinary relations; the project owns five constraints by hand. |
+| **Operational complexity** | **Moderate and permanent.** Two snapshot files to keep, a guard to maintain, a prohibited command, and a manual step whenever a change touches a constrained column. |
+| **Maintainability** | Good if documented. Risky if the prohibition is forgotten — it is a convention, not a lock. |
+| **Failure modes** | (a) someone runs `migrate dev`; (b) a change touching `questions.subject_id` etc. requires hand-rebuilding C‑1/C‑2 and nothing tests that; (c) a hand-edited committed migration is not detected by the snapshot check. |
+| **Testing** | CI guard (negative-tested), post-deploy catalog assertion, enforcement suite, snapshot drift check. |
+
+### 11.4.4 Option C2 — an external SQL migration authority
+
+Prisma stays the application ORM (schema, Client generation, queries); a dedicated
+SQL migration tool becomes the sole schema authority. Prisma's own migrations are
+**not** used at all, so nothing ever diffs a catalog against a Prisma datamodel.
+
+| Aspect | Assessment |
+|---|---|
+| **Migration history** | Best in class. Hand-written, reviewable, ordered SQL — the natural home for composite FKs. |
+| **PostgreSQL constraint support** | Complete. Plain SQL: composite FKs, partial indexes, CHECKs, triggers, extensions — everything Prisma cannot express. |
+| **Rollback / forward recovery** | Varies by tool and must be checked, not assumed. Some (Flyway-style) are forward-only by design; others generate reverse plans. Either is *more* capable than Prisma Migrate, which has no rollback at all. |
+| **CI drift detection** | Strong. Catalog-to-desired-state comparison is native. Atlas additionally offers linting and can compute reverse migrations. |
+| **Prisma Client compatibility** | Fine — Client is generated from `schema.prisma`, which only needs to keep describing the tables and columns it queries. Composite FKs need not appear there. |
+| **Developer workflow complexity** | **Highest.** Two tools, two mental models. Every Prisma schema change must be paired with a hand-written migration; nothing keeps them in sync automatically. Remove the sync and the ORM's view of the schema silently diverges from reality. |
+| **Risk of two authorities** | **The central risk.** If anyone ever runs `prisma migrate` or `db push` against the same database, the two histories collide. Mitigation is absolute: Prisma's migrations directory is not used, and `prisma migrate` is forbidden in CI. |
+
+**Tool assessment (not chosen by popularity).** Two candidates were examined against
+their own documentation:
+
+- **Atlas** — supports both declarative and versioned workflows, reads Prisma models
+  as an input, and provides linting plus reverse-migration planning. Its diff engine
+  is catalog-aware and PostgreSQL-native, so composite FKs would be first-class
+  citizens. Cost: a Go binary in the toolchain, a required dev database, and a second
+  schema language (HCL) or a second SQL source of truth.
+- **Flyway** — plain ordered SQL files, extremely mature, minimal concepts. No
+  Prisma-model awareness, so the Prisma datamodel must be maintained by hand
+  alongside it. Forward-only; rollback means writing a compensating migration.
+
+**Neither was prototyped.** Recommending one on the strength of documentation alone
+would repeat the mistake that made experiment 1 misleading, so this section
+deliberately stops at "viable, unmeasured".
+
+### 11.4.5 Decision matrix
+
+Legend: **PROVEN** = measured in this document's CI runs; **DOC** = from official
+documentation; **ASSESSED** = engineering judgement, untested.
+
+| Criterion | **A** — service validation | **B** — keep FKs, ordinary Prisma | **C** — controlled workflow | **C2** — external authority |
+|---|---|---|---|---|
+| Database integrity guarantees | **Lost** (ASSESSED) | **Retained** (PROVEN 14/14) | **Retained** (PROVEN 14/14) | **Retained** (ASSESSED; standard SQL) |
+| Migration safety | **High** (DOC: ordinary `migrate dev` works) | **Fails** (PROVEN: drops all five) | **Good** (PROVEN: diff cannot drop them) | **High** (ASSESSED) |
+| Prisma compatibility | **Full** | **Adversarial** | **Partial by design** (PROVEN) | **Partial; Client unaffected** (ASSESSED) |
+| Operational complexity | Medium (ASSESSED) | Low until first misuse | **Moderate, permanent** (PROVEN mechanics) | **Highest** (ASSESSED) |
+| Long-term maintainability | Invariants drift into app code | **Trap** — silent removal | Good if documented | Good if the two tools stay in sync |
+| Failure modes | Silent data corruption | **Silent loss of constraints** | Human error (running `migrate dev`); constrained-column changes need hand work | Tool desynchronisation; competing histories |
+| Testing requirements | Every write path + audit job | Not safely testable | CI guard + catalog assertion + snapshot diff + enforcement (**prototype built**) | Same as C, against a different engine |
+| Measured in this document | No | **Yes — FAILED twice** | **Yes — prototype PASSES** | No |
+
+### 11.4.6 Official documentation sources
+
+Consulted for this analysis (Prisma ORM v7 docs unless stated):
+
+- **`migrate diff` option set, and the limitation that matters most** —
+  "The `migrate diff` command can only compare database features that are **supported
+  by Prisma**. If two databases differ only in unsupported features, such as views or
+  triggers, then `migrate diff` will not show any difference between them."
+  <https://www.prisma.io/docs/orm/v7/reference/prisma-cli-reference#migrate-diff>
+  This is the documented basis for the prototype's central finding.
+- **`migrate deploy` semantics** — "Does **not** look for drift in the database or
+  changes in the Prisma schema… Does **not** rely on a shadow database."
+  <https://www.prisma.io/docs/orm/v7/reference/prisma-cli-reference#migrate-deploy>
+- **`migrate dev` semantics** — reruns migration history in the shadow database to
+  detect drift, then generates a new migration from datamodel changes.
+  <https://www.prisma.io/docs/orm/v7/reference/prisma-cli-reference#migrate-dev>
+- **Editing a generated migration before applying it — the officially sanctioned
+  pattern Option C depends on** —
+  <https://www.prisma.io/docs/orm/v7/prisma-migrate/workflows/customizing-migrations>
+- **Documented workaround for features the Prisma Schema Language cannot express** —
+  "If the changes are minor, you can append additional custom SQL to the generated
+  migration."
+  <https://www.prisma.io/docs/orm/prisma-migrate/getting-started>
+- **Externally managed tables** — Prisma 7 can exclude tables from migrations via
+  `tables.external` plus `migrations.initShadowDb`. **Table-level only: there is no
+  supported way to mark an individual constraint as externally managed**, which is
+  why Option C is a workflow rather than a configuration flag.
+  <https://www.prisma.io/docs/orm/v7/prisma-schema/data-model/externally-managed-tables>
+  <https://www.prisma.io/docs/orm/v7/reference/prisma-config-reference>
+- **`migrate diff` requires `datasource.shadowDatabaseUrl` to diff a migrations
+  directory** (measured: the prototype failed with exactly this error before the
+  shadow database was supplied).
+- **Atlas** — declarative and versioned workflows, ORM support listing Prisma:
+  <https://github.com/ariga/atlas>, <https://atlasgo.io/getting-started/postgresql-declarative-hcl>
+- **Flyway / Liquibase / Atlas / Prisma Migrate comparison (third-party)** — used
+  only for orientation on rollback and format differences, not for the decision:
+  <https://blog.codercops.com/blog/database-schema-migration-tools-compared>
+
+### 11.4.7 Decision request
+
+**Recommendation: Option C**, subject to the approvals below. Reasoning:
+
+1. It is the only option that **keeps the declarative integrity guarantees** and has
+   been **measured** to work — Option B fails twice, Option A abandons the guarantee,
+   Option C2 is viable but unmeasured and carries a second toolchain.
+2. Its central mechanism is documented and now verified: schema-to-schema diffs never
+   see C‑1…C‑5, so they can never propose removing them.
+3. Its weaknesses are **known, bounded and enumerable** (§11.4.3 failure modes), which
+   is a fundamentally better position than Option B's silent-removal trap.
+4. It needs no new runtime dependency, no second schema language, and no change to
+   Prisma Client or application code.
+
+**I am not adopting it.** The following decisions are yours, and I have deliberately
+left them open:
+
+**D‑1. Adopt Option C as the migration workflow for Phase 04A?**
+(Yes / No / prototype C2 first.) If yes, `migrate dev` becomes prohibited for this
+repository once migration 0001 exists.
+
+**D‑2. Does a passing workflow prototype clear G‑1?**
+I will **not** mark G‑1 PASSED on my own initiative. G‑1 was defined as a
+pre-migration gate on the *physical design*; this prototype tests a *workflow*, not
+the physical model. Three readings are defensible — (i) G‑1 stays FAILED and Option C
+is adopted as a compensating control; (ii) G‑1 is restated as "workflow must exist and
+be verified" and then PASSES on the evidence in
+[`g1-spike/option-c/expected/RESULT.md`](g1-spike/option-c/expected/RESULT.md);
+(iii) a new gate G‑3 is opened for the workflow and G‑1 remains FAILED. **My
+recommendation is (iii)** — it preserves both historical failures unaltered and keeps
+the record honest. Your call.
+
+**D‑3. Accept the residual risks of Option C?** Specifically: the `migrate dev`
+prohibition is enforced only by process and CI, not by tooling; a change touching a
+constrained column (e.g. `questions.subject_id`) requires hand-rebuilding C‑1/C‑2 and
+this is untested; and the snapshot check does not detect hand-edits to a committed
+migration file.
+
+**D‑4. Optional hardening, if D‑1 is yes.** Add (a) a CI job that fails if
+`prisma/migrations/migration_lock.toml` history diverges from `_prisma_migrations`
+via `prisma migrate status`; (b) a repository check that greps every changed
+`migration.sql` for `DROP CONSTRAINT` on a protected name — the guard prototyped here,
+which is already negative-tested.
+
+**Still explicitly not decided by this section:** G‑2 (`negative_marks`
+precision/scale), OD‑21 (negative-mark floor). OD‑11/OD‑12/OD‑13 remain deferred.
+
+### 11.5 Still deferred — unchanged by this approval
 
 **OD‑11, OD‑12 and OD‑13 remain deferred to Phase 05** (examinations). No values were invented for them in any revision of this document, and these approvals do not touch them:
 
