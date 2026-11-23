@@ -145,7 +145,7 @@ case "$URL$SHADOW_URL" in
     fail "refusing to run against a non-disposable database" ;;
 esac
 
-WORK="${WORK:-$SPIKE_DIR/out/exp2}"
+WORK="${WORK:-$EXP_DIR/out}"
 rm -rf "$WORK"; mkdir -p "$WORK"
 OUT_DIR="$WORK"
 
@@ -316,7 +316,14 @@ step "5. STATE AFTER DEPLOY — all five exist, and the ordinary layer survived"
 info "tests: did the deployment create C-1..C-5, and are the ordinary FKs"
 info "       and uniques Prisma created still intact?"
 n="$(count_composite_fks "$URL")"
-[ "$n" = "5" ] || fail "after deploy only $n/5 composite FKs exist in the primary database"
+if [ "$n" != "5" ]; then
+  printf '\n----- diagnostics: what did deploy actually apply? -----\n'
+  echo "migration file: $MIGRATION_SQL ($(wc -c < "$MIGRATION_SQL") bytes, $(grep -c ';' "$MIGRATION_SQL" || true) statements)"
+  echo "appended SQL contains $(grep -c 'ADD CONSTRAINT' "$EXP_DIR/manual/001_composite_fks.sql" || true) ADD CONSTRAINT statements"
+  "$PSQL" "$URL" -Atc "SELECT migration_name || ' | applied=' || (finished_at IS NOT NULL) || ' | rolled_back=' || (rolled_back_at IS NOT NULL) || ' | logs=' || coalesce(logs,'-') FROM _prisma_migrations ORDER BY started_at;" || echo "(no _prisma_migrations table)"
+  printf '\n----- end diagnostics -----\n'
+  fail "after deploy only $n/5 composite FKs exist in the primary database"
+fi
 ok "5/5 composite FKs present after deployment"
 
 "$PSQL" "$URL" -Atc "
