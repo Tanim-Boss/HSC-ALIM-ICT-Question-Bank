@@ -207,8 +207,10 @@ set -e
 # --exit-code: 0 = empty diff, 2 = non-empty diff, 1 = error
 case "$rc" in
   0) : ;;
-  2) cat "$OUT_DIR/04-drift-empty.sql"
-     fail "the no-change diff is NOT empty — Prisma wants to change the schema (see 04-drift-empty.sql)" ;;
+  2) printf '\n----- 04-drift-empty.sql (first 40 lines) -----\n'
+     head -40 "$OUT_DIR/04-drift-empty.sql"
+     printf '\n----- end of diff excerpt -----\n'
+     fail "the no-change diff is NOT empty — Prisma wants to change the schema (full output in out/04-drift-empty.sql)" ;;
   *) cat "$OUT_DIR/04-drift-empty.err"
      fail "prisma migrate diff errored (exit $rc)" ;;
 esac
