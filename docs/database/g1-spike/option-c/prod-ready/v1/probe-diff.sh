@@ -132,3 +132,24 @@ node -v 2>/dev/null; echo "prisma: $("$P" --version 2>/dev/null | tr '\n' ' ')"
 echo "DATABASE_URL set: ${DATABASE_URL:+yes}${DATABASE_URL:-no}"
 echo "engines present: $(ls "$REPO_ROOT/node_modules/@prisma/engines" 2>/dev/null | tr '\n' ' ')"
 "$P" migrate diff --help 2>&1 | grep -A2 "from-schema " | head -6
+
+# ---------------------------------------------------------------------------
+# Is the schema engine itself able to run, or is the CLI merely unable to use
+# it? "Error in Schema engine:" with an EMPTY message is what a crash before
+# any diagnostic looks like. Run the binary directly.
+# ---------------------------------------------------------------------------
+ENG="$REPO_ROOT/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x"
+echo
+echo "===== O  schema engine binary"
+ls -l "$ENG" 2>&1 | sed 's/^/  /'
+echo "--- --version:"
+"$ENG" --version 2>&1 | sed -n '1,12p'
+echo "----- exit=$?"
+echo "--- missing shared libraries (ldd):"
+ldd "$ENG" 2>&1 | grep -i "not found" || echo "  none missing"
+echo "--- direct diff request (JSON-RPC 'diff' as the CLI would send it):"
+printf '%s' '{"jsonrpc":"2.0","id":1,"method":"diff","params":{"from":{"tag":"schemaDatamodel","schema":{"schemaFiles":[{"path":"tiny.prisma","content":"datasource db { provider = \"postgresql\" url = \"postgresql://u:p@localhost:5432/d\" }\nmodel OnlyOne { id String @id }"}]}},"to":{"tag":"empty"},"script":true,"shadowDatabaseUrl":null}}' | timeout 60 "$ENG" --datamodel-path=/dev/null 2>&1 | sed -n '1,25p'
+echo "----- exit=$?"
+echo "--- same, using --version style flags:"
+timeout 60 "$ENG" cli --version 2>&1 | sed -n '1,6p'
+echo "----- exit=$?"
