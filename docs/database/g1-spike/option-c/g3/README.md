@@ -1,7 +1,17 @@
 # G-3 — production-readiness gate for the Option C migration workflow
 
-**Status: see [`../../../../../docs/database/phase-04a-question-bank-physical-schema-proposal.md`](../../../phase-04a-question-bank-physical-schema-proposal.md)
-§11.6 for the acceptance criteria and the current disposition.**
+**Status: all six criteria PASS on the reduced prototype** — CI run
+[`45263567929`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45263567929).
+See
+[`../../../../../docs/database/phase-04a-question-bank-physical-schema-proposal.md`](../../../phase-04a-question-bank-physical-schema-proposal.md)
+§11.6 for the acceptance criteria, the residual risks, and why this run does **not**
+close the gate for the full 18-table schema.
+
+Three earlier runs failed, and each failure was a defect in this harness rather
+than a flaky test: an assumption that Prisma detects edits to applied migrations
+(it does not), fixtures that only the local partial path created, and a `DROP
+CONSTRAINT` on a `@@unique` that Prisma emits as a unique index. All three were
+fixed by correcting the harness; no criterion was weakened.
 
 G-3 is a *separate* gate from G-1. **G-1 remains FAILED** and is not re-scored:
 it asked whether Prisma's ordinary migration workflow preserves C-1…C-5, and the
