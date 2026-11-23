@@ -14,7 +14,7 @@
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
-**Status (Revision 14):** **The Phase 04A physical schema now exists as code.** `prisma/schema.prisma` is the real **18-table** datamodel and `prisma/migrations/0001_phase04a_question_bank/migration.sql` is the committed baseline: Prisma-generated DDL plus the reviewed hand-written artifacts Prisma cannot express (47 `CHECK`s, 6 partial/expression indexes, the 5 composite FKs of Request C). Verified on PostgreSQL 16.2 — 18 tables, 7 enums, 26 FKs (21 single + 5 composite), 47 CHECKs, 6 hand-written indexes, and **33/33 enforcement cases**. **G‑3 full-schema is NOT yet PASSED**: the Prisma-dependent criteria (migration history, `migrate status`, reproducibility, `migrate diff` visibility) are implemented but require the recorded CI run — the honest status is *awaiting CI*. **G‑1 remains FAILED** and is not re-scored. The audit's five findings are in [§11.9](#119-pre-implementation-audit--what-the-full-schema-authoring-found); only the unappliable SQL was corrected. **Deferred and untouched:** G‑2, OD‑21, OD‑NM‑1, OD‑11/12/13, users/RLS, Phase 05 examination tables. No application code, services, DTOs or UI.
+**Status (Revision 14):** **The Phase 04A physical schema now exists as code.** `prisma/schema.prisma` is the real **18-table** datamodel and `prisma/migrations/0001_phase04a_question_bank/migration.sql` is the committed baseline: Prisma-generated DDL plus the reviewed hand-written artifacts Prisma cannot express (47 `CHECK`s, 6 partial/expression indexes, the 5 composite FKs of Request C). Verified on PostgreSQL 16.2 — 18 tables, 7 enums, 26 FKs (21 single + 5 composite), 47 CHECKs, 6 hand-written indexes, and **33/33 enforcement cases**. **G‑3 is PASSED for the full 18-table schema**: CI run [`45273840004`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45273840004) passed all six criteria — migration history, `migrate status`, reproducibility through Prisma, `migrate diff` visibility, tampering detection and the live catalog — with every control negative-tested, plus `prisma validate` on the real datamodel. **G‑1 remains FAILED** and is not re-scored. The audit's five findings are in [§11.9](#119-pre-implementation-audit--what-the-full-schema-authoring-found); only the unappliable SQL was corrected. **Deferred and untouched:** G‑2, OD‑21, OD‑NM‑1, OD‑11/12/13, users/RLS, Phase 05 examination tables. No application code, services, DTOs or UI.
 **Status (Revision 13, historical):** **G‑2 is DEFERRED, not passed and not closed by a type choice.** Negative marking is configurable and off by default, so `negative_marks` is not part of the Phase 04A schema and there is no precision/scale to approve. The Revision 12 `numeric(4,2)` recommendation survives as **historical research only**. **OD‑21 remains open**; **OD‑NM‑1** records the unresolved question of which entity owns the setting. **G‑1 remains FAILED**; **G‑3 remains prototype-only** with full 18-table validation pending. Documentation only — **no migration, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code**.
 **Status (Revision 12, historical):** **G‑2 is investigated and recommended, not passed.** `numeric(4,2)` is proposed with technical justification; the reviewer must approve (Q‑G2‑1). **G‑1 remains FAILED**, **G‑3 remains passed on the prototype only** with full 18-table validation pending, and **OD‑21 remains open and untouched**. Documentation and research only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The approved physical model is unchanged pending the G‑2 approval.
 **Status (Revision 11, historical):** **Option C is conditionally approved; G‑3 passed for the reduced prototype and must be re-run on the full model.** G‑1 remains **FAILED** and its record is unchanged. The approved physical design and C‑1…C‑5 are unchanged. Implementation is **not** authorised: G‑3 has not passed on the full schema, and G‑2 and OD‑21 remain undecided. Documentation and an isolated, disposable prototype only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**.
@@ -59,7 +59,7 @@
 | 12 | Pre-migration gates | **OPEN — three gates now tracked.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, and a second experiment with real Prisma migration history isolates them cleanly — yet Prisma's own no-change `migrate dev` generates a migration that `DROP`s exactly those five ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)). Option A is not adopted. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) | **Superseded in part by row 14:** the G‑2 half is now **DEFERRED** and the `negative_marks` column is removed from Phase 04A; G‑1 remains FAILED and G‑3 remains prototype-only as recorded here. |
 | 13 | G‑2 `negative_marks` precision/scale | **SUPERSEDED by row 14 — preserved for audit.** Revision 12 investigated the type and recommended `numeric(4,2)` after measuring that `numeric(4,1)` silently stores `0.25` as `0.3`. The clarified requirement (row 14) makes the question moot for Phase 04A. The research is retained below as historical research, not an approved decision. |
 | 14 | G‑2 deferred — negative marking is configurable | **DEFERRED, and the column removed.** Negative marking must be **configurable, default OFF, switchable by an authorised user**, with the **penalty rule configured independently of the switch**. A per-question decimal cannot represent that pair of states, so `questions.negative_marks` and both its `CHECK`s (E‑9, E‑12) are **removed** from the Phase 04A model; `CHECK` count 49 → **47**. **G‑2 is deferred** to the examination/marking configuration phase, which must support: a default-disabled enable/disable setting; a separately configurable penalty value/rule; validation against the applicable question marks; and consistent behaviour in exam scoring and result calculation. Whether the setting belongs to an **examination**, a **marking profile**, or another entity is **NOT assumed** — recorded as **OD‑NM‑1**. **OD‑21 remains open and is not silently closed.** G‑1 still **FAILED**; G‑3 still prototype-only. Documentation only — no schema, migration, service or UI change. |
-| 15 | Full 18-table schema + migration 0001 + full-schema G‑3 | **Implemented.** The real `prisma/schema.prisma` (18 models) and `prisma/migrations/0001_phase04a_question_bank` are authored from §3/§5, with the five composite FKs and all 47 CHECKs and 6 hand-written indexes appended as reviewed SQL. No transcription: the G‑3 full-schema gate deploys the **committed migration** with `prisma migrate deploy`. Verified on PostgreSQL 16.2: **18 tables, 7 enums, 26 FKs (21+5), 47 CHECKs, 6 hand indexes**, and **33/33 enforcement cases** including all five protected FKs, E‑7 partial uniqueness, E‑10/E‑11, `NULLS NOT DISTINCT` and the expression uniques. The audit found and recorded five specification issues (§11.9): one **unappliable CHECK statement** (fixed by parenthesising, pattern unchanged), two **§3/§5 uniqueness contradictions** (resolved by applying §3 as normative), one **redundant CHECK** (kept, not removed) and one **stale cross-reference** (left for the reviewer). G‑1 still **FAILED** and not re-scored; G‑3 is **not yet PASSED** — the Prisma-dependent criteria await the recorded CI run. **No application code, services, DTOs or UI.** |
+| 15 | Full 18-table schema + migration 0001 + full-schema G‑3 | **Implemented.** The real `prisma/schema.prisma` (18 models) and `prisma/migrations/0001_phase04a_question_bank` are authored from §3/§5, with the five composite FKs and all 47 CHECKs and 6 hand-written indexes appended as reviewed SQL. No transcription: the G‑3 full-schema gate deploys the **committed migration** with `prisma migrate deploy`. Verified on PostgreSQL 16.2: **18 tables, 7 enums, 26 FKs (21+5), 47 CHECKs, 6 hand indexes**, and **33/33 enforcement cases** including all five protected FKs, E‑7 partial uniqueness, E‑10/E‑11, `NULLS NOT DISTINCT` and the expression uniques. The audit found and recorded five specification issues (§11.9): one **unappliable CHECK statement** (fixed by parenthesising, pattern unchanged), two **§3/§5 uniqueness contradictions** (resolved by applying §3 as normative), one **redundant CHECK** (kept, not removed) and one **stale cross-reference** (left for the reviewer). G‑1 still **FAILED** and not re-scored; G‑3 is **PASSED for the full schema** — CI run `45273840004`, all six criteria, every control negative-tested. **No application code, services, DTOs or UI.** |
 
 ---
 
@@ -3490,7 +3490,7 @@ No Request E item remains open. Full per-item rationale, consequence and model-c
 |---|---|---|
 | **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Executed twice. [§11.3.2](#1132-g1-verdict--fail): FAIL (confounded). [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive): FAIL and decisive** — with real migration history Prisma's no-change `migrate dev` generates `DROP CONSTRAINT` for exactly the five. | Request C (all five FKs + three support keys) — **failed; Option A not adopted; reviewer decision required** |
 | **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | ~~Settle `numeric(p, s)`~~ **DEFERRED (Revision 13).** Negative marking is configurable (default **OFF**) with an independently configured penalty rule, so `negative_marks` is **removed from Phase 04A** and G‑2 moves to the examination/marking configuration phase. The Revision 12 `numeric(4,2)` research is retained as historical research only. See [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model). | **Nothing in Phase 04A** — deferred |
-| **G‑3 — Option C workflow production-readiness (new, [§11.6](#116-g3--production-readiness-gate-for-the-option-c-workflow))** | Six mandatory criteria: workflow enforcement, migration-history consistency, protected-constraint integrity, constrained-column safety, tampering detection, reproducibility. **PASSED on the reduced prototype** (CI run `45263567929`); **must be re-run on the full 18-table model** before migration 0001. | Option C adoption as the migration workflow; therefore migration 0001 |
+| **G‑3 — Option C workflow production-readiness (new, [§11.6](#116-g3--production-readiness-gate-for-the-option-c-workflow))** | Six mandatory criteria: workflow enforcement, migration-history consistency, protected-constraint integrity, constrained-column safety, tampering detection, reproducibility. **PASSED for the reduced prototype** (CI run `45263567929`) **and PASSED for the full 18-table model** (CI run `45273840004`). All six criteria, with every control negative-tested. | **Cleared** for the workflow. Migration 0001 still requires **G‑1** to be resolved (§11.3.2/§11.3.3) — G‑3 does not substitute for it. |
 
 Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested. **G‑1 remains FAILED** and is not re-scored by G‑3: G‑1 asked whether the *ordinary* Prisma workflow preserves the constraints (it does not), while G‑3 asks whether the *replacement* workflow is safe enough to operate production with. Both must be settled before implementation, and neither is settled by the other.
 
@@ -4111,10 +4111,14 @@ Also unchanged and still open: the **OD‑21** negative-mark floor, the Group en
 
 ### 11.6 G‑3 — production-readiness gate for the Option C workflow
 
-**Status at Revision 14: the FULL-SCHEMA gate has been implemented and its SQL-level
-controls are verified locally; the Prisma-dependent criteria are awaiting the CI run.**
-See [§11.6.8](#1168-full-schema-g3--what-changed-in-revision-14). The prototype result
-below is preserved unaltered.
+**Status at Revision 14: G‑3 is PASSED FOR THE FULL 18-TABLE SCHEMA.** CI run
+[`45273840004`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45273840004)
+— job `G-3 full-schema gate (node 22, postgres 16)` — passed all six criteria against
+`prisma/schema.prisma` and the committed baseline, deployed with `prisma migrate deploy`.
+No transcription was involved at any point. See
+[§11.6.8](#1168-full-schema-g3--what-changed-in-revision-14) and the two failures that
+preceded it, recorded in §11.9.8 and §11.9.9. The prototype result below is preserved
+unaltered.
 
 **Status at Revision 11: PASSED for the prototype scope.** Every mandatory
 criterion was tested and succeeded in CI run
@@ -4273,10 +4277,11 @@ anywhere else in this document.
 #### 11.6.6 G‑3 acceptance criteria — the gate
 
 G‑3 is **PASSED** only when **all** of the following hold, with a run URL
-recorded. All six hold for the reduced prototype in run
-[`45263567929`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45263567929).
-**They must be re-satisfied on the full 18-table model before migration 0001** —
-that re-run, not this one, is what gates implementation:
+recorded. **All six now hold on the full 18-table model** in run
+[`45273840004`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45273840004)
+— that run, not the prototype's
+[`45263567929`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45263567929),
+is the one that closes the gate. The criteria are unchanged from the prototype:
 
 1. The repository guard is green on `main` and fails on a deliberately injected
    `migrate dev` script (negative test in the same run).
@@ -4650,7 +4655,51 @@ changed — 33 is still required.
 
 **Status after this fix: re-run pending.** No outcome is claimed in advance.
 
-#### 11.9.10 Audit decisions requested
+#### 11.9.10 CI run 45273840004 — G‑3 FULL-SCHEMA PASSED
+
+The third full-schema run is green, and it is the run that closes G‑3 for the production
+schema. Recorded precisely, because the exact scope of a pass matters as much as the pass.
+
+**Run:** [`45273840004`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45273840004)
+· commit `84cbda4` · node 22 · pinned Prisma 7.10.1 · PostgreSQL 16.
+Both jobs green: `Workflow enforcement — repository guard` and `G-3 full-schema gate`.
+
+| Step | Result |
+|---|---|
+| pinned Prisma CLI asserted (7.10.1) | success |
+| **`prisma validate` on the real datamodel** | **success** — the committed 18-model schema is a legal Prisma schema |
+| G‑3 full-schema gate (six criteria) | success |
+| **Independent** schema inventory + catalog assertion, using SQL directly | success |
+
+| Criterion | Evidence from that run |
+|---|---|
+| 1 — workflow enforcement | repo guard clean; injected `migrate dev` rejected; approved commands accepted |
+| 2 — migration-history consistency | pending before, `migrate deploy` applied the committed baseline, clean after, 1 applied / 0 unfinished, **checksum verified** |
+| 3 — protected-constraint integrity | inventory **18/7/26/47/6**; catalog assertion rejected a **weakened** and a **dropped** FK, accepted the restoration |
+| 4 — constrained-column safety | snapshot diff saw the `ALTER` with **0 `DROP`s**; coercible widening accepted; non-coercible change refused; safe drop+re-add accepted and applied; unsafe rejected; **schema restored (4f)** |
+| 5 — tampering detection | **6/6** textual variants rejected pre-deployment; edited applied migration detected by checksum, with `prisma_detects=no` measured for the second time |
+| 6 — reproducibility | independent empty database replayed: 18 tables, 5/5 constraints, **33/33** enforcement |
+
+**The pass is not the driver grading itself.** The `Independent schema inventory and
+catalog assertion` step re-reads the deployed database with raw SQL, asserts
+`18/7/26/47`, and re-runs `guard.py catalog` — so a driver bug that skipped an assertion
+would still be caught. It is the same control the prototype used, kept for the same
+reason.
+
+**What the pass does and does not establish:**
+
+| Establishes | Does **not** establish |
+|---|---|
+| The committed migration deploys reproducibly through Prisma to the real 18-table schema | That **G‑1** passed — it did not, twice, and it is not re-scored |
+| All five composite FKs survive real deployment, are catalog-correct and are enforced | That migration 0001 should be deployed to production: G‑1 FAILED still blocks that, and Option A's fallback needs re-approval (§11.3) |
+| The six G‑3 criteria hold on the full model, including negative tests | That the 33 cases cover every invariant — I‑3…I‑15 remain **service** invariants (§3.13) |
+| The tampering and constrained-column controls work against the real file | Anything about the application layer, which is not written |
+
+**Two failures preceded this run, both defects in my harness and neither in the schema**
+(§11.9.8, §11.9.9). Both were fixed by correcting the harness; no criterion was weakened,
+the expected case count stayed at 33, and the expected table count stayed at 18.
+
+#### 11.9.11 Audit decisions requested
 
 | # | Question | Recommendation |
 |---|---|---|

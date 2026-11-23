@@ -1,7 +1,11 @@
 # G-3 full-schema — the gate against the real 18-table model
 
-**Status: every criterion has passed in CI across two runs, but no single run has passed
-all six yet — the honest one-line summary is *awaiting a clean run*, not *passed*.** See the proposal
+**Status: G‑3 is PASSED for the full 18-table schema.** CI run
+[`45273840004`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45273840004)
+passed all six criteria, plus `prisma validate` on the real datamodel and an independent
+(raw-SQL) inventory assertion that does not trust this driver. Two earlier runs failed on
+harness defects, both recorded in §11.9.8 and §11.9.9 and both fixed without weakening a
+criterion. See the proposal
 [§11.6.8](../../../phase-04a-question-bank-physical-schema-proposal.md#1168-full-schema-g3--what-changed-in-revision-14)
 and [§11.9](../../../phase-04a-question-bank-physical-schema-proposal.md#119-pre-implementation-audit--what-the-full-schema-authoring-found).
 
