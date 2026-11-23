@@ -294,6 +294,27 @@ jobs:
           fi
           exit "$rc"
 
+      # Diagnostics: raw run logs have been intermittently unreachable
+      # (EOF from results-receiver.actions.githubusercontent.com), and
+      # annotations are capped. The job summary is retrievable via the API,
+      # so the driver log is written there on failure.
+      - name: Publish the V-1 driver log to the job summary
+        if: always()
+        run: |
+          {
+            echo '## V-1 driver log'
+            echo '```'
+            if [ -f /tmp/v1.log ]; then
+              # keep it bounded: the first failure is what matters
+              head -200 /tmp/v1.log
+              echo '...'
+              grep -nE "FAIL|ERROR|error:" /tmp/v1.log | head -40 || true
+            else
+              echo "no /tmp/v1.log was produced"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Independent re-read after 0002 (raw SQL, not the driver)
         if: always()
         run: |
