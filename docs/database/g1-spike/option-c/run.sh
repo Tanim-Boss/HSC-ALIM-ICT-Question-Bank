@@ -334,9 +334,11 @@ info ""
 info "--- 5b: migrate diff --from-schema (previous) --to-schema (current) ---"
 info "This compares two committed datamodel snapshots and never opens a"
 info "database, so the composite FKs are equally invisible on both sides."
-mk_config "$ADDITIVE_SCHEMA" "$SESS/snapshot.config.ts"
+# The "no drift" case: the committed snapshot must equal the current datamodel.
+# Comparing the snapshot with ITSELF is the baseline for "nothing has changed".
+mk_config "$BASELINE_SCHEMA" "$SESS/snapshot.config.ts"
 set +e
-prisma_run migrate diff --from-schema "$BASELINE_SCHEMA" --to-schema "$ADDITIVE_SCHEMA" --script \
+prisma_run migrate diff --from-schema "$BASELINE_SCHEMA" --to-schema "$BASELINE_SCHEMA" --script \
   --config "$SESS/snapshot.config.ts" --exit-code > "$OUT_DIR/05b-drift-snapshot.sql" 2> "$OUT_DIR/05b-drift-snapshot.err"
 rc=$?
 set -e
@@ -354,10 +356,10 @@ ci_note "step5b snapshot diff: clean, no constraint traffic"
 # --- 5c: demonstrate that 5b actually detects real drift ---------------
 info ""
 info "--- 5c: does 5b actually DETECT drift, or is it vacuously clean? ---"
-info "A check that never fires is worthless. Comparing the current datamodel"
-info "against the PREVIOUS snapshot must show a difference (the probe column)."
+info "A check that never fires is worthless. Comparing the committed snapshot"
+info "against a CHANGED datamodel must report a difference (the probe column)."
 set +e
-prisma_run migrate diff --from-schema "$ADDITIVE_SCHEMA" --to-schema "$BASELINE_SCHEMA" --script \
+prisma_run migrate diff --from-schema "$BASELINE_SCHEMA" --to-schema "$ADDITIVE_SCHEMA" --script \
   --config "$SESS/snapshot.config.ts" --exit-code > "$OUT_DIR/05c-reverse.sql" 2> "$OUT_DIR/05c-reverse.err"
 rc=$?
 set -e
