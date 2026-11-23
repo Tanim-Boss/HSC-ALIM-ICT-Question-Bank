@@ -55,6 +55,15 @@ fail()  {
 step()  { printf '\n============================================================\n[G-1] %s\n============================================================\n' "$*"; }
 ok()    { printf '[G-1] ok: %s\n' "$*"; }
 
+# ci_note: a non-fatal, PERSISTENT record of an intermediate result. In CI this
+# becomes a warning annotation, so the gate's reasoning is readable from the
+# Actions UI and the API without downloading a log or an artefact.
+ci_note() {
+  if [ -n "${GITHUB_ACTIONS:-}" ]; then
+    printf '::warning title=G-1 evidence::%s\n' "$(printf '%s' "$*" | tr '\n' ' ' | cut -c1-900)"
+  fi
+}
+
 trap '
   rc=$?
   printf "\n[G-1] FAIL: aborted at line %s (exit %s)\n" "$LINENO" "$rc" >&2
@@ -189,6 +198,7 @@ prisma_run db pull --print --url "$URL" \
 assert_nonempty "$OUT_DIR/03-introspected.prisma" "prisma db pull"
 grep -q 'model Question' "$OUT_DIR/03-introspected.prisma" \
   || fail "introspection did not find the Question model — it did not see the database"
+ci_note "step3 introspected models: $(grep -c '^model ' "$OUT_DIR/03-introspected.prisma" || echo 0) :: $(grep -c '^datasource' "$OUT_DIR/03-introspected.prisma" || echo 0) datasource block(s)"
 ok "introspection produced $(wc -c < "$OUT_DIR/03-introspected.prisma") bytes containing the spike models"
 
 # ---------------------------------------------------------------------
@@ -220,6 +230,7 @@ if grep -Eqi 'ADD COLUMN|DROP COLUMN|ALTER COLUMN|ADD CONSTRAINT|DROP CONSTRAINT
   printf '\n----- 03b-fidelity.sql -----\n'; cat "$OUT_DIR/03b-fidelity.sql"
   fail "the spike datamodel does not match the SQL schema (see 03b-fidelity.sql); the drift result below would be meaningless until this is fixed"
 fi
+ci_note "step3b fidelity diff bytes=$(wc -c < "$OUT_DIR/03b-fidelity.sql") :: $(tr '\n' ' ' < "$OUT_DIR/03b-fidelity.sql" | cut -c1-500)"
 ok "datamodel matches the SQL schema except the documented omissions"
 
 # --- step 4: no-change drift ------------------------------------------
