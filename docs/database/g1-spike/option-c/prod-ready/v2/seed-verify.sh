@@ -13,7 +13,7 @@
 #   * the NULLS NOT DISTINCT provenance identity
 #   * the partial uniques (one published version; active-only topic order)
 #
-# Then it COUNTER-TESTS: 30 deliberately invalid rows, each of which MUST be
+# Then it COUNTER-TESTS: 34 deliberately invalid rows, each of which MUST be
 # rejected by the database, and each of which names the constraint that must
 # reject it. A constraint that lets a bad row through is reported as FAIL.
 #

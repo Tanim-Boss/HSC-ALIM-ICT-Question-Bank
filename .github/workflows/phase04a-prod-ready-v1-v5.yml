@@ -288,7 +288,7 @@ jobs:
             # GitHub annotations are capped and raw logs are sometimes
             # unreachable, so the failing lines are emitted as annotations.
             echo "::error title=V-1 failure::see the driver output above"
-            grep -E "FAIL|ERROR|error:" /tmp/v1.log | head -20 | while IFS= read -r l; do
+            grep -E "FAIL|ABORT|ERROR|error:|not found|No such file" /tmp/v1.log | head -20 | while IFS= read -r l; do
               echo "::error title=V-1 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
             done
           fi

@@ -57,7 +57,7 @@ GUARD="$OC_DIR/guard.py"
 PROD_SCHEMA="$REPO_ROOT/prisma/schema.prisma"
 MIG_0001="$REPO_ROOT/prisma/migrations/0001_phase04a_question_bank/migration.sql"
 
-URL=""; SHADOW=""; REPLAY=""; OUT_DIR="${OUT_DIR:-/tmp/v1-out}"
+URL=""; SHADOW=""; REPLAY=""; OUT_DIR="${OUT_DIR:-/tmp/v1-out}"; DRY="${V1_DRY:-0}"
 usage() { printf 'usage: v1-second-migration.sh --url U --shadow-url S --replay-url R [--out D]\n' >&2; exit 2; }
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -71,8 +71,29 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$URL" ] && [ -n "$SHADOW" ] && [ -n "$REPLAY" ] || usage
 mkdir -p "$OUT_DIR"
-SESS="$(mktemp -d "${TMPDIR:-/tmp}/v1.XXXXXX")"
-trap 'rm -rf "$SESS"' EXIT
+# The session directory MUST live inside the repository.
+# `prisma.config.ts` does `import { defineConfig } from 'prisma/config'`, and Node
+# resolves that specifier by walking UP from the config file's own location. A
+# session directory under /tmp therefore cannot see the repo's node_modules and
+# fails with "Cannot find module 'prisma/config'". This was the second V-1 CI
+# failure: the paths were right, the config location was not.
+mkdir -p "$REPO_ROOT/.v1-session"
+SESS="$(mktemp -d "$REPO_ROOT/.v1-session/run.XXXXXX")"
+cleanup() { rm -rf "$SESS"; rmdir "$REPO_ROOT/.v1-session" 2>/dev/null || true; }
+trap cleanup EXIT
+
+# A `set -e` abort produces no FAIL line, which made the first two CI failures
+# visible only as "exit code 1". This trap names the exact command and line, and
+# emits it as a GitHub annotation so the cause survives log-retention problems.
+# Defined once so the trap can be lifted around intentionally-failing statements
+# and then re-armed, without duplicating the trap body.
+arm_err_trap() {
+  trap 'printf "  ABORT  line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2;
+        if [ -n "${GITHUB_ACTIONS:-}" ]; then
+          printf "::error title=V-1 aborted::line %s: %s\n" "$LINENO" "$(printf "%s" "$BASH_COMMAND" | tr "\n" " " | cut -c1-400)" >&2
+        fi' ERR
+}
+arm_err_trap
 
 FAILS=0
 pass() { printf '  PASS  %s\n' "$*"; }
@@ -80,8 +101,24 @@ fail() { printf '  FAIL  %s\n' "$*"; FAILS=$((FAILS+1)); }
 info() { printf '  ....  %s\n' "$*"; }
 head2() { printf '\n=== %s ===\n' "$*"; }
 q() { "$PSQL" "${1:-$URL}" -Atq -v ON_ERROR_STOP=1 -c "$2"; }
-prisma_run() { ( cd "$REPO_ROOT" && V1_DB="$URL" V1_SHADOW="$SHADOW" "$PRISMA_BIN" "$@" ); }
+# V1_DRY=1 exercises every non-Prisma step and PRINTS the Prisma commands
+# instead of running them. The Prisma engine cannot be downloaded in some
+# sandboxes, so this is how the surrounding shell logic is verified locally;
+# CI runs the real thing. A DRY run is never reported as a V-1 pass.
+prisma_run() {
+  if [ "$DRY" = "1" ]; then
+    printf '  DRY   would run: prisma %s\n' "$*" >&2
+    return 0
+  fi
+  ( cd "$REPO_ROOT" && V1_DB="$URL" V1_SHADOW="$SHADOW" "$PRISMA_BIN" "$@" )
+}
 
+# Two config shapes on purpose:
+#   mk_config      -> with a datasource, for `migrate deploy` / `migrate status`
+#   mk_diff_config -> WITHOUT one, for `migrate diff --from-schema --to-schema`,
+#                     which compares two files and needs no database at all.
+# Declaring a datasource for the diff would make it depend on connectivity it
+# does not use, and would fail confusingly if the URL were wrong.
 mk_config() { # <schema> <config>
   cat > "$2" <<CFG
 import { defineConfig } from 'prisma/config';
@@ -92,6 +129,15 @@ export default defineConfig({
     url: process.env.V1_DB,
     shadowDatabaseUrl: process.env.V1_SHADOW,
   },
+});
+CFG
+}
+
+mk_diff_config() { # <schema> <config>
+  cat > "$2" <<CFG
+import { defineConfig } from 'prisma/config';
+export default defineConfig({
+  schema: '$1',
 });
 CFG
 }
@@ -157,7 +203,7 @@ head2 "3. GENERATE the migration with a snapshot-to-snapshot diff"
 # =====================================================================
 # NOTE: the config file must be written BEFORE the command that consumes it.
 # The first draft wrote it after, which would have failed in CI.
-mk_config "$SESS/next.prisma" "$SESS/diff.config.ts"
+mk_diff_config "$SESS/next.prisma" "$SESS/diff.config.ts"
 info "command: prisma migrate diff --from-schema prev.prisma --to-schema next.prisma --script"
 set +e
 prisma_run migrate diff \
@@ -262,17 +308,77 @@ else
   cat "$OUT_DIR/08-catalog.log"; fail "a protected composite FK was altered or lost by 0002"
 fi
 
-# presence is not enforcement: force a C-5 violation and require rejection
+# presence is not enforcement: force a C-5 violation and require rejection.
+# A bare `INSERT ... SELECT ... LIMIT 1` against an empty table reports
+# "INSERT 0 0" and proves nothing, so build the fixture on purpose and first
+# assert the fixture row actually exists (a positive control): a valid key must
+# be ACCEPTED. Only then is a rejection meaningful.
+FIX="$(q "$URL" "SELECT gen_random_uuid()::text")"
+QF="$(q "$URL" "SELECT gen_random_uuid()::text")"
+QQ="$(q "$URL" "SELECT gen_random_uuid()::text")"
+QV="$(q "$URL" "SELECT gen_random_uuid()::text")"
+QO="$(q "$URL" "SELECT gen_random_uuid()::text")"
+QK="$(q "$URL" "SELECT gen_random_uuid()::text")"
+# subjects is a global table (no education_level_id) — checked against 0001
+if {
+  q "$URL" "INSERT INTO education_levels (id, code, name_bn, name_en, created_at, updated_at)
+    VALUES ('$FIX', 'V1FIX', 'V1FIX', 'V1FIX', now(), now());"
+  q "$URL" "INSERT INTO subjects (id, code, name_bn, name_en, created_at, updated_at)
+    VALUES ('$QF', 'V1FIXSUB', 'V1FIX', 'V1FIX', now(), now());"
+  # C-1 (fk_questions_level_subject) requires the level/subject pair to exist
+  q "$URL" "INSERT INTO level_subjects (level_id, subject_id, created_at)
+    VALUES ('$FIX', '$QF', now());"
+  q "$URL" "INSERT INTO questions (id, type, status, difficulty, created_via, education_level_id, subject_id, marks, created_at, updated_at)
+    VALUES ('$QQ', 'MCQ', 'DRAFT', 'MEDIUM', 'MANUAL', '$FIX', '$QF', 1, now(), now());"
+  q "$URL" "INSERT INTO question_versions (id, question_id, version_number, status, content, created_at, updated_at)
+    VALUES ('$QV', '$QQ', 1, 'DRAFT', '{\"format\":1,\"version\":1,\"blocks\":[]}'::jsonb, now(), now());"
+  q "$URL" "INSERT INTO question_options (id, version_id, key, content, sort_order, created_at)
+    VALUES ('$QO', '$QV', 'A', '{}'::jsonb, 0, now());"
+  # positive control: the fixture is well-formed, so a VALID key is ACCEPTED
+  q "$URL" "INSERT INTO answer_keys (id, version_id, mcq_correct_option_key, is_verified, created_at, updated_at)
+    VALUES ('$QK', '$QV', 'A', false, now(), now());"
+} >/dev/null 2>&1; then
+  pass "fixture built, and a VALID key was ACCEPTED (so the rejection below is meaningful)"
+  # Remove the control row again. answer_keys has a unique version_id
+  # (uq_answer_keys_version), so leaving it in place would make the negative
+  # probe fail on uniqueness instead of on C-5 — passing for the wrong reason.
+  q "$URL" "DELETE FROM answer_keys WHERE id='$QK';" >/dev/null 2>&1 || true
+  gone="$(q "$URL" "SELECT count(*) FROM answer_keys WHERE version_id='$QV';")"
+  [ "$gone" = "0" ] && pass "control row removed — the next insert can only fail on C-5" \
+                    || fail "control row still present ($gone); the negative probe would be ambiguous"
+else
+  printf '  fixture rows present: %s\n' "$(q "$URL" "SELECT (SELECT count(*) FROM answer_keys WHERE version_id='$QV')||'/'||(SELECT count(*) FROM question_options WHERE version_id='$QV')")"
+  fail "could not build the C-5 fixture — the enforcement check cannot be trusted"
+fi
+
+# The rejection below is EXPECTED, so the ERR trap must be lifted around it:
+# `set +e` disables errexit but the ERR trap still fires on any failing command,
+# which would emit a misleading "V-1 aborted" annotation in CI for a passing check.
+trap - ERR
 set +e
 out="$("$PSQL" "$URL" -v ON_ERROR_STOP=0 -c "
 INSERT INTO answer_keys (id, version_id, mcq_correct_option_key, is_verified, created_at, updated_at)
-SELECT gen_random_uuid(), v.id, 'Z', false, now(), now() FROM question_versions v LIMIT 1;" 2>&1)"
+VALUES (gen_random_uuid(), '$QV', 'Z', false, now(), now());" 2>&1)"
 set -e
+arm_err_trap
 if printf '%s' "$out" | grep -qE "fk_answer_keys_options_of_version|ck_question_options|ck_answer_keys"; then
   pass "C-5 still rejects an invalid key AFTER 0002 (constraints are enforcing, not just present)"
 else
   printf '%s\n' "$out"; fail "C-5 did not reject an invalid key after 0002"
 fi
+# tear the fixture down again: this driver must not contaminate what it verifies
+{
+  q "$URL" "DELETE FROM answer_keys WHERE version_id='$QV';"
+  q "$URL" "DELETE FROM question_options WHERE version_id='$QV';"
+  q "$URL" "DELETE FROM question_versions WHERE id='$QV';"
+  q "$URL" "DELETE FROM questions WHERE id='$QQ';"
+  q "$URL" "DELETE FROM level_subjects WHERE level_id='$FIX' AND subject_id='$QF';"
+  q "$URL" "DELETE FROM subjects WHERE id='$QF';"
+  q "$URL" "DELETE FROM education_levels WHERE id='$FIX';"
+} >/dev/null 2>&1 || true
+left="$(q "$URL" "SELECT (SELECT count(*) FROM questions)+(SELECT count(*) FROM answer_keys)+(SELECT count(*) FROM education_levels WHERE code='V1FIX');")"
+[ "$left" = "0" ] && pass "fixture removed; the database is left as it was found" \
+                  || fail "fixture cleanup left $left row(s) behind"
 
 # =====================================================================
 head2 "9. the change took effect: the index exists and is used"
@@ -284,8 +390,19 @@ case "$IDEF" in
   *) fail "the descending index is absent or wrong: $IDEF" ;;
 esac
 
-# an index that exists but is never chosen is not really usable; confirm the
-# planner can use it for the "recently added" shape with seqscan disabled
+# An index can exist and still be unusable (left invalid by a failed CREATE
+# INDEX CONCURRENTLY, or not ready). Check the catalog flags directly — this does
+# not depend on table statistics, unlike the planner check that follows.
+IOSTAT="$(q "$URL" "SELECT i.indisvalid||'/'||i.indisready||'/'||i.indislive
+  FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid
+  WHERE c.relname='ix_questions_created_at_desc';")"
+[ "$IOSTAT" = "true/true/true" ] && pass "the index is valid, ready and live (indisvalid/indisready/indislive)" \
+  || fail "the index exists but is not fully usable: $IOSTAT"
+
+# An index that exists but is never chosen is not really usable; confirm the
+# planner can use it for the "recently added" shape with seqscan disabled.
+# This is ADVISORY only: on an empty table the planner legitimately prefers a
+# sequential scan even when enable_seqscan is off, so it must not fail the run.
 q "$URL" "SET enable_seqscan = off; EXPLAIN SELECT id FROM questions ORDER BY created_at DESC LIMIT 20;" 2>/dev/null > "$OUT_DIR/09-plan.txt" || true
 if grep -qi "ix_questions_created_at_desc" "$OUT_DIR/09-plan.txt"; then
   pass "the planner uses ix_questions_created_at_desc for the 'recently added' query"
@@ -338,5 +455,10 @@ cat "$OUT_DIR/RESULT.txt"
 if [ "$FAILS" -ne 0 ]; then
   printf '\n[V-1] FAIL: %s check(s) failed\n' "$FAILS" >&2
   exit 1
+fi
+if [ "$DRY" = "1" ]; then
+  printf '\n[V-1] DRY RUN COMPLETE — the shell logic ran, but Prisma calls were NOT executed.\n'
+  printf '      This is NOT a V-1 pass. Only CI can produce one.\n'
+  exit 0
 fi
 printf '\n[V-1] ALL CHECKS PASSED: a real second migration was generated by snapshot diff, deployed, and left C-1..C-5 intact and enforcing\n'
