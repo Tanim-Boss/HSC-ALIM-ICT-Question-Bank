@@ -77,11 +77,30 @@ ci_note() {
   printf '[G-1/2] evidence: %s\n' "$(printf '%s' "$*" | tr '\n' ' ' | cut -c1-400)"
 }
 
+# A run log created before anything can fail, so the ERR trap is always able
+# to quote the reason for a failure in CI. Everything is tee'd through it.
+RUN_LOG="${RUN_LOG:-${TMPDIR:-/tmp}/g1-exp2-$$.log}"
+: > "$RUN_LOG"
+exec > >(tee -a "$RUN_LOG") 2>&1
+CURRENT_CMD=""
+trap 'CURRENT_CMD="$BASH_COMMAND"' DEBUG
+
+# On failure, emit the TAIL OF OUR OWN LOG as an annotation. Without this a
+# CI failure reported only "a command exited 2", which is useless to a
+# reviewer and impossible to diagnose from the annotations API.
+# shellcheck disable=SC2154  # assigned in the trap body before use
 trap '
   rc=$?
-  printf "\n[G-1/2] FAIL: aborted at line %s (exit %s)\n" "$LINENO" "$rc" >&2
+  printf "\n[G-1/2] FAIL: aborted (exit %s) — last line executed: $CURRENT_CMD\n" "$rc" >&2
   if [ -n "${GITHUB_ACTIONS:-}" ]; then
-    printf "::error title=G-1/2 harness aborted::line %s exited %s\n" "$LINENO" "$rc"
+    tail_txt="no log yet"
+    [ -n "${OUT_DIR:-}" ] && cp "$RUN_LOG" "$OUT_DIR/run.log" 2>/dev/null || true
+    if [ -f "$RUN_LOG" ]; then
+      # the tee subprocess may not have flushed yet; read what is there
+      sleep 0.1
+      tail_txt="$(tail -c 1500 "$RUN_LOG" | tr "\n" " " | tr -s " ")"
+    fi
+    printf "::error title=G-1/2 harness aborted (exit %s)::%s\n" "$rc" "$(printf "%s" "$tail_txt" | cut -c1-1400)"
   fi
 ' ERR
 
@@ -581,4 +600,5 @@ second deployment: no-op, 5/5 preserved ................. OK
 RESULT
 cat "$OUT_DIR/RESULT.txt"
 echo
+cp "$RUN_LOG" "$OUT_DIR/run.log" 2>/dev/null || true
 echo "[G-1/2] artefacts in $OUT_DIR"
