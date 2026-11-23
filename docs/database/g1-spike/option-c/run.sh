@@ -119,17 +119,21 @@ guard_migration() {
 }
 
 # --- arguments --------------------------------------------------------
-URL=""
+URL=""; SHADOW_URL=""; REPLAY_URL=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --url) URL="${2:-}"; shift 2 ;;
     --url=*) URL="${1#*=}"; shift ;;
+    --shadow-url) SHADOW_URL="${2:-}"; shift 2 ;;
+    --shadow-url=*) SHADOW_URL="${1#*=}"; shift ;;
+    --replay-url) REPLAY_URL="${2:-}"; shift 2 ;;
+    --replay-url=*) REPLAY_URL="${1#*=}"; shift ;;
     -h|--help) sed -n '2,32p' "${BASH_SOURCE[0]}"; exit 0 ;;
     *) fail "unknown argument: $1" ;;
   esac
 done
 [ -n "$URL" ] || fail "usage: run.sh --url <fresh disposable database>"
-case "$URL" in
+case "$URL$SHADOW_URL$REPLAY_URL" in
   *production*|*prod*|*staging*|*supabase.co*|*render.com*|*rds.amazonaws.com*)
     fail "refusing to run against a non-disposable database" ;;
 esac
@@ -170,12 +174,15 @@ import { defineConfig } from 'prisma/config';
 export default defineConfig({
   schema: '$1',
   migrations: { path: '$MIGRATIONS' },
-  datasource: { url: process.env.OC_DATABASE_URL },
+  datasource: {
+    url: process.env.OC_DATABASE_URL,
+    shadowDatabaseUrl: process.env.OC_SHADOW_DATABASE_URL,
+  },
 });
 CFG
 }
 
-prisma_run() { ( cd "$REPO_ROOT" && OC_DATABASE_URL="$URL" "$PRISMA_BIN" "$@" ); }
+prisma_run() { ( cd "$REPO_ROOT" && OC_DATABASE_URL="$URL" OC_SHADOW_DATABASE_URL="${SHADOW_URL:-}" "$PRISMA_BIN" "$@" ); }
 
 # --- 1. baseline from EMPTY -> schema ---------------------------------
 step "1. BASELINE — Prisma generates the initial migration from an empty model"
@@ -280,6 +287,7 @@ ci_note "step4 schema-to-schema diff: 0 DROP statements, 0 mentions of C-1..C-5"
 
 # --- 5. the CI drift check that Option C relies on --------------------
 step "5. DRIFT CHECK — 'migrate diff --from-migrations --to-schema' must be clean"
+[ -n "$SHADOW_URL" ] || fail "--shadow-url is required: diffing a migrations directory needs a shadow database (Prisma v7 requires datasource.shadowDatabaseUrl)"
 info "tests: can CI detect that migration history has drifted from the"
 info "       datamodel WITHOUT the composite FKs producing false positives?"
 info ""
@@ -355,7 +363,7 @@ ci_note "step7 enforcement: ${PASSED}/${TOTAL} PASS, G1_FAIL=${FAILED}"
 step "8. REPRODUCIBILITY — a second, independent database must end up identical"
 info "tests: is the reviewed SQL replayable from scratch? This is what a new"
 info "       developer, a CI job, or a disaster recovery actually does."
-REPLAY_DB="${OC_REPLAY_URL:-}"
+REPLAY_DB="${REPLAY_URL:-}"
 if [ -z "$REPLAY_DB" ]; then
   info "no --replay-url supplied; skipping the independent replay"
   ci_note "step8 replay: SKIPPED (no second database supplied)"

@@ -69,6 +69,22 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 20
+      # A third disposable database: `migrate diff --from-migrations` requires
+      # datasource.shadowDatabaseUrl in Prisma 7, so the CI drift check cannot
+      # be exercised without one.
+      postgres-shadow:
+        image: postgres:16
+        env:
+          POSTGRES_USER: oc
+          POSTGRES_PASSWORD: ocspike
+          POSTGRES_DB: oc_shadow
+        ports:
+          - 5434:5432
+        options: >-
+          --health-cmd "pg_isready -U oc"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
 
     env:
       PRISMA_VERSION: '7.10.1'
@@ -108,7 +124,7 @@ jobs:
           fi
           psql --version
           rc=0
-          for target in "5432 oc_main" "5433 oc_replay"; do
+          for target in "5432 oc_main" "5433 oc_replay" "5434 oc_shadow"; do
             set -- $target
             port="$1"; db="$2"
             if out="$(psql -h localhost -p "$port" -U oc -d "$db" -Atc 'SHOW server_version;' 2>&1)"; then
@@ -127,7 +143,9 @@ jobs:
         run: |
           set -euo pipefail
           bash docs/database/g1-spike/option-c/run.sh \
-            --url "postgresql://oc:ocspike@localhost:5432/oc_main"
+            --url        "postgresql://oc:ocspike@localhost:5432/oc_main" \
+            --shadow-url "postgresql://oc:ocspike@localhost:5434/oc_shadow" \
+            --replay-url "postgresql://oc:ocspike@localhost:5433/oc_replay"
 
       # Independent re-read of the catalog, in case the driver's bookkeeping
       # is wrong. Only meaningful when the prototype actually ran.
