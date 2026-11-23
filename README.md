@@ -1,10 +1,10 @@
-# HSC / ALIM ICT Question Bank & Online Examination Platform
+# ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 
-> **Build Guide & Architecture Blueprint**
+> **Build Guide, Architecture Blueprint & UI/UX Design Specification**
 >
 > A complete educational assessment platform — not just a question bank website.
 > This README is the single source of truth for how to build the system later.
-> Read it before writing any application code.
+> Read it before writing any application code — including the **UI/UX design system in [§17](#17-uiux-design-system--ict-atlas)**.
 
 ![Status](https://img.shields.io/badge/status-Planning%20%2F%20Architecture%20Phase-orange)
 ![Stack](https://img.shields.io/badge/stack-Next.js%20%2B%20TypeScript%20%2B%20PostgreSQL-blue)
@@ -17,8 +17,9 @@
 |----------|------|--------|
 | **v1.0** | — | Initial blueprint: vision, architecture, schema, module guides, roadmap |
 | **v2.0** | 2026-11-23 | External architecture review merged. AI provider decision (Gemini behind a provider interface), PDF strategy re-tiered (print-first; raster export rejected), Unicode-safe Base64, timer grace window + idempotent submission, CQ self-assessment workflow, `Chapter` taxonomy, AI-assisted question ingestion, Bangla typography & mobile-network constraints, and a decision register with rejected alternatives ([§4.4](#44-decision-register--locked-open-rejected)) |
+| **v2.1** | 2026-11-23 | **UI/UX design specification integrated** ([§17](#17-uiux-design-system--ict-atlas)): ICT Atlas brand direction, color/typography tokens, information architecture, desktop & mobile layout, screen-by-screen specifications, component inventory, responsive behaviour, motion, accessibility, design states, and Figma handoff. Typography aligned to the design system (Manrope / Noto Sans Bengali / IBM Plex Mono) with SolaimanLipi retained as an optional print-fidelity face. |
 
-> **How to read this document:** [§4.4](#44-decision-register--locked-open-rejected) is the fastest path to the current state of every contested decision. Sections marked *(v2)* were added or revised by the architecture review.
+> **How to read this document:** [§4.4](#44-decision-register--locked-open-rejected) is the fastest path to the current state of every contested decision. Sections marked *(v2)* were added or revised by the architecture review; *(v2.1)* marks the UI/UX design system in [§17](#17-uiux-design-system--ict-atlas).
 
 ---
 
@@ -52,6 +53,23 @@
 - [14. Common Architectural Mistakes to Avoid](#14-common-architectural-mistakes-to-avoid)
 - [15. Non-Negotiable Architectural Decisions](#15-non-negotiable-architectural-decisions)
 - [16. Getting Started Checklist](#16-getting-started-checklist)
+- [17. UI/UX Design System — ICT Atlas](#17-uiux-design-system--ict-atlas)
+  - [17.1 Design direction](#171-design-direction)
+  - [17.2 Color tokens](#172-color-tokens)
+  - [17.3 Typography](#173-typography)
+  - [17.4 Information architecture](#174-information-architecture)
+  - [17.5 Global application layout](#175-global-application-layout)
+  - [17.6 Screen-by-screen specifications](#176-screen-by-screen-specifications)
+  - [17.7 Component system](#177-component-system)
+  - [17.8 Content and question rendering](#178-content-and-question-rendering)
+  - [17.9 Responsive design](#179-responsive-design)
+  - [17.10 Motion guidelines](#1710-motion-guidelines)
+  - [17.11 Accessibility](#1711-accessibility)
+  - [17.12 Design states](#1712-design-states)
+  - [17.13 Security reflected in the interface](#1713-security-reflected-in-the-interface)
+  - [17.14 Figma organization and handoff](#1714-figma-organization-and-handoff)
+  - [17.15 Design-to-code acceptance criteria](#1715-design-to-code-acceptance-criteria)
+  - [17.16 Design production sequence](#1716-design-production-sequence)
 - [Appendix A: Ready-to-Use AI Prompts](#appendix-a-ready-to-use-ai-prompts)
 - [Appendix B: Environment Variables Template](#appendix-b-environment-variables-template)
 - [Appendix C: Glossary](#appendix-c-glossary)
@@ -240,7 +258,7 @@ This prevents score manipulation and bypassing exam restrictions via browser too
 | **`window.print()` + `@media print`** | Primary PDF path | Browser print engine — vector text, perfect Bengali shaping |
 | **Playwright** *(headless Chromium)* | **Server-side** PDF snapshots + E2E tests | `page.pdf()` → real PDF; runs in a worker, not a request |
 | **`@react-pdf/renderer`** *(evaluated, deferred)* | Vector PDF without Chromium | Chooses typography quality over layout reuse — see [§7.5.3](#753-pdf-generation) |
-| **SolaimanLipi** (NCTB) + **Hind Siliguri** (UI) + **Inter** + **JetBrains Mono** | Typography | See [§4.5](#45-typography-and-script-system-v2) |
+| **Manrope** (English UI) + **Noto Sans Bengali** (Bengali UI) + **IBM Plex Mono** (code) | Typography | Design-system fonts — see [§4.5](#45-typography-and-script-system-v2) and [§17.3](#173-typography) |
 | **Vitest + RTL** | Unit / component / API testing | See [§12](#12-testing-strategy) |
 
 > **Provider-agnostic rule:** application code never imports a vendor SDK directly. The AI Tutor and the ingestion parser call an internal interface (`server/ai/provider.ts`); the vendor is a configuration value. Swapping Gemini ↔ OpenAI/Claude must be a one-file change, not a refactor.
@@ -274,6 +292,7 @@ One application with clearly separated modules (see [§8](#8-proposed-project-st
 | L6 | **AI is never the source of truth** | The `AnswerKey` table decides correctness. AI explains; it does not grade ([§7.2.5](#725-cq-evaluation--rubric-reveal--self-assessment-v2), [§7.4.4](#744-critical-ai-design-decision)). |
 | L7 | **Gemini 2.5 Flash as the default provider** — behind the adapter | Strong Bangla handling, low latency/cost, native multimodal (can read logic-gate diagrams). *Review-driven change from v1's OpenAI default.* |
 | L8 | **Vector, selectable text in every PDF** | Bengali shaping and accessibility require the print engine, not a canvas. |
+| L9 | **Design tokens and components from [§17](#17-uiux-design-system--ict-atlas) are the only styling source** | No ad-hoc hex values, no one-off layouts. Tokens make 40+ screens consistent and make Bengali/English typography testable ([§17.2](#172-color-tokens), [§17.7](#177-component-system)). |
 
 **Open (decide before Phase 05; do not block on it now):**
 
@@ -285,6 +304,7 @@ One application with clearly separated modules (see [§8](#8-proposed-project-st
 | O4 | Is anonymous practice allowed? | Login-gated only vs. guest sessions with local history | **Guest practice for MCQs**, login required to persist analytics |
 | O5 | AI-generated questions in the bank? | Never / draft-only with human approval | **Draft-only, mandatory human publish** |
 | O6 | Rate limiting backend | Upstash Redis vs. Postgres counters | **Upstash** once traffic justifies it; Postgres advisory locks before that |
+| O7 | Default UI language | Bangla-first chrome · English-first chrome · per-user toggle | **Per-user toggle** — Bangla-first for student content, English for admin and technical metadata |
 
 **Rejected (and why):**
 
@@ -304,12 +324,17 @@ One application with clearly separated modules (see [§8](#8-proposed-project-st
 
 Mixed-script text is the single most underestimated risk in this project. Bengali is a **complex script**: vowel signs attach to consonants, consonant clusters form conjuncts (ক্ষ, ঞ্জ, স্ত্র), and line-breaking rules differ from Latin.
 
+The **UI** uses the design-system fonts defined in [§17.3](#173-typography). A separate **print-fidelity** face may be used in Paper Studio when a PDF must match printed NCTB board papers.
+
 | Role | Typeface | Why |
 |------|----------|-----|
-| Bangla body & question text | **SolaimanLipi** (NCTB-standard) or **Hind Siliguri** | SolaimanLipi matches printed board papers; Hind Siliguri renders better on screen at small sizes |
-| English body | **Inter** | Neutral, highly legible, good numerals |
-| Code (C / HTML / SQL) | **JetBrains Mono** | Disambiguates `l/1`, `O/0`, and keeps Bangla in code comments readable |
+| English interface (UI) | **Manrope** | Geometric humanist sans; clear numerals and a wide weight range for the scale in §17.3 |
+| Bengali interface (UI) | **Noto Sans Bengali** | Complete conjunct coverage, consistent screen rendering, libre, well-hinted at 12–16 px |
+| Code (C / HTML / SQL) | **IBM Plex Mono** | Disambiguates `l/1`, `O/0`, and keeps Bangla in code comments readable |
+| Bangla print fidelity *(optional, document-level)* | **SolaimanLipi** (NCTB-standard) | Only for Paper Studio PDFs that must visually match printed board papers — never a UI font |
 | Math | KaTeX's own stack | Do not mix Bengali font metrics into math rendering |
+
+> **Rule:** UI typography follows §17.3 — Manrope for English, Noto Sans Bengali for Bangla, IBM Plex Mono for code. SolaimanLipi/Hind Siliguri are **not** UI faces; use them only when a printed paper needs to look like an NCTB board paper. Never mix both systems on one screen.
 
 Rules:
 
@@ -523,9 +548,9 @@ Students filter by:
 | Topic | Number System |
 | Subtopic | Binary Conversion |
 | Type | MCQ / CQ |
-| College | Selected college |
+| College | Selected institution / college |
 | Difficulty | Easy / Medium / Hard |
-| Source | Board / College / Model Test |
+| Source | Board / Model Test / Institution / Original |
 
 **Dynamic cascade:**
 
@@ -687,15 +712,19 @@ const remainingMs = () => Date.parse(expiresAt) - (Date.now() + offsetMs)
 
 Include:
 
-- [ ] Question navigation panel
+- [ ] Question navigation panel (grid with five states: **neutral**, **answered**, **current**, **review**, **error**)
 - [ ] Current question number
-- [ ] Countdown timer (derived from server `expiresAt`)
+- [ ] Countdown timer (derived from server `expiresAt`) — always visible in the exam header
+- [ ] Autosave status indicator (saving / saved / save failed / offline)
 - [ ] Previous / Next buttons
 - [ ] Mark for review
+- [ ] Clear answer
 - [ ] Answer selection
 - [ ] Answered / unanswered status
-- [ ] Submit confirmation
-- [ ] Responsive mobile interface
+- [ ] Submit confirmation that lists unanswered questions and protects against duplicate submission
+- [ ] Responsive mobile interface (full-screen question + collapsible navigator)
+
+**Visual and interaction rules (§17.6.5):** the exam screen has exactly three regions — header, question area, navigator. No sidebar, no marketing chrome, no unrelated navigation. Answer controls are disabled the moment the server-derived countdown reaches zero; the UI lock is UX, the server rejection is enforcement.
 
 **Additional rules:**
 
@@ -1353,7 +1382,7 @@ HSC-ALIM-ICT-Question-Bank/
 │   ├── EXPORT_SYSTEM.md
 │   ├── ADMIN_PANEL.md
 │   ├── SECURITY.md
-│   ├── UI_DESIGN_SYSTEM.md
+│   ├── UI_DESIGN_SYSTEM.md      # Extracted from README §17; keep both in sync
 │   └── DEVELOPMENT_ROADMAP.md
 │
 ├── app/                           # Next.js App Router
@@ -1498,8 +1527,17 @@ Ready-to-use prompts are in [Appendix A](#appendix-a-ready-to-use-ai-prompts).
 
 ### Phase 02 — UI/UX & Design System
 
-- [ ] Design student dashboard, question bank, exam interface, admin dashboard
-- [ ] Establish typography (Bengali + English), colors, spacing, components
+> Follow [§17](#17-uiux-design-system--ict-atlas) as the specification and [§17.16](#1716-design-production-sequence) as the production order. Do not design screens ad hoc — every screen is composed from the tokens and components defined there.
+
+- [ ] Brand foundations: ICT Atlas identity, color tokens, type scale, spacing and radius grid
+- [ ] Tailwind theme mapped to the §17.2 tokens (single source of truth in `tailwind.config.ts`)
+- [ ] Core components: buttons, inputs, navigation, cards, tables, badges, dialogs, notifications
+- [ ] Public site: landing page + authentication screens (all required states)
+- [ ] Student app: dashboard, question bank, question detail, examination, results, AI Tutor, Paper Studio
+- [ ] Admin app: dashboard, question management, review queue
+- [ ] Mobile layouts at the 390 × 844 reference (bottom navigation, filter drawer, full-screen exam)
+- [ ] Accessibility pass: contrast, focus order, labels, 44 × 44 touch targets, reduced motion
+- [ ] Figma file organized per §17.14 and reviewed against the §17.15 acceptance criteria
 
 ### Phase 03 — Project Setup
 
@@ -1717,7 +1755,10 @@ Vercel — Next.js application hosting (App Router, SSR, route handlers)
 | *(v2)* Blending self-assessed CQ marks with auto-scored MCQ accuracy | Separate visualizations and labelled `evaluationSource` ([§7.3.1](#731-student-dashboard-metrics)) |
 | *(v2)* Client-owned exam deadline (`expiresAt = Date.now() + t`) | Server `expiresAt` + clock offset ([§7.2.2](#722-timer-implementation--server-authoritative)) |
 | *(v2)* Trusting AI-parsed questions without human review | Draft state + mandatory admin publish ([§7.6.3a](#763a-ai-assisted-ingestion--question-parser-v2)) |
-| *(v2)* Setting a Bengali font as the global body font | Scope by `lang`/class, keep Latin on Inter ([§4.5](#45-typography-and-script-system-v2)) |
+| *(v2)* Setting a Bengali font as the global body font | Scope by `lang`/class, keep Latin on Manrope ([§4.5](#45-typography-and-script-system-v2)) |
+| *(v2.1)* Designing screens ad hoc instead of from tokens and components | Token-first design system ([§17.2](#172-color-tokens)–[17.3](#173-typography)), reusable component inventory ([§17.7](#177-component-system)) |
+| *(v2.1)* Hiding filters, actions or data on mobile | Change the IA, not just the width: drawer, bottom navigation, stacked rows ([§17.9](#179-responsive-design)) |
+| *(v2.1)* Communicating status by colour alone | Colour + text + icon everywhere; WCAG 2.2 AA ([§17.11](#1711-accessibility)) |
 
 ---
 
@@ -1743,6 +1784,9 @@ Vercel — Next.js application hosting (App Router, SSR, route handlers)
 15. **Evaluation source is stored, displayed, and never blended** — self-reported marks are not facts.
 16. **Hindi/Bangla typography is scoped and tested** — `lang`-scoped font stacks, line-height ≥ 1.75, verified at 320 px.
 17. **AI-generated content is a draft until a human publishes it.**
+18. **The design system is a dependency, not decoration.** Tokens, type scale and core components are built before any screen; no ad-hoc hex values, no one-off layouts ([§17](#17-uiux-design-system--ict-atlas)).
+19. **WCAG 2.2 AA is an acceptance criterion**, not a polish task — contrast, focus, labels, 44 × 44 targets, reduced motion ([§17.11](#1711-accessibility)).
+20. **Every screen ships with loading, empty and error states** — they are part of the component, not a later phase ([§17.12](#1712-design-states)).
 
 ---
 
@@ -1756,9 +1800,598 @@ Before writing the first line of application code:
 - [ ] Define **API contracts** → `docs/API_SPECIFICATION.md`
 - [ ] Define **exam lifecycle + timer rules** → `docs/EXAM_ENGINE.md`
 - [ ] Define **auth + RBAC rules** → `docs/AUTHENTICATION.md`
+- [ ] Adopt the **UI/UX design system** → [§17](#17-uiux-design-system--ict-atlas) (tokens, typography, IA, screen specs)
+- [ ] Set up the **Figma file** per [§17.14](#1714-figma-organization-and-handoff) and review it against [§17.15](#1715-design-to-code-acceptance-criteria)
 - [ ] Create the remaining `docs/` files (§8)
 - [ ] Scaffold the project (Phase 03)
 - [ ] Build Phase 04 (Question Management) as the first milestone
+
+---
+
+## 17. UI/UX Design System — ICT Atlas
+
+> **Working product name:** ICT Atlas · **Market:** Bangladesh · **Platform:** responsive web application
+>
+> **Target users:** HSC and ALIM students, teachers, educational institutions and content administrators
+>
+> **Design reference:** [Figma — HSC / ALIM ICT Question Bank Platform](https://www.figma.com/design/PhhRLzpskiZQBSFkGBSjCx/HSC---ALIM-ICT-%E2%80%94-Question-Bank-Platform?node-id=0-1&t=cJQvnMFyGeTSGzOC-1)
+>
+> This section is the **specification**; the Figma file is the visual exploration of it. When a frame and this section disagree, this section wins and the frame is corrected — otherwise small drifts compound across dozens of screens.
+>
+> **Audience:** designers building the Figma file and engineers implementing Tailwind components. Both work from the same tokens and the same component names.
+
+### 17.1 Design direction
+
+**Concept: contemporary academic editorial design** — the visual discipline of a professional SaaS product with the clarity of a well-designed academic publication.
+
+| Principle | Design implication |
+|---|---|
+| Academic credibility | Restrained colors, precise typography, clear information hierarchy |
+| Content first | Questions and explanations get more visual weight than decoration |
+| Low cognitive load | No unnecessary cards, gradients, or competing elements |
+| Consistency | Reusable components and predictable interactions |
+| Bilingual usability | Proper Bengali and English typography ([§4.5](#45-typography-and-script-system-v2)) |
+| Data integrity | Official board, model, institution and AI-generated questions are visibly distinct |
+| Accessibility | Keyboard navigation, contrast, readable text ([§17.11](#1711-accessibility)) |
+| Responsiveness | Mobile changes the information architecture, not just the width ([§17.9](#179-responsive-design)) |
+
+**Brand personality:** intelligent · trustworthy · precise · modern · academically serious · approachable without being childish.
+
+| Do | Do not |
+|---|---|
+| Restraint, whitespace, typographic hierarchy | Excessive gradients |
+| One accent colour used deliberately | Glassmorphism as a default treatment |
+| Authentic product interface previews | Oversized rounded cards everywhere |
+| Clear, predictable interactions | Cartoon illustrations and mascots |
+| | Decorative 3D icons |
+| | Excessive shadows |
+| | Unnecessary animations |
+| | Generic AI-style purple gradients |
+
+**Five product experiences:** a structured, searchable question bank · a realistic online examination environment · detailed performance analysis and progress tracking · an AI-powered learning assistant · a professional paper creation and export studio. Authentication, administration and analytics services support these five surfaces — they are not separate products in the student's mind.
+
+**The central design principle:** ICT Atlas should make studying ICT more structured, understanding concepts easier, and examination preparation more measurable — not merely make the website look modern.
+
+### 17.2 Color tokens
+
+| Token | Hex | Usage | Tailwind class |
+|---|---|---|---|
+| Ink | `#182F3A` | Primary text, headings | `text-ink` |
+| Ink Soft | `#405761` | Secondary headings and text | `text-ink-soft` |
+| Teal | `#176B63` | Primary actions, active states | `bg-teal`, `text-teal` |
+| Teal Dark | `#10564F` | Hover and pressed states | `hover:bg-teal-dark` |
+| Teal Tint | `#E8F2EF` | Selected backgrounds, active navigation | `bg-teal-tint` |
+| Canvas | `#F4F6F2` | Main application background | `bg-canvas` |
+| Surface | `#FFFFFF` | Cards, panels, forms | `bg-surface` |
+| Border | `#E2E8E3` | Dividers and boundaries | `border-border` |
+| Lime | `#DCEAAE` | Occasional emphasis only | `bg-lime` |
+| Amber | `#B77C2B` | Warnings and review states | `text-amber` |
+| Red | `#B6534C` | Errors, incorrect answers, destructive actions | `text-red` |
+| Code Background | `#172A34` | Code and terminal blocks | `bg-code` |
+
+**Usage rules**
+
+- Teal is for the **primary action**, not for every clickable element. Body links use Ink/Teal Dark with an underline; secondary actions are Outline or Ghost.
+- Red is reserved for destructive actions, errors and incorrect answers — never decoration.
+- Amber means warning or pending review. Most content sits on neutral Canvas/Surface.
+- **Never communicate status by colour alone.** Every status pairs colour with text or an icon; this also survives greyscale printing.
+- Verify every text/background pair at WCAG AA: 4.5:1 for body text, 3:1 for large text and UI boundaries.
+- Contrast notes: Ink on Canvas ≈ 12:1; Teal `#176B63` on white ≈ 6.3:1; Red `#B6534C` on white ≈ 4.9:1; Amber `#B77C2B` on white ≈ 3.5:1 — use Amber for icons, badges and large text, and pair small warning copy with a tint background or Ink Soft text.
+
+**Tailwind mapping** (`tailwind.config.ts`):
+
+```ts
+colors: {
+  ink: { DEFAULT: '#182F3A', soft: '#405761' },
+  teal: { DEFAULT: '#176B63', dark: '#10564F', tint: '#E8F2EF' },
+  canvas: '#F4F6F2',
+  surface: '#FFFFFF',
+  border: '#E2E8E3',
+  lime: '#DCEAAE',
+  amber: '#B77C2B',
+  red: '#B6534C',
+  code: '#172A34',
+},
+```
+
+> Define these once. No hex values in component files, no one-off arbitrary values (`bg-[#176B63]`).
+
+### 17.3 Typography
+
+| Purpose | Font | Weights | Notes |
+|---|---|---|---|
+| English interface | **Manrope** | 400 / 500 / 600 / 700 / 800 | Body, headings, numerals |
+| Bengali interface | **Noto Sans Bengali** | 400 / 500 / 600 / 700 | Apply via `lang="bn"` / `.lang-bn` |
+| Code and technical notation | **IBM Plex Mono** | 400 / 500 | C, HTML, SQL, pseudocode, inline code |
+| Optional print fidelity | **SolaimanLipi** | 400 / 700 | Paper Studio PDFs matching NCTB board papers only |
+
+**Type scale** (16 px root):
+
+| Style | Size | Weight | Line height | Usage |
+|---|---:|---:|---:|---|
+| Display | 36–40 px | 700–800 | 1.15 | Landing hero only |
+| Page heading (H1) | 26–30 px | 700 | 1.25 | Page titles |
+| Section heading (H2) | 18–22 px | 700 | 1.3 | Section titles |
+| Card heading (H3) | 15–17 px | 600 | 1.4 | Card titles, question meta |
+| Body | 14–15 px | 400 | 1.5 Latin / 1.75 Bengali | Default reading |
+| Secondary body | 12–13 px | 400 | 1.5 | Helper text, captions |
+| Metadata | 10–11 px | 500 | 1.4 | Badges, source lines |
+| Technical code | 13–14 px | 400 | 1.6 | Code blocks |
+
+**Bengali rules:** line-height ≥ 1.75; scope the font by `lang="bn"`, never as the global body face; no `text-align: justify`; test real strings (`ক্ষ`, `জ্ঞ`, `ন্ত্র`, `র্দ্ধ`, `৬৯`, `(ক)`) at 320 px; `font-display: swap`. Full engineering checklist in [§4.5](#45-typography-and-script-system-v2).
+
+**Tailwind mapping:**
+
+```ts
+fontFamily: {
+  sans: ['Manrope', 'Noto Sans Bengali', 'system-ui', 'sans-serif'],
+  bn: ['Noto Sans Bengali', 'sans-serif'],
+  mono: ['IBM Plex Mono', 'ui-monospace', 'monospace'],
+},
+```
+
+### 17.4 Information architecture
+
+**Public website**
+
+| Page | Purpose |
+|---|---|
+| Home | Value proposition, product preview, primary CTA |
+| About ICT Atlas | Credibility, mission, academic context |
+| Question Bank | Public, searchable sample of the bank |
+| Sample Questions | Demonstrate MCQ and CQ rendering |
+| Features | The five product experiences explained |
+| Pricing / Plans | If applicable |
+| Sign In · Register | Authentication |
+| Privacy Policy · Terms of Service · Contact | Legal and support |
+
+**Student application**
+
+- Overview (dashboard)
+- Question Bank — MCQ · CQ · Board Questions · Model Questions · Topic-wise
+- My Examinations
+- Practice Tests
+- Results
+- Performance Analytics
+- AI Tutor
+- Saved Questions
+- My Profile
+- Settings
+
+**Admin application**
+
+- Overview
+- Question Management — All · Add · Drafts · Review Queue · Published
+- Subjects
+- Chapters
+- Topics and Subtopics
+- Board and Examination Sources
+- Examination Management
+- Paper Studio
+- Student Management
+- Results and Reports
+- Asset Library
+- AI Configuration
+- User Roles and Permissions
+- Audit Logs
+- System Settings
+
+> Navigation labels must be consistent within a single list. If a Bengali interface is enabled, localize the whole list — never mix languages within one navigation menu.
+
+### 17.5 Global application layout
+
+**Desktop — reference viewport 1440 × 1000 px**
+
+| Element | Width / height |
+|---|---|
+| Sidebar | 248 px |
+| Main content | Remaining width |
+| Main content padding | 32–40 px |
+| Top bar | 64–76 px |
+| Standard card radius | 12–16 px |
+| Standard content gap | 16–24 px |
+
+**Sidebar** — brand logo and product name, workspace/user context, primary navigation, resource/help link, profile and account menu. Active item: Teal Tint background, Teal text, and a clear active indicator (3 px bar on the leading edge).
+
+**Top bar** — breadcrumb, page title or contextual greeting, search, notifications, profile avatar. Do not duplicate sidebar navigation in the top bar.
+
+**Mobile — reference viewport 390 × 844 px**
+
+- Compact top navigation replaces the persistent sidebar.
+- Bottom navigation for the five primary student destinations.
+- Full-screen question-solving experience; no app chrome during an exam.
+- Secondary filters open in a bottom-sheet drawer.
+- Full-width primary actions; analytical cards stack vertically.
+- No horizontal scrolling for normal content; touch targets ≥ 44 × 44 CSS px.
+
+### 17.6 Screen-by-screen specifications
+
+#### 17.6.1 Public landing page
+
+**Purpose:** communicate the product value and convert visitors into registered users.
+
+**Section order:** header/navigation → hero → product benefits → question-bank preview → examination preview → AI Tutor introduction → performance-analytics preview → FAQ → footer.
+
+**Hero:**
+
+- Headline: **Your Complete ICT Preparation Space.**
+- Supporting text: *Explore HSC and ALIM ICT questions, practise with online examinations, understand your mistakes and prepare with structured learning support.*
+- Primary CTA: **Explore Question Bank** (Teal).
+- Secondary CTA: **Create Your Account** (Outline).
+
+**Visual direction:** restrained editorial hero. Show an **authentic product interface preview** (a real question card and exam screen), not a stock photograph or abstract illustration. Maximum two actions above the fold.
+
+#### 17.6.2 Authentication
+
+**Sign-in fields:** email address or supported identifier · password · remember me · forgot password. Actions: Sign in (Primary), Create an account (Outline/Ghost).
+
+**Registration fields:** full name · email · password · confirm password · education level (HSC / ALIM) · academic group (where applicable) · institution (optional) · consent to terms. Do not ask for unnecessary personal information.
+
+**Required states:** empty form · invalid email · password validation error · incorrect credentials · loading · successful sign-in · verification required · password-reset confirmation.
+
+**Rules:**
+
+- Inline validation on blur; error summary on submit; errors are text + icon, never colour alone.
+- Password rules are stated before the first keystroke, not discovered after failure.
+- Do not reveal whether an email exists until after a successful sign-in (account-enumeration protection).
+- Auth screens are chrome-free: no sidebar, no bottom navigation.
+
+#### 17.6.3 Student dashboard
+
+**Purpose:** answer three questions in the first viewport — *How am I progressing? What should I practise next? Where do I continue from?*
+
+| Region | Content |
+|---|---|
+| A. Welcome area | Greeting · academic context · short motivational line · **Start Practice** CTA |
+| B. Learning metrics | 4 cards: exams completed · questions solved · average accuracy · study streak |
+| C. Performance chart | Accuracy over recent attempts; time-range selector; optional target line; tooltip with attempt details |
+| D. Focus areas | Topics needing practice: topic name · accuracy · progress bar · recommended action |
+| E. Recent activity | Recent examinations and practice sessions, with resume/continue |
+
+**Rules:**
+
+- Do not fill the first viewport with statistics. Metrics answer "how am I doing"; Focus areas and Recent activity answer "what next" and "where from".
+- Empty state for a new student: one clear **Start your first practice test** action, not four zero-valued cards.
+- Self-assessed CQ marks are visually distinct (dashed line / hatched bar / label) and never blended into MCQ accuracy ([§7.3.1](#731-student-dashboard-metrics)).
+
+#### 17.6.4 Question bank
+
+The most important content-discovery interface.
+
+**Header:** page title · short description · **Create Test** action.
+
+**Search:** keyword · question ID · topic · board or year.
+
+**Filters (combinable):**
+
+| Filter | Options |
+|---|---|
+| Education level | HSC / ALIM |
+| Question type | MCQ / CQ |
+| Board | Dhaka, Rajshahi, Cumilla, Chattogram, etc. |
+| Year | Available examination years |
+| Subject | ICT |
+| Chapter | Available chapters |
+| Topic | Available topics |
+| Difficulty | Easy / Medium / Hard |
+| Source | Board / Model / Institution / Original |
+
+Filter options are derived from actual data, with counts per facet. On mobile, filters open in a dedicated drawer; the applied-filter count appears on the trigger.
+
+**MCQ card:** question identifier · board and year · chapter and topic · question text · rich content · image/diagram · four or more configurable options · save · view explanation · add to test. **Correct answers stay hidden during active examinations.**
+
+**CQ card:** question stem · scenario/stimulus · associated image/table/diagram · Bengali subquestions (ক খ গ ঘ) · marks distribution · board and year · view marking guide · save · add to test.
+
+**Question detail (expanded):** complete question · source information · answer key (when authorized) · explanation · formulas/diagrams · related questions · report an issue.
+
+**Empty states:** "No questions match these filters" (with **Clear filters**), "No saved questions yet" (with **Browse questions**), "No questions available for this topic" (with **Choose another topic**). Every empty state provides a useful next action.
+
+#### 17.6.5 Timed examination interface
+
+**Purpose:** distraction-free, reliable examination.
+
+Three regions only:
+
+| Region | Contents |
+|---|---|
+| 1. Examination header | Exam title · total marks · total questions · **time remaining** · autosave status · **Submit** |
+| 2. Main question area | Question number · type · marks · source metadata · complete content · answer controls |
+| 3. Question navigator | Question-number grid |
+
+**Answer controls:** MCQ = selectable options (single choice unless configured otherwise). CQ = structured rich-text editor supporting Bengali, English, paragraphs, lists and mathematical notation.
+
+**Navigator states:**
+
+| State | Meaning |
+|---|---|
+| Neutral | Not answered |
+| Answered | Answer saved |
+| Current | Currently open question |
+| Review | Marked for review |
+| Error | Answer could not be saved |
+
+**Interactions:** previous · next · mark for review · clear answer · navigate to question · submit.
+
+**Critical behaviour (design must communicate, server must enforce — [§7.2](#72-examination-engine)):**
+
+- Server controls expiry; the countdown is presentation only.
+- Answers autosave with visible save status (saving / saved / failed / offline).
+- Refreshing restores a valid active session.
+- Expired exams cannot accept answers; controls lock immediately.
+- Submission is protected against duplicate requests; repeated submit is a no-op.
+- Unanswered questions are listed before final submission.
+- The student receives an understandable confirmation with the result location.
+
+#### 17.6.6 Examination results
+
+**Summary:** total score · total marks · accuracy · correct · incorrect · unanswered · time taken.
+
+**Performance analysis:** topic-wise accuracy · chapter-wise performance · historical comparison · strong areas · weak areas · recommended practice. Chapters with fewer than 5 evaluated answers show **Not enough data** ([§7.3.5](#735-chapter-level-analytics-chapters-16-v2)).
+
+**Answer review, per question:** original question · student response · correct answer · correctness status · explanation · marks obtained. For CQ, show marking criteria and awarded marks **only** when an authorized marking process has completed.
+
+> Never present automatically generated marks as officially verified marks. Label the evaluation source (`AUTO` / `SELF_ASSESSED` / `TEACHER_REVIEWED`) wherever marks appear.
+
+#### 17.6.7 AI Tutor
+
+**Desktop:** two columns — left conversation list (new conversation, previous questions); right current discussion with question context, AI explanation and follow-up input. **Mobile:** single column; the conversation list becomes a back-navigable screen.
+
+**Capabilities:** explain a question · explain why an answer is incorrect · simplify a concept · step-by-step explanation · examples · generate related practice · explain formulas and technical concepts.
+
+**Response block order:**
+
+1. Direct answer
+2. Concept explanation
+3. Step-by-step reasoning
+4. Example
+5. Common mistake
+6. Related practice
+
+**Trust and safety in the UI:**
+
+- Ground answers in approved question-bank content where possible.
+- Distinguish **official explanation** from **AI-generated explanation** with a persistent label.
+- Show uncertainty explicitly; never invent board sources or official answers.
+- Provide **Report response** on every AI message.
+- Do not expose examination answer keys during an active examination.
+- Show the remaining daily quota before the student hits the wall.
+
+#### 17.6.8 Paper Studio
+
+**Desktop:** three columns.
+
+| Panel | Contents |
+|---|---|
+| Left — question outline | Sections · question list · ordering · add/remove · drag-and-drop reorder |
+| Center — paper preview | Live A4 preview · page boundaries · Bengali and English text · images/diagrams · page numbering |
+| Right — document settings | Paper title · institution · examination name · time · full marks · page size · orientation · margins · typography · answer-key settings |
+
+**Mobile:** simplified sequential panels (outline → preview → settings), not three squeezed columns.
+
+**Export:** PDF (print-ready) · TXT · JSON · Base64 (an encoding, not a document format — always label what is encoded). PDF rules: correct Bengali glyphs, embedded/reliably available fonts, proper image resolution, consistent margins, no split stems where avoidable, no orphaned question numbers, stable page numbering, print-safe contrast. Technical path in [§7.5](#75-question-paper-studio--export-system).
+
+#### 17.6.9 Admin dashboard
+
+**Overview metrics:** total questions · published · drafts · awaiting review · active students · published examination papers.
+
+**Analytics:** question growth over time · content coverage by chapter · board/year coverage · question-type distribution · review backlog.
+
+**Recent activity:** recently added questions · recently edited · content awaiting approval · recent examination publications.
+
+**Rule:** use status labels (**Draft**, **Under review**, **Approved**, **Published**, **Rejected**, **Archived**, **Needs correction**) — never a coloured dot alone.
+
+#### 17.6.10 Question management
+
+**Metadata:** education level · subject · chapter · topic · subtopic · question type · board · examination year · source · difficulty · marks · publication status.
+
+**Rich content editor:** Bengali and English text · bold/italic · lists · tables · math · images · diagrams · flowcharts · code · superscript/subscript · numbered subquestions.
+
+**MCQ editor:** question text · assets · answer options · correct answer · explanation · marks · metadata.
+
+**CQ editor:** stimulus · stimulus assets · subquestions ক/খ/গ/ঘ · marks per subquestion · marking guide · explanation.
+
+**Publication workflow:** Draft → Review → Approved → Published; also Rejected, Archived, Needs correction. Every published question has revision history and every status change is audit-logged ([§7.6](#76-admin-dashboard--content-management)).
+
+### 17.7 Component system
+
+Build reusable components; do not design pages as one-offs.
+
+**Buttons**
+
+| Variant | Usage |
+|---|---|
+| Primary | Main action (Teal) |
+| Secondary | Supporting action |
+| Outline | Low-priority action |
+| Ghost | Minimal action |
+| Destructive | Delete or irreversible action (Red) |
+| Icon button | Compact utility action (≥ 44 × 44 px) |
+
+States: default · hover · focus · pressed · disabled · loading. The loading state must not change button width (reserve a spinner slot).
+
+**Form components:** text input · textarea · search input · password input · select · multi-select · radio group · checkbox · date picker · file upload · rich-text editor. Every field has a label, optional helper text, required indicator, validation message and disabled state.
+
+**Content components:** MCQ card · CQ card · question metadata · answer option · explanation panel · diagram container · code block · mathematical expression · source attribution · board/year badge.
+
+**Data components:** metric card · progress indicator · bar chart · line chart · data table · status badge · pagination · filter chip · empty state.
+
+**Feedback components:** toast notification · confirmation dialog · warning banner · error message · loading skeleton · empty state · success state.
+
+**Naming:** `Button/Primary/Default`, `Question/MCQ/Default`, `Navigation/Sidebar/Active`, `Examination/Timer/Warning` — the same names in Figma and in the component folder.
+
+### 17.8 Content and question rendering
+
+Question content is **structured blocks, not plain text** ([§6.3](#63-question-structure--structured-document-not-plain-text)). One renderer serves every destination.
+
+| Block | Example |
+|---|---|
+| Paragraph | Bengali or English question text |
+| Heading | Question section heading |
+| List | Answer options or instructions |
+| Table | Database or comparison table |
+| Image | Circuit, diagram, screenshot |
+| Math | Formula and notation (KaTeX) |
+| Code | HTML, C, SQL or pseudocode |
+| Flowchart | Algorithm or process diagram |
+| Callout | Important information |
+| Subquestion | CQ question parts |
+
+**The same question must not be manually reformatted for each destination.** The renderer preserves layout and formatting across: question bank · examination screen · answer review · AI Tutor context · Paper Studio · PDF export.
+
+**Accessibility:** every block has a text alternative; math has a readable fallback (`aria-label` or visible LaTeX); code blocks are keyboard-scrollable and copyable; diagrams have descriptive alt text or a long description.
+
+### 17.9 Responsive design
+
+**Breakpoints**
+
+| Device | Width |
+|---|---:|
+| Small mobile | 320–374 px |
+| Standard mobile | 375–767 px |
+| Tablet | 768–1023 px |
+| Laptop | 1024–1279 px |
+| Desktop | 1280–1535 px |
+| Large desktop | 1536 px + |
+
+**Behaviour**
+
+| Feature | Desktop | Mobile |
+|---|---|---|
+| Navigation | Sidebar | Bottom navigation / drawer |
+| Question filters | Side panel | Filter drawer |
+| Dashboard metrics | Multi-column grid | Two-column or stacked |
+| AI Tutor | Two-column | Single-column |
+| Paper Studio | Three columns | Simplified sequential panels |
+| Examination | Question + navigator | Full-screen question + collapsible navigator |
+| Data tables | Full table | Carefully designed stacked rows |
+
+Do not simply hide important content on mobile. Every desktop capability has a mobile equivalent — filters become a drawer, not a dead end; tables become stacked rows, not a horizontal scroll trap.
+
+### 17.10 Motion guidelines
+
+Motion is functional and restrained.
+
+| Transition | Duration |
+|---|---|
+| Hover | 120–160 ms |
+| Button state | 120–160 ms |
+| Drawer | 180–240 ms |
+| Dialog | 160–220 ms |
+| Page transition | minimal or none |
+
+Use motion to communicate navigation, selection, loading, completion, expansion and collapse. Respect `prefers-reduced-motion` (disable transforms and autoplay; keep opacity fades short). No decorative animation that competes with reading or examination tasks. No motion on the exam timer itself — it must be stable and legible.
+
+### 17.11 Accessibility
+
+Target **WCAG 2.2 AA** where applicable.
+
+- [ ] Text contrast ≥ 4.5:1 (body) and ≥ 3:1 (large text, UI boundaries)
+- [ ] Visible keyboard focus on every interactive element (`:focus-visible`, 2 px outline, 2 px offset)
+- [ ] Logical heading order (one H1 per page; no skipped levels)
+- [ ] Every form control has a programmatic label; helper/error text linked via `aria-describedby`
+- [ ] All navigation and dialogs keyboard-accessible with a visible focus trap
+- [ ] Meaningful image alternatives; decorative images `alt=""`
+- [ ] Accessible error messages (`role="alert"` or inline, never colour alone)
+- [ ] Status never conveyed by colour alone
+- [ ] Touch targets ≥ 44 × 44 CSS px
+- [ ] `prefers-reduced-motion` respected
+- [ ] Question content and math remain understandable with assistive technology
+- [ ] Timers and autosave status announced politely (`aria-live="polite"`), not on every second
+- [ ] The question navigator exposes current/answered/review state as text, not only as a coloured square
+
+### 17.12 Design states
+
+Every important screen is designed in multiple states, not just the happy path.
+
+**Global:** default · loading · empty · error · success · disabled · offline/connection interruption.
+
+**Question bank:** no filters · filters applied · search results found · no results found · question saved · question added to test · question reported.
+
+**Examination:** not started · instructions · active · answer saving · save failed · time warning · submission confirmation · submitted · expired · result available.
+
+**Admin:** draft · under review · approved · published · rejected · archived · permission denied.
+
+> Rule: no screen ships without at least loading, empty and error states. These are part of the component, not an afterthought.
+
+### 17.13 Security reflected in the interface
+
+The UI must make the security model visible and honest.
+
+- Never expose correct answers before the authorized release time.
+- Do not trust or display client-computed examination scores as official.
+- Do not allow expired sessions to accept answers — lock the controls and explain why.
+- Protect administrative controls with role-based permissions; hide **and** server-enforce.
+- Require confirmation for destructive actions (delete, archive, discard draft).
+- Display source and revision information for official questions.
+- Distinguish AI-generated content from verified content with persistent labels.
+- Avoid displaying sensitive student information unnecessarily; mask identifiers in lists and exports.
+- Never put answer keys, AI keys or service-role credentials in the client bundle ([Appendix B](#appendix-b-environment-variables-template)).
+
+### 17.14 Figma organization and handoff
+
+**Figma pages**
+
+1. Cover & Product Overview
+2. Foundations
+3. Components
+4. Student Application
+5. Examination Experience
+6. AI Tutor
+7. Paper Studio
+8. Admin Application
+9. Mobile Experience
+10. Interaction States
+11. Developer Handoff
+
+**Naming convention**
+
+- `Color/Primary/Teal`
+- `Color/Surface/Default`
+- `Typography/Heading/H1`
+- `Button/Primary/Default`
+- `Button/Primary/Disabled`
+- `Question/MCQ/Default`
+- `Question/CQ/Default`
+- `Navigation/Sidebar/Active`
+- `Examination/Timer/Warning`
+
+**Implementation stack:** Next.js · React · TypeScript · Tailwind CSS · shadcn/ui (or a carefully customized component library) · Tiptap · KaTeX · a suitable chart library · Playwright. The architecture in [§4](#4-technology-stack) already matches this; shadcn/ui is a convenience layer over the tokens, not a replacement for them.
+
+> **Figma access:** the shared file requires Figma sign-in. If a frame cannot be opened, treat §17 as the specification and rebuild the frame from it — do not guess from a thumbnail.
+
+### 17.15 Design-to-code acceptance criteria
+
+A screen is ready for implementation when:
+
+- [ ] Desktop layout specified (1440 × 1000 reference)
+- [ ] Mobile behaviour specified (390 × 844 reference)
+- [ ] All primary components have variants and states
+- [ ] Interactive states documented (default, hover, focus, disabled, loading, error)
+- [ ] Typography and spacing defined from the token scale
+- [ ] Content overflow considered (long Bengali compounds, code, tables, 320 px width)
+- [ ] Loading and empty states exist
+- [ ] Accessibility requirements addressed ([§17.11](#1711-accessibility))
+- [ ] Data requirements understood (which fields, which API, which permissions)
+- [ ] Design tokens available in `tailwind.config.ts`
+- [ ] No hex values or arbitrary Tailwind values in page code
+
+### 17.16 Design production sequence
+
+Produce the design in this order; each phase is reviewable on its own. This runs ahead of the development roadmap in [§11](#11-phased-roadmap--mvp-first) — design is never a blocker for long, but it is never skipped either.
+
+| Phase | Deliverable | Maps to development |
+|---|---|---|
+| 1 — Foundations | Brand identity, typography, color system, spacing/sizing, grid and layout rules | Phase 02 |
+| 2 — Core components | Buttons, inputs, navigation, cards, tables, badges, dialogs, notifications | Phase 02 |
+| 3 — Student experience | Landing, authentication, dashboard, question bank, question details, saved questions | Phases 04–06 |
+| 4 — Examination experience | Instructions, active exam, navigator, submission, results, answer review | Phase 05 |
+| 5 — AI Tutor | Tutor interface, conversation history, explanation layout, follow-up interactions, response states | Phase 07 |
+| 6 — Paper Studio | Editor workspace, question outline, document preview, export settings, print layout | Phase 08 |
+| 7 — Administration | Admin dashboard, question editor, review workflow, student management, reports, settings | Phase 09 |
+| 8 — Responsive & accessibility | Mobile screens, tablet screens, keyboard navigation, contrast checks, screen-reader review | Phase 10 |
+| 9 — Quality assurance | Design consistency, component audit, content rendering tests, examination usability, cross-browser review | Phase 10 |
+
+> **Gate:** do not start Phase 3 until Foundations and Core Components are approved. Designing screens before components exist produces one-off layouts that cannot be implemented consistently.
 
 ---
 
@@ -1851,31 +2484,59 @@ Avoid unnecessary duplication and denormalization.
 ```
 Act as a senior product designer specializing in educational SaaS platforms.
 
-Design the UI/UX architecture for an HSC/ALIM ICT Question Bank platform.
+Read the UI/UX design system in README §17 before doing anything else.
+It defines the locked brand direction, color tokens, typography, information
+architecture, screen specifications, component inventory, responsive rules,
+and accessibility targets. Design within that system — do not invent a new one.
 
-Two interfaces:
-1. Student platform — question bank with filters, MCQ/CQ viewing,
-   exam creation, random selection, timed exams, instant results,
-   performance tracking, AI Tutor, paper editor, multiple exports.
-2. Admin dashboard — question management, rich-text editor,
-   image/diagram upload, topic/board management, user management,
-   exam management, analytics.
+Product: ICT Atlas — an HSC/ALIM ICT Question Bank platform for Bangladesh.
+Design direction: contemporary academic editorial — restrained colors,
+precise typography, clear information hierarchy, content first. It must not
+look like a generic AI-generated dashboard, a children's app, or a gamified
+mobile app. No purple gradients, no glassmorphism, no decorative 3D icons,
+no oversized rounded cards, no mascots.
 
-Requirements:
-- Professional educational SaaS aesthetic
-- Responsive desktop, tablet, and mobile layouts
-- Excellent Bengali and English typography
-- Accessible interface, consistent design system, reusable components
+Design tokens:
+- Ink #182F3A (text) · Ink Soft #405761 (secondary) · Teal #176B63 (primary)
+- Teal Dark #10564F (hover) · Teal Tint #E8F2EF (selected) · Canvas #F4F6F2
+- Surface #FFFFFF · Border #E2E8E3 · Lime #DCEAAE (sparingly)
+- Amber #B77C2B (warnings/review) · Red #B6534C (errors/incorrect)
+- Code Background #172A34
+- Fonts: Manrope (English UI) · Noto Sans Bengali (Bengali UI) ·
+  IBM Plex Mono (code) · KaTeX (math)
 
-First produce:
-1. Sitemap
-2. User journeys
-3. Screen inventory
-4. Wireframe descriptions
-5. Design system
-6. Component architecture
+Three surfaces:
+1. Public website — home, about, question bank preview, features, pricing,
+   sign in, register, legal pages.
+2. Student application — dashboard, question bank (MCQ/CQ, board/model/topic
+   filters), timed examination, results & analytics, AI Tutor, saved
+   questions, Paper Studio, profile/settings.
+3. Admin application — dashboard, question management, review queue,
+   subjects/chapters/topics, boards & exam sources, examinations, Paper
+   Studio, students, reports, assets, AI configuration, roles, audit logs,
+   settings.
 
-Do not start implementing the application until the design structure is approved.
+For each of the following screens, produce desktop (1440 × 1000) and mobile
+(390 × 844) layouts, plus loading / empty / error / disabled / offline states:
+landing, sign in, register, student dashboard, question bank (MCQ + CQ cards),
+question detail, active examination, results, AI Tutor, Paper Studio,
+admin dashboard, question editor.
+
+Also produce:
+1. Sitemap and user journeys
+2. Screen inventory
+3. Component architecture (buttons, forms, content blocks, data display,
+   feedback) with all variants and states
+4. Responsive behaviour per §17.9 (sidebar → bottom navigation, filters →
+   drawer, AI Tutor two-column → single-column, Paper Studio three-column →
+   sequential panels)
+5. Accessibility notes targeting WCAG 2.2 AA: contrast, visible focus,
+   labels, 44 × 44 touch targets, no colour-only status, reduced motion
+6. A design-to-code handoff mapping every token and component to a Tailwind
+   class or shadcn/ui component
+
+Do not start implementing the application until the design structure is
+approved. If any requested screen conflicts with §17, stop and ask.
 ```
 
 ### Prompt 04 — Development Implementation
