@@ -130,15 +130,27 @@ jobs:
         run: |
           set -euo pipefail
           bash docs/database/g1-spike/option-c/prod-ready/v2/seed-verify.sh \
-            --url "$SEED_URL" --out /tmp/v2
-          cat /tmp/v2/RESULT.txt
+            --url "$SEED_URL" --out /tmp/v2 2>&1 | tee /tmp/v2.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -E "FAIL" /tmp/v2.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-2 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
 
       - name: "V-3 — backup and restore drill"
         run: |
           set -euo pipefail
           bash docs/database/g1-spike/option-c/prod-ready/v3/backup-restore-drill.sh \
-            --source "$SEED_URL" --target "$RESTORE_URL" --out /tmp/v3
-          cat /tmp/v3/RESULT.txt
+            --source "$SEED_URL" --target "$RESTORE_URL" --out /tmp/v3 2>&1 | tee /tmp/v3.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -E "FAIL|REFUSED" /tmp/v3.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-3 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
 
       - name: "V-3b — the restore is REPEATABLE (second restore, fresh database)"
         run: |
@@ -265,13 +277,22 @@ jobs:
 
       - name: "V-1 — generate, deploy and verify the second migration"
         run: |
-          set -euo pipefail
+          set -uo pipefail
           bash docs/database/g1-spike/option-c/prod-ready/v1/v1-second-migration.sh \
             --url        "postgresql://v1:v1pass@localhost:5432/v1_primary" \
             --shadow-url "postgresql://v1:v1pass@localhost:5433/v1_shadow" \
             --replay-url "postgresql://v1:v1pass@localhost:5434/v1_replay" \
-            --out /tmp/v1
-          cat /tmp/v1/RESULT.txt
+            --out /tmp/v1 2>&1 | tee /tmp/v1.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            # GitHub annotations are capped and raw logs are sometimes
+            # unreachable, so the failing lines are emitted as annotations.
+            echo "::error title=V-1 failure::see the driver output above"
+            grep -E "FAIL|ERROR|error:" /tmp/v1.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-1 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
 
       - name: Independent re-read after 0002 (raw SQL, not the driver)
         if: always()
@@ -351,8 +372,14 @@ jobs:
         run: |
           set -euo pipefail
           bash docs/database/g1-spike/option-c/prod-ready/v45/publish-gate-verify.sh \
-            --url "$V45_URL" --out /tmp/v45
-          cat /tmp/v45/RESULT.txt
+            --url "$V45_URL" --out /tmp/v45 2>&1 | tee /tmp/v45.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -E "FAIL" /tmp/v45.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-4/5 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
 
       - uses: actions/upload-artifact@v4
         if: always()

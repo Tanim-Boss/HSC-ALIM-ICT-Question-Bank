@@ -43,7 +43,10 @@
 set -Eeuo pipefail
 
 V1_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-OC_DIR="$(cd "$V1_DIR/../../.." && pwd)"          # .../option-c
+# prod-ready/v1 -> two ups is option-c, three is g1-spike. The first draft used
+# three, so GUARD and repo-guard.sh resolved to non-existent paths and the
+# driver failed on its first CI run. Both are asserted below.
+OC_DIR="$(cd "$V1_DIR/../.." && pwd)"             # .../option-c
 # prod-ready/v1 -> five ups from the script dir is the repo root; verified by
 # the prisma/ presence check because an off-by-one silently reads docs/.
 REPO_ROOT="$(cd "$V1_DIR/../../../../../.." && pwd)"
@@ -97,6 +100,12 @@ CFG
 head2 "0. preconditions — the database must already be at 0001"
 # =====================================================================
 [ -x "$PRISMA_BIN" ] || { printf '[V-1] FAIL: prisma CLI not found at %s\n' "$PRISMA_BIN" >&2; exit 1; }
+# Assert every path the driver depends on, so a wrong relative path fails with a
+# clear message instead of surfacing later as a confusing command-not-found.
+for f in "$GUARD" "$OC_DIR/repo-guard.sh" "$PROD_SCHEMA" "$MIG_0001"; do
+  [ -f "$f" ] || { printf '[V-1] FAIL: required file missing: %s\n' "$f" >&2; exit 1; }
+done
+printf '[V-1] paths resolved: OC_DIR=%s REPO_ROOT=%s\n' "$OC_DIR" "$REPO_ROOT"
 pass "pinned Prisma CLI present ($(node -p "require('$REPO_ROOT/node_modules/prisma/package.json').version"))"
 
 tabs="$(q "$URL" "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename<>'_prisma_migrations';")"

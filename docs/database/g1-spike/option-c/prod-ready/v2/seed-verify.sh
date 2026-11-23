@@ -436,6 +436,16 @@ else cat "$OUT_DIR/05-positive.log"; fail "the database rejected a VALID row —
 # =====================================================================
 head2 "6. rejections must not have corrupted the seeded state"
 # =====================================================================
+# FIRST: drop this driver's own scratch table. It is a 19th table in `public`,
+# and leaving it behind made the V-3 drill fail its "source has 18 tables"
+# precondition on the first CI run. A verification driver must not contaminate
+# the database it is verifying.
+"$PSQL" "$URL" -v ON_ERROR_STOP=1 -q -c "DROP FUNCTION IF EXISTS v2_case(int,text,text,text);" -c "DROP TABLE IF EXISTS v2_results;" > "$OUT_DIR/06-cleanup.log" 2>&1 \
+  || { cat "$OUT_DIR/06-cleanup.log"; fail "could not drop the driver's scratch table"; }
+left="$(psql_q "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename='v2_results';")"
+[ "$left" = "0" ] && pass "driver scratch table dropped — the database is left with exactly the 18 approved tables" \
+                  || fail "v2_results still present after cleanup"
+# =====================================================================
 # NOTE: every count is an explicit subquery. A bare `count(*)` with no FROM
 # clause returns 1, not the table's row count — that bug silently made this
 # comparison vacuous on its first run, so it is fixed and commented here.
