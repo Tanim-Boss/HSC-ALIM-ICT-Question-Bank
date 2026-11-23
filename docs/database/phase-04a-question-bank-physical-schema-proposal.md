@@ -1,10 +1,11 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 13 — G‑2 deferred: negative marking is configurable)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 14 — full 18-table schema and migration 0001 authored)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
 **Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
+**Revision 14 scope:** Author the **real** Phase 04A schema and its baseline migration, then run G‑3 against them. `prisma/schema.prisma` gains all 18 models; `prisma/migrations/0001_phase04a_question_bank/` is created with a Prisma-generated Part A and hand-written Parts B–D; `docs/database/g1-spike/option-c/g3-full/` holds the full-schema driver, a 33-case enforcement suite and a local SQL verifier; `.github/workflows/phase04a-g3-full-schema-gate.yml` runs it in CI. **`negative_marks` is still absent**, the deferred decisions are still deferred, and no application code is written. The pre-implementation audit found five specification issues, recorded in §11.9.
 **Revision 13 scope:** **G‑2 DEFERRED; `negative_marks` removed from the Phase 04A model.** The clarified requirement is that negative marking is **configurable** — **off by default**, switchable by an authorised user when configuring an examination or marking profile, with the **penalty rule configured independently of the switch**. A per-question decimal cannot express that (a `NOT NULL DEFAULT 0` column cannot distinguish "off" from "on with a zero penalty"; a nullable one hides an unvalidated rule while disabled), so **the column does not belong in the question master**. `questions.negative_marks`, `ck_questions_negative_marks_nonnegative` (E‑12) and `ck_questions_negative_marks_not_above_marks` (E‑9) are **removed**; the hand-written `CHECK` count goes 49 → **47**. **The Revision 12 `numeric(4,2)` investigation is preserved unaltered in §3.15.3 as historical research, explicitly not an approved implementation decision** — its PostgreSQL measurements still apply to any future penalty type. **OD‑21 remains open** and is not closed; a new open decision **OD‑NM‑1** records that it is **not assumed** whether the setting belongs to an examination, a marking profile, or another entity. G‑1 remains **FAILED**; G‑3 remains prototype-only. **No schema, migration, service, validator, DTO or UI change.**
 **Revision 12 scope:** **G‑2 investigated, recommended, and left open for approval.** The `negative_marks` precision/scale question is answered with evidence rather than convention: **`numeric(4,2)` is recommended**, because two decimals are *necessary* (the MBBS/BDS admission test — the same HSC cohort — deducts exactly **0.25** per wrong answer against a pass mark of 40, so `39.75` is a real failing score) and because `numeric(4,1)` was **measured** to store `0.3` instead of `0.25`, silently, with every `CHECK` unable to see it. Scale 3 is rejected as having no evidenced use case. The investigation also found that **E‑12 alone does not exclude `NaN`** (`'NaN' >= 0` is true) and that **E‑9 is what excludes it**. **G‑2 is not passed** — approval is requested in §3.15.3.8. **OD‑21 remains completely untouched**, G‑1 remains FAILED, G‑3 remains closed for the prototype only, and no schema, migration or application code changed. §3.15.1 is preserved verbatim with a status banner; nothing earlier was rewritten.
 **Revision 11 scope:** **Option C conditionally approved; G‑3 opened; G‑1 left FAILED.** The reviewer resolved D‑1…D‑4 (§11.4.8): Option C is **conditionally approved** as the migration workflow, **Option A is not approved**, **Option B is rejected for this schema**, and **G‑1 remains FAILED — it is not re-scored and its history is not rewritten**. A new gate, **G‑3** (§11.6), covers production-readiness of the Option C workflow with six mandatory criteria, an explicit acceptance list, and a residual-risk table. Hardening implemented in this revision: a repository/CI guard rejecting `prisma migrate dev` (`option-c/repo-guard.sh`), a shared protected-FK definition plus a checksum check of applied migrations (`option-c/guard.py`), a pre/post-deployment `migrate status` check, a live-catalog assertion for C‑1…C‑5 after every deployment, a migration-SQL integrity check, and documented approved commands. All six G‑3 criteria passed in CI run `45263567929`, **three earlier runs failed on real defects that are recorded rather than hidden**, and the gate must be re-run on the full 18-table model before migration 0001. **G‑3 PASSED for the reduced prototype** in CI run `45263567929` (all six criteria, every control negative-tested); it must still be re-run on the full 18-table model before migration 0001. §11.6.4 states exactly what that run does and does not prove. The constrained-column study (§11.6.2) overturned an earlier assumption: a *coercible* change leaves the constraint intact, and only a *non-coercible* change forces a hand-written drop+re-create. No constraint was weakened, C‑1…C‑5 are unchanged, `prisma/schema.prisma` is untouched and there is no `prisma/migrations/` directory.
@@ -13,7 +14,8 @@
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
-**Status (Revision 13):** **G‑2 is DEFERRED, not passed and not closed by a type choice.** Negative marking is configurable and off by default, so `negative_marks` is not part of the Phase 04A schema and there is no precision/scale to approve. The Revision 12 `numeric(4,2)` recommendation survives as **historical research only**. **OD‑21 remains open**; **OD‑NM‑1** records the unresolved question of which entity owns the setting. **G‑1 remains FAILED**; **G‑3 remains prototype-only** with full 18-table validation pending. Documentation only — **no migration, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code**.
+**Status (Revision 14):** **The Phase 04A physical schema now exists as code.** `prisma/schema.prisma` is the real **18-table** datamodel and `prisma/migrations/0001_phase04a_question_bank/migration.sql` is the committed baseline: Prisma-generated DDL plus the reviewed hand-written artifacts Prisma cannot express (47 `CHECK`s, 6 partial/expression indexes, the 5 composite FKs of Request C). Verified on PostgreSQL 16.2 — 18 tables, 7 enums, 26 FKs (21 single + 5 composite), 47 CHECKs, 6 hand-written indexes, and **33/33 enforcement cases**. **G‑3 full-schema is NOT yet PASSED**: the Prisma-dependent criteria (migration history, `migrate status`, reproducibility, `migrate diff` visibility) are implemented but require the recorded CI run — the honest status is *awaiting CI*. **G‑1 remains FAILED** and is not re-scored. The audit's five findings are in [§11.9](#119-pre-implementation-audit--what-the-full-schema-authoring-found); only the unappliable SQL was corrected. **Deferred and untouched:** G‑2, OD‑21, OD‑NM‑1, OD‑11/12/13, users/RLS, Phase 05 examination tables. No application code, services, DTOs or UI.
+**Status (Revision 13, historical):** **G‑2 is DEFERRED, not passed and not closed by a type choice.** Negative marking is configurable and off by default, so `negative_marks` is not part of the Phase 04A schema and there is no precision/scale to approve. The Revision 12 `numeric(4,2)` recommendation survives as **historical research only**. **OD‑21 remains open**; **OD‑NM‑1** records the unresolved question of which entity owns the setting. **G‑1 remains FAILED**; **G‑3 remains prototype-only** with full 18-table validation pending. Documentation only — **no migration, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code**.
 **Status (Revision 12, historical):** **G‑2 is investigated and recommended, not passed.** `numeric(4,2)` is proposed with technical justification; the reviewer must approve (Q‑G2‑1). **G‑1 remains FAILED**, **G‑3 remains passed on the prototype only** with full 18-table validation pending, and **OD‑21 remains open and untouched**. Documentation and research only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The approved physical model is unchanged pending the G‑2 approval.
 **Status (Revision 11, historical):** **Option C is conditionally approved; G‑3 passed for the reduced prototype and must be re-run on the full model.** G‑1 remains **FAILED** and its record is unchanged. The approved physical design and C‑1…C‑5 are unchanged. Implementation is **not** authorised: G‑3 has not passed on the full schema, and G‑2 and OD‑21 remain undecided. Documentation and an isolated, disposable prototype only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**.
 **Status (Revision 10, historical):** **G‑1 remains FAILED; Request C was not approved for implementation at that revision.** A viable workflow (Option C) has now been prototyped and passes, but adopting it is your decision (D‑1), as is how the workflow result interacts with G‑1 (D‑2). The Option A fallback remains **not adopted**.
@@ -35,7 +37,7 @@
 | 7 (superseded by revision 8, preserved for audit) | **G‑1 harness hardened and made CI-runnable; the gate is still BLOCKED.** The first `run.sh` had defects that could have turned an incomplete run into a pass — no `set -e`, a `tee` pipeline masking the suite's exit status, no assertion on the number of enforcement cases, empty Prisma output treated as success, and a `migrate dev` step that could pass on producing nothing. All are listed and fixed in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). A dedicated GitHub Actions workflow (`.github/workflows/g1-prisma-drift-spike.yml`) now runs the complete seven-step procedure against a disposable `postgres:16` with the pinned Prisma 7.10.1. **The workflow has not been executed** — there is no run URL and no Prisma evidence, and none is claimed. | **Still BLOCKED, still approved-with-condition.** Documentation, isolated spike artefacts and a CI workflow only — no production migration, no `prisma/schema.prisma` change, no application code |
 | 8 (superseded by revision 9, preserved for audit) | **G‑1 ran in CI and FAILED.** With the harness corrected, GitHub Actions ran the complete procedure on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. PostgreSQL creates and enforces all five composite FKs (14/14 cases), introspection sees all ten tables, and the spike datamodel matches the SQL schema exactly (fidelity diff: 0 bytes). **Prisma's no-change diff then proposes `DROP CONSTRAINT` for all five composite FKs — and for every other foreign key in the schema.** Per the gate's own acceptance criteria that is **FAIL**, not PASS; Request C reverts to its documented fallback pending re-approval ([§11.3.2](#1132-g1-verdict--fail)). No constraint was weakened to change the result. | **G‑1 FAILED — fallback decision required.** Documentation, spike artefacts and a CI workflow only: no production migration, no `prisma/schema.prisma` change, no application code |
 | 9 (superseded by revision 10, preserved for audit) | **G‑1 experiment 2 run in CI; still FAILED, but now decisive.** The schema is created BY Prisma (real migration history) and the five composite FKs are appended to Prisma's own generated migration, with the three support uniques declared in the datamodel so they cannot be the explanation. Baseline generation, ordinary FK/unique representation, deployment and enforcement all PASS (13 ordinary FKs + 5 composite = 18; 14/14 enforcement cases). The no-change diff is **confined to exactly the five composite FKs** — no ordinary FK, no ordinary unique. But Prisma's own no-change `migrate dev` generates a migration that would `DROP` all five: it reads them as drift. Criterion 4 fails, so 5–6 were never reached. [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive). Option A is **not** adopted; Option B remains the approved design and implementation stays blocked. | **G‑1 FAILED — decisive. Awaiting a reviewer decision on how to proceed.** Documentation, spike artefacts and a CI workflow only: no production migration, no `prisma/schema.prisma` change, no application code |
-| **10 (this revision)** | **Architectural alternatives analysed and an Option C prototype built.** Option C — keep C‑1…C‑5, Prisma generates the baseline, the constraints are appended as reviewed SQL, later migrations come from schema-to-schema diffs, `migrate dev` is prohibited — was prototyped in CI at `d1ead77` and **passed all nine claims**, including a negative test of the CI guard. The crucial sub-finding: `migrate diff --from-migrations` does **not** work as a drift check (it introspects the shadow catalog and reports all five as drift), but snapshot-to-snapshot diffing does, and was shown not to be vacuous. **Nothing is adopted**; G‑1 remains FAILED; Option A is not adopted; decisions D‑1…D‑4 await review. [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request). | **Analysis + prototype only.** G‑1 stays FAILED. Documentation, spike artefacts and two CI workflows: no production migration, no `prisma/schema.prisma` change, no application code |
+| 10 | **Architectural alternatives analysed and an Option C prototype built.** Option C — keep C‑1…C‑5, Prisma generates the baseline, the constraints are appended as reviewed SQL, later migrations come from schema-to-schema diffs, `migrate dev` is prohibited — was prototyped in CI at `d1ead77` and **passed all nine claims**, including a negative test of the CI guard. The crucial sub-finding: `migrate diff --from-migrations` does **not** work as a drift check (it introspects the shadow catalog and reports all five as drift), but snapshot-to-snapshot diffing does, and was shown not to be vacuous. **Nothing is adopted**; G‑1 remains FAILED; Option A is not adopted; decisions D‑1…D‑4 await review. [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request). | **Analysis + prototype only.** G‑1 stays FAILED. Documentation, spike artefacts and two CI workflows: no production migration, no `prisma/schema.prisma` change, no application code |
 
 ---
 
@@ -57,6 +59,7 @@
 | 12 | Pre-migration gates | **OPEN — three gates now tracked.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, and a second experiment with real Prisma migration history isolates them cleanly — yet Prisma's own no-change `migrate dev` generates a migration that `DROP`s exactly those five ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)). Option A is not adopted. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) | **Superseded in part by row 14:** the G‑2 half is now **DEFERRED** and the `negative_marks` column is removed from Phase 04A; G‑1 remains FAILED and G‑3 remains prototype-only as recorded here. |
 | 13 | G‑2 `negative_marks` precision/scale | **SUPERSEDED by row 14 — preserved for audit.** Revision 12 investigated the type and recommended `numeric(4,2)` after measuring that `numeric(4,1)` silently stores `0.25` as `0.3`. The clarified requirement (row 14) makes the question moot for Phase 04A. The research is retained below as historical research, not an approved decision. |
 | 14 | G‑2 deferred — negative marking is configurable | **DEFERRED, and the column removed.** Negative marking must be **configurable, default OFF, switchable by an authorised user**, with the **penalty rule configured independently of the switch**. A per-question decimal cannot represent that pair of states, so `questions.negative_marks` and both its `CHECK`s (E‑9, E‑12) are **removed** from the Phase 04A model; `CHECK` count 49 → **47**. **G‑2 is deferred** to the examination/marking configuration phase, which must support: a default-disabled enable/disable setting; a separately configurable penalty value/rule; validation against the applicable question marks; and consistent behaviour in exam scoring and result calculation. Whether the setting belongs to an **examination**, a **marking profile**, or another entity is **NOT assumed** — recorded as **OD‑NM‑1**. **OD‑21 remains open and is not silently closed.** G‑1 still **FAILED**; G‑3 still prototype-only. Documentation only — no schema, migration, service or UI change. |
+| 15 | Full 18-table schema + migration 0001 + full-schema G‑3 | **Implemented.** The real `prisma/schema.prisma` (18 models) and `prisma/migrations/0001_phase04a_question_bank` are authored from §3/§5, with the five composite FKs and all 47 CHECKs and 6 hand-written indexes appended as reviewed SQL. No transcription: the G‑3 full-schema gate deploys the **committed migration** with `prisma migrate deploy`. Verified on PostgreSQL 16.2: **18 tables, 7 enums, 26 FKs (21+5), 47 CHECKs, 6 hand indexes**, and **33/33 enforcement cases** including all five protected FKs, E‑7 partial uniqueness, E‑10/E‑11, `NULLS NOT DISTINCT` and the expression uniques. The audit found and recorded five specification issues (§11.9): one **unappliable CHECK statement** (fixed by parenthesising, pattern unchanged), two **§3/§5 uniqueness contradictions** (resolved by applying §3 as normative), one **redundant CHECK** (kept, not removed) and one **stale cross-reference** (left for the reviewer). G‑1 still **FAILED** and not re-scored; G‑3 is **not yet PASSED** — the Prisma-dependent criteria await the recorded CI run. **No application code, services, DTOs or UI.** |
 
 ---
 
@@ -1150,8 +1153,15 @@ ALTER TABLE question_assets
 -- well-formed*, never that it resolves. Resolution is I-8 at the publish gate.
 ALTER TABLE question_version_assets
   ADD CONSTRAINT ck_question_version_assets_block_ref_pointer
-    CHECK (block_ref ~ '^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?'
-                    || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$');
+    -- NOTE (audit, Revision 14): the two literals MUST be parenthesised so that
+    -- `||` binds before `~`. Without the parentheses this is invalid SQL —
+    -- `~` and `||` share precedence and associate left, so the expression is
+    -- text, not boolean, and PostgreSQL rejects it with
+    --   ERROR: argument of CHECK must be type boolean, not type text
+    -- (measured on PostgreSQL 16.2). The pattern itself is unchanged.
+    -- See §11.9.2.
+    CHECK (block_ref ~ ('^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?'
+                    || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$'));
 
 -- ── Tags and provenance dimensions ───────────────────────────────────────
 ALTER TABLE tags
@@ -4101,7 +4111,12 @@ Also unchanged and still open: the **OD‑21** negative-mark floor, the Group en
 
 ### 11.6 G‑3 — production-readiness gate for the Option C workflow
 
-**Status at this revision: PASSED for the prototype scope.** Every mandatory
+**Status at Revision 14: the FULL-SCHEMA gate has been implemented and its SQL-level
+controls are verified locally; the Prisma-dependent criteria are awaiting the CI run.**
+See [§11.6.8](#1168-full-schema-g3--what-changed-in-revision-14). The prototype result
+below is preserved unaltered.
+
+**Status at Revision 11: PASSED for the prototype scope.** Every mandatory
 criterion was tested and succeeded in CI run
 [`45263567929`](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45263567929)
 (both jobs: `Workflow enforcement — repository guard` and `G-3 gate (node 22,
@@ -4289,6 +4304,41 @@ the column is not part of this phase ([§3.15.4](#3154-g2-revised--negative-mark
 no constraint was weakened, relaxed or removed to make any test pass, and the
 guard's encoded definitions are the approved §3.11.6 definitions.
 
+#### 11.6.8 Full-schema G‑3 — what changed in Revision 14
+
+The prototype passed against a **reduced 10-table reproduction whose DDL was transcribed
+locally**, and §11.6.5 already listed that divergence as a **High** residual risk: "The
+full 18-table schema has not been through G‑3." Revision 14 closes that gap structurally
+rather than by re-running the same prototype on a bigger transcription.
+
+**What is now under test is the real article, not a reproduction:**
+
+| Prototype (Revision 11) | Full schema (Revision 14) |
+|---|---|
+| `option-c/schema.prisma` — 10 models | `prisma/schema.prisma` — **18 models** |
+| DDL assembled by `g3/baseline_ddl.py` (a hand-written transcriber) | `prisma/migrations/0001_phase04a_question_bank/migration.sql` — **Prisma-generated** baseline + reviewed hand-written SQL |
+| 14 enforcement cases | **33 enforcement cases** |
+| No CHECK constraints in the prototype schema | **47 CHECK constraints** exercised |
+| No expression / `NULLS NOT DISTINCT` indexes | **6 hand-written indexes** exercised |
+
+**No transcription is involved at any point.** The migration is applied with
+`prisma migrate deploy`, so the schema PostgreSQL evaluates is the schema Prisma
+generated. That is the specific uncertainty this revision eliminates.
+
+**One more control was added that the prototype did not have:** every deployment is
+checked for the **full inventory** — 18 tables, 7 enums, 26 foreign keys (21 single + 5
+composite), 47 CHECK constraints, 6 hand-written indexes — not only the five protected
+keys. A count of five would have passed even if 13 tables had silently failed to create.
+
+**A defect in my own harness was found and fixed during this work, and is recorded
+rather than tidied away.** An early version of the tampering suite asserted that the
+guard rejects `DROP TABLE "question_versions"`. It does not, and should not: the guard's
+protected-table scope is the seven tables the five composite FKs touch (§11.6.3), and
+`question_versions` is not one of them — its deletion is already blocked by PostgreSQL's
+own FK dependencies. The assertion was wrong, not the guard. It was replaced with
+`DROP TABLE "question_options"`, which **is** in scope and **is** rejected. The guard was
+not broadened to make a bad test pass.
+
 ### 11.7 G‑2 — DEFERRED: negative marking is configurable
 
 **Status at Revision 13: G‑2 is DEFERRED, not passed and not closed by a type choice.**
@@ -4353,6 +4403,168 @@ Recorded as binding requirements so they are inherited, not rediscovered
   Tables (18), FKs (21 single + 5 composite), enums (7) and hand-written indexes (5) are
   unchanged.
 - **No schema file, migration, service, validator, DTO or UI** is created or modified.
+
+### 11.9 Pre-implementation audit — what the full-schema authoring found
+
+**Status: the audit found no blocking ambiguity for the 18-table scope. It found one
+invalid SQL statement, two contradictory specifications, and one redundant constraint.
+All four are recorded here; only the invalid SQL was corrected, because it could not be
+applied otherwise and the correction changes nothing about the rule.**
+
+This section exists because the reduced prototype had already diverged from Prisma's
+output twice (§11.6.4), so the 18-table model was audited item by item against §3 before
+`prisma/schema.prisma` was written.
+
+#### 11.9.1 Scope verified before writing any production file
+
+| Item | Specified in | Verified |
+|---|---|---|
+| 18 tables | §3.2, §3.3, §3.4 | **18** — 14 essential + 4 supporting, none added |
+| 7 enum types | §3.2, §5 | **7** — `BoardType`, `QuestionType`, `QuestionStatus`, `QuestionDifficulty`, `QuestionOrigin`, `VersionStatus`, `SourceType` |
+| 21 single-column FKs | §3.3.1–§3.3.14, §3.4.1–§3.4.4 | **21** |
+| 5 composite FKs | §3.11.6 | **5** — C‑1 … C‑5, hand-written only |
+| 3 support unique keys | §3.11.6 | **3** — `uq_chapters_id_subject`, `uq_topics_id_chapter`, `uq_subtopics_id_topic`, all Prisma-native |
+| 47 CHECK constraints | §3.9 | **47** — counted from the §3.9 block, all apply |
+| 6 hand-written indexes | §3.10 | **6** — 1 published-version partial unique, 1 `NULLS NOT DISTINCT`, 1 active-only partial unique, 2 expression uniques, 1 partial plain index |
+| Deletion actions | §3.1.2 | every FK matches the matrix |
+| Timestamps | §3.1.1 (E‑6) | `timestamptz(3)` on every `DateTime` column |
+| No database UUID default | §3.1.1 | `@default(uuid())` (client-generated) only |
+
+**Deferred decisions confirmed non-blocking for this 18-table scope:**
+
+| Decision | Why it does not block |
+|---|---|
+| **G‑2** (`negative_marks` precision) | **DEFERRED**, and Revision 13 removed the column entirely. Nothing in the 18 tables references it. |
+| **OD‑21** (negative-mark floor, unanswered handling) | Scoring policy, not schema. No table in scope expresses it. |
+| **OD‑NM‑1** (who owns negative-marking config) | Examination-model question; the examination tables are Phase 05. |
+| **OD‑11 / OD‑12 / OD‑13** | Exam state transitions, idempotency and CQ modality — all Phase 05. |
+| **OD‑15 / OD‑16** (users, RLS) | Deliberately absent: no `created_by`, no policies. |
+| **OD‑27** (moderation states) | The three approved enum values are exactly what 0001 creates. |
+| **OD‑32** (search) | No GIN/full-text index is created, by design. |
+| **OD‑20** (retention) | No lifecycle columns are created, by design. |
+
+**G‑1 remains FAILED.** Nothing in this audit reinterprets it. The five composite FKs are
+reproduced as hand-written SQL exactly because G‑1 failed — not because it passed.
+
+#### 11.9.2 Finding 1 — the `block_ref` CHECK in §3.9 is INVALID SQL (corrected)
+
+§3.9 writes:
+
+```sql
+CHECK (block_ref ~ '^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?'
+                || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$')
+```
+
+Measured on PostgreSQL 16.2, PostgreSQL rejects this with
+`ERROR: argument of CHECK must be type boolean, not type text`. `~` and `||` have equal
+precedence and are both left-associative, so the expression parses as
+`(block_ref ~ '…') || '…'` — a **text** value, not a boolean.
+
+**Correction applied in the migration:** the two string literals are wrapped in
+parentheses so the concatenation binds first:
+
+```sql
+CHECK (block_ref ~ ('^(/content/blocks/(0|[1-9][0-9]{0,2})(/data/blocks/(0|[1-9][0-9]{0,2}))?'
+                 || '|/options/[ABCDকখগঘ]/blocks/(0|[1-9][0-9]{0,2}))$'))
+```
+
+The resulting pattern is **byte-identical** to the one §3.9 intends, so the rule is
+unchanged. This is a syntax correction, not a design change, and it is reported rather
+than quietly applied. **Q‑AUD‑1 below asks whether §3.9 should be edited to match.**
+
+#### 11.9.3 Finding 2 — `tags.name` uniqueness is specified two ways
+
+| Location | Says |
+|---|---|
+| §3.3.13 `tags` prose | "`UNIQUE (lower(name))` as an expression index **instead of** a plain `UNIQUE (name)`" |
+| §5 Prisma sketch, `Tag` | `name String @unique` |
+| §3.10 SQL | `CREATE UNIQUE INDEX uq_tags_name_lower ON tags (lower(name));` |
+
+These are not equivalent. The §5 sketch would create a **case-sensitive** plain unique on
+`name`, which permits `Logic Gate` and `logic gate` to coexist — exactly what §3.3.13
+says must not happen. **The implementation follows §3.3.13 and §3.10** (§3 is normative
+and §5 is explicitly "illustrative"):
+
+- `name` has **no** `@unique`;
+- `slug` keeps its plain `@unique` (agreed by all three);
+- case-insensitive uniqueness comes from the `uq_tags_name_lower` expression index.
+
+Enforcement case 30 proves it: a second tag differing only in case is rejected by
+`uq_tags_name_lower`. **§5 should be corrected; Q‑AUD‑2.**
+
+#### 11.9.4 Finding 3 — `colleges.name` uniqueness is specified two ways
+
+Same pattern in §3.4.2: "`UNIQUE (name)`; expression unique `UNIQUE (lower(name))`
+**instead of** the plain one" — the sentence names both and then says one replaces the
+other. The §5 sketch has `name String @unique`.
+
+**Implementation follows §3.10** (the authoritative SQL): no plain unique on `name`, and
+`uq_colleges_name_lower` supplies case-insensitive uniqueness. Enforcement case 32 proves
+a case-variant institution is rejected. **Q‑AUD‑3** asks for the same confirmation as
+Finding 2, and for §3.4.2's wording to be tightened.
+
+#### 11.9.5 Finding 4 — `ck_question_options_key_single_char` is unreachable (redundant, NOT removed)
+
+§3.3.9 and §3.9 declare two constraints on `question_options.key`:
+
+| Constraint | Predicate |
+|---|---|
+| `ck_question_options_key_single_char` | `char_length(key) = 1` |
+| `ck_question_options_key_allowed` | `key IN ('A','B','C','D','ক','খ','গ','ঘ')` |
+
+Every member of the allowed set is exactly one character, so **`key_allowed` implies
+`key_single_char`**: no row can violate the second without violating the first.
+Measured on PostgreSQL 16.2, inserting `key = 'AB'` is rejected by
+`ck_question_options_key_allowed`, never by `ck_question_options_key_single_char`. The
+second constraint can therefore never be the one that fires.
+
+**This is a redundancy, not a behavioural defect**, and it is **deliberately not
+removed**: deleting a constraint the reviewer approved would be a design change made by
+an implementer. Both are created; enforcement case 33 asserts all 47 `ck_` constraints
+are installed, and case 23 accepts whichever of the two rejects a two-character key, with
+the reason recorded in the case itself. **Q‑AUD‑4** asks whether to drop the redundant
+one (which would make the count 46) or keep it as a documentation-level expression of
+intent.
+
+#### 11.9.6 Finding 5 — `education_levels` mentions a support key that does not exist
+
+§3.3.1 says the table has "the optional §3.11.6 support key on `(id, …)`". No such key
+exists: C‑1 references `level_subjects(level_id, subject_id)`, which is that table's
+primary key, so `education_levels` needs no support key at all. §3.11.6 is silent on it
+and correct; §3.3.1's sentence is a leftover.
+
+**Implementation:** no support key is created on `education_levels`. **Q‑AUD‑5** asks for
+the sentence to be deleted. This one is cosmetic and blocks nothing.
+
+#### 11.9.7 Findings that are NOT ambiguities
+
+Recorded so they are not mistaken for problems later:
+
+- **`question_versions.question_id` index duplicates the unique prefix.** §3.3.8 lists
+  both `UNIQUE (question_id, version_number)` and an index on `(question_id)`. The second
+  is redundant in PostgreSQL. It is created anyway, because §3 is normative and the index
+  list is explicit; the cost is one redundant index.
+- **`question_assets` has no `@unique` on `checksum`.** Correct: duplicates are prevented
+  by `ix_question_assets_checksum`, which is **partial** (`WHERE checksum IS NOT NULL`)
+  and therefore cannot be a constraint.
+- **`question_sources` has no `updated_at`.** Correct and deliberate — provenance is
+  append-only evidence (§3.4.4).
+- **No `Group` table, no provenance columns on `questions`.** Correct per OD‑08/OD‑09.
+
+#### 11.9.8 Audit decisions requested
+
+| # | Question | Recommendation |
+|---|---|---|
+| **Q‑AUD‑1** | Correct §3.9's `block_ref` CHECK to the parenthesised form, so the document and the migration agree? | **Yes** — the current text cannot be applied to any PostgreSQL |
+| **Q‑AUD‑2** | Correct §5's `Tag.name @unique` to match §3.3.13 (expression index only)? | **Yes** — otherwise a future reader recreates the plain unique |
+| **Q‑AUD‑3** | Tighten §3.4.2's `colleges.name` wording to state the plain unique is *replaced*? | **Yes** — same reason |
+| **Q‑AUD‑4** | Drop `ck_question_options_key_single_char` as redundant (CHECK count 47 → 46), or keep it? | **Keep** — a CHECK count change is a reviewer decision, and the redundancy is harmless |
+| **Q‑AUD‑5** | Delete §3.3.1's reference to a non-existent `education_levels` support key? | **Yes** — cosmetic |
+
+**None of these blocks the 18-table migration**, and none was resolved by inventing a
+decision: Findings 2 and 3 were settled by applying the document's own stated precedence
+(§3 is normative, §5 is illustrative), Finding 4 was left in place with the measurement
+recorded, and Finding 1 was corrected only because the SQL was unusable as written.
 
 ### 11.8 What approval now authorises — and what it does not
 

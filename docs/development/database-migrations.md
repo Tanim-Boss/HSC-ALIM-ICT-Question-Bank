@@ -4,10 +4,12 @@
 
 ## Current state
 
-- `prisma/schema.prisma` intentionally defines **no domain models**. The approved documents leave cardinalities, nullability, snapshot/versioning strategy, the source model, result lifecycle and retention open (OD-08–OD-13, OD-18–OD-21, OD-28–OD-29). Defining models now would mean inventing those decisions.
+- `prisma/schema.prisma` now defines the **Phase 04A Question Bank** schema: 18 tables, 7 enums, 21 single-column foreign keys, 47 `CHECK` constraints and 6 hand-written partial/expression indexes. It is transcribed from — and subordinate to — the approved physical schema proposal (`docs/database/phase-04a-question-bank-physical-schema-proposal.md`, §3 is normative; §11.9 records the audit findings).
+- The baseline migration is `prisma/migrations/0001_phase04a_question_bank/`. It is Prisma-generated DDL **plus** reviewed hand-written SQL that Prisma cannot express: the 47 `CHECK`s, the partial/expression indexes, and the **five composite foreign keys** of Request C (§3.11.6).
+- **`prisma migrate dev` is PROHIBITED for this repository.** It generates a migration that drops all five composite foreign keys — measured twice, recorded as gate **G‑1 FAILED** (§11.3.2/§11.3.3 of the proposal). `migrate reset` and `db push` are prohibited for the same reason. The repository guard `docs/database/g1-spike/option-c/repo-guard.sh` enforces this in CI.
+- `negative_marks` and all examination tables are **not** in this schema: negative marking is configurable and deferred (Revision 13), and examination tables are Phase 05.
 - The generated Prisma client lives in `lib/generated/prisma/` (git-ignored; regenerate with `npm run db:generate`).
 - Runtime access goes through the singleton in `lib/db.ts` (Prisma 7 driver adapter `@prisma/adapter-pg`, connection string from `DATABASE_URL`). No other module constructs a Prisma client.
-- No migration has been created yet, because there is no approved schema to migrate to. Do not create a placeholder migration.
 
 ## Environment
 
@@ -18,14 +20,47 @@
 
 Copy `.env.example` to `.env.local` for development. Never commit real credentials.
 
-## Workflow (once a schema is approved)
+## Workflow — Option C (the approved workflow for this project)
 
-1. **Edit the schema.** Change `prisma/schema.prisma` only; never edit a migration that has been applied anywhere.
-2. **Create the migration locally** against a disposable development database:
+`npm run db:migrate` (`prisma migrate dev`) **must not be used**. Use snapshot-to-snapshot
+diffs instead; they never read the database catalog, so they never see — and can never
+propose removing — the five composite foreign keys.
+
+1. **Edit `prisma/schema.prisma`** only; never edit a migration that has been applied anywhere.
+2. **Snapshot the current datamodel** before changing it:
    ```bash
-   npm run db:migrate -- --name <descriptive-name>
+   cp prisma/schema.prisma snapshots/prev.prisma
    ```
-   Review the generated SQL in `prisma/migrations/` before committing. Migrations are reviewed like code.
+3. **Generate the next migration from a schema-to-schema diff:**
+   ```bash
+   npx prisma migrate diff \
+     --from-schema snapshots/prev.prisma \
+     --to-schema prisma/schema.prisma \
+     --script --exit-code > /tmp/next.sql
+   ```
+   Review it line by line. It must contain **no `DROP CONSTRAINT`** for any of the five
+   protected foreign keys. If the change touches a column that participates in one, the
+   migration must drop and **re-add** that constraint with its approved definition —
+   `docs/database/g1-spike/option-c/guard.py sql` encodes exactly that rule.
+4. **Append any hand-written artifacts** the change needs, and run the guard:
+   ```bash
+   python3 docs/database/g1-spike/option-c/guard.py sql prisma/migrations/<name>/migration.sql
+   ```
+5. **Deploy** with `npm run db:deploy` (`prisma migrate deploy`), then assert the catalog:
+   the protected constraints must still exist with `ON UPDATE CASCADE ON DELETE RESTRICT`.
+
+### Prohibited commands
+
+| Command | Why |
+|---|---|
+| `prisma migrate dev` / `npm run db:migrate` | proposes `DROP CONSTRAINT` for all five composite FKs |
+| `prisma migrate reset` | replays history; unsafe combined with the above |
+| `prisma db push` | forces the database to match the datamodel, discarding the hand-written layer |
+| `prisma migrate diff --from-migrations` | replays history into a shadow database and reports the five FKs as drift |
+
+The G-3 gates (`docs/database/g1-spike/option-c/g3/` for the prototype,
+`docs/database/g1-spike/option-c/g3-full/` for the real 18-table schema) test that these
+rules actually hold.
 3. **Validate and regenerate the client:**
    ```bash
    npm run db:validate
@@ -48,6 +83,8 @@ Copy `.env.example` to `.env.local` for development. Never commit real credentia
 - Services access PostgreSQL only through `lib/db.ts`. The `server-only` import in `lib/db.ts` makes client-side imports a build-time error.
 - Answer keys, evaluation snapshots and service credentials never leave the server boundary.
 
-## OPEN DECISION
+## Still-open decisions that affect future migrations
 
-[OD-08–OD-13, OD-18–OD-21, OD-28–OD-29](../architecture/technology-decisions.md#open-decision-register) govern the physical schema, source model, versioning/snapshot strategy, result lifecycle, retention, imports/exports and AI privacy. The first migration may only be created once the relevant decisions are approved.
+[OD-08–OD-13, OD-18–OD-21, OD-28–OD-29](../architecture/technology-decisions.md#open-decision-register) govern the source model, result lifecycle, retention, imports/exports and AI privacy. Migration 0001 exists because the Phase 04A schema was approved; those decisions still govern **future** migrations.
+
+Specifically deferred and **not** to be designed around in a migration yet: negative marking and its configuration (G‑2 deferred / OD‑21 / OD‑NM‑1 — the column was removed in Revision 13, not scheduled), examination tables (Phase 05), users and RLS (OD‑15/OD‑16), and moderation states beyond the three approved values (OD‑27).
