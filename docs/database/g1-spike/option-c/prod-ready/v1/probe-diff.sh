@@ -153,3 +153,50 @@ echo "----- exit=$?"
 echo "--- same, using --version style flags:"
 timeout 60 "$ENG" cli --version 2>&1 | sed -n '1,6p'
 echo "----- exit=$?"
+
+# ---------------------------------------------------------------------------
+# P  THE REMAINING HYPOTHESIS.
+#
+# The engine binary is healthy (--version works, no missing shared libraries),
+# yet every diff returns nothing -- including one-model vs 18-model, which
+# cannot be equal. DEBUG=* recorded `config.datasource: undefined` and CI has no
+# DATABASE_URL. A schema-to-schema diff should need no database, but an engine
+# that cannot resolve a datasource may return nothing rather than complain.
+#
+# So: give it a real datasource. The primary disposable database is live and
+# reachable in this job, and the shadow database is specified separately.
+# If THIS emits SQL, the root cause is the missing datasource, not the flags.
+# ---------------------------------------------------------------------------
+DB="${PROBE_DB_URL:-postgresql://v1:v1pass@localhost:5432/v1_primary}"
+SH="${PROBE_SHADOW_URL:-postgresql://v1:v1pass@localhost:5433/v1_shadow}"
+
+cat > "$SESS/withds.config.ts" <<CFG
+import { defineConfig } from 'prisma/config';
+export default defineConfig({
+  schema: '$SESS/next.prisma',
+  datasource: { url: '$DB', shadowDatabaseUrl: '$SH' },
+});
+CFG
+
+run "P1 datasource-ful config: prev -> next" \
+  --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script --config "$SESS/withds.config.ts"
+run "P2 datasource-ful config: one-model -> next (must be huge)" \
+  --from-schema="$SESS/tiny.prisma" --to-schema="$SESS/next.prisma" --script --config "$SESS/withds.config.ts"
+
+echo "===== P3 same, via DATABASE_URL in the environment and the REPO config"
+( cd "$REPO_ROOT" && DATABASE_URL="$DB" "$P" migrate diff \
+    --from-schema="$SESS/prev.prisma" --to-schema="$SESS/next.prisma" --script ) 2>&1 | sed -n '1,30p'
+echo "----- exit=$?"
+echo
+
+echo "===== P4 schema engine's own help (correct invocation surface)"
+"$REPO_ROOT/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x" --help 2>&1 | sed -n '1,40p'
+echo
+
+echo "===== P5 direct engine diff via its real CLI surface"
+printf '%s' '{"datasourceUrl":"'"$DB"'","shadowDatabaseUrl":"'"$SH"'","script":true}' > "$SESS/args.json"
+printf '%s\n' 'datasource db { provider = "postgresql" url = "postgresql://u:p@localhost:5432/d" }' \
+  'model OnlyOne { id String @id }' > "$SESS/tiny1.prisma"
+timeout 90 "$REPO_ROOT/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x" \
+  --datamodels "$SESS/tiny1.prisma" --datasource "$(cat "$SESS/args.json")" 2>&1 | sed -n '1,20p'
+echo "----- exit=$?"
