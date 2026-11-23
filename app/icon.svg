@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <title>ICT Atlas mark</title>
+  <style>
+    .mark { stroke: #17191B; }
+    .dot { fill: #16766B; }
+    @media (prefers-color-scheme: dark) {
+      .mark { stroke: #F2F4F5; }
+      .dot { fill: #55B8A5; }
+    }
+  </style>
+  <path class="mark" d="M4.75 20 12 4 19.25 20" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/>
+  <path class="mark" d="M8.5 13.25h7" stroke-width="1.75" stroke-linecap="round"/>
+  <circle class="dot" cx="18.25" cy="5.75" r="1.75"/>
+</svg>

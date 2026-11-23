@@ -1,0 +1,213 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * ICT Atlas — global styles and design tokens
+ *
+ * Source of truth order (README §17): README §17.2
+ *   → docs/design/tokens.json (machine mirror)
+ *   → docs/design/implementation-guidelines.md (usage rules).
+ *
+ * Primitive RGB triplets are defined once per theme. Semantic aliases compose
+ * primitives via var() — no value is re-declared. Components must consume
+ * semantic Tailwind utilities (bg-canvas, text-ink, …) or these variables;
+ * raw hex values in components are forbidden.
+ *
+ * Light is the default theme. Dark applies via `.dark` on <html>. Both themes
+ * expose the same variable names; only values change.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Primitives — light (README §17.2) */
+  --canvas: 250 250 250; /* #FAFAFA */
+  --surface: 255 255 255; /* #FFFFFF */
+  --elevated: 27 32 36; /* #1B2024 (shared, dark code/terminal surface) */
+  --ink: 23 25 27; /* #17191B */
+  --muted: 119 125 131; /* #777D83 — large text/metadata only */
+  --muted-strong: 107 112 118; /* #6B7076 — body-size secondary text */
+  --border: 232 234 236; /* #E8EAEC */
+  --teal: 22 118 107; /* #16766B */
+  --teal-tint: 231 243 239; /* #E7F3EF */
+  --amber: 183 124 43; /* #B77C2B */
+  --red: 182 83 76; /* #B6534C */
+
+  /* Constants shared by both themes */
+  --accent: 217 232 174; /* #D9E8AE */
+  --code-ink: 242 244 245; /* #F2F4F5 */
+  --code-surface: var(--elevated);
+  --text-on-accent: 23 25 27; /* dark Ink on the shared pale Accent, both themes */
+
+  /* Semantic aliases — light (tokens.json#color/semantic/light) */
+  --surface-hover: var(--canvas);
+  --surface-selected: var(--teal-tint);
+  --border-control: var(--muted-strong);
+  --border-selected: var(--teal);
+  --focus: var(--teal);
+  --action-primary-background: var(--teal);
+  --action-primary-foreground: var(--surface);
+  --action-destructive-background: var(--red);
+  --action-destructive-foreground: var(--surface);
+
+  /* State composites — light (tokens.json#color/semantic/light/state) */
+  --state-selected-background: var(--teal-tint);
+  --state-selected-foreground: var(--teal);
+  --state-selected-border: var(--teal);
+  --state-success-background: var(--teal-tint);
+  --state-success-foreground: var(--teal);
+  --state-success-body: var(--ink);
+  --state-success-border: var(--teal);
+  --state-warning-background: var(--surface);
+  --state-warning-foreground: var(--amber);
+  --state-warning-body: var(--ink);
+  --state-warning-border: var(--amber);
+  --state-error-background: var(--surface);
+  --state-error-foreground: var(--red);
+  --state-error-body: var(--ink);
+  --state-error-border: var(--red);
+  --state-information-background: var(--surface);
+  --state-information-foreground: var(--ink);
+  --state-information-icon: var(--muted-strong);
+  --state-information-border: var(--border);
+
+  /* Elevation — borders before shadows; shadows for popovers/dialogs/drag only */
+  --shadow-popover: 0 2px 8px rgb(23 25 27 / 0.08);
+  --shadow-dialog: 0 8px 24px rgb(23 25 27 / 0.1);
+  --shadow-drag: 0 8px 20px rgb(23 25 27 / 0.12);
+
+  /* Typography (README §17.3 / tokens.json#typography).
+   * Geist Sans/Mono are loaded via next/font (self-hosted, see app/layout.tsx)
+   * and referenced through --font-geist-*. Aliases below preserve the
+   * token-file variable names. */
+  --font-sans: var(--font-geist-sans), SolaimanLipi, 'Noto Sans Bengali', system-ui, sans-serif;
+  /* No SolaimanLipi/Noto Sans Bengali binaries are bundled (OD-25: licence
+   * and glyph coverage unverified). The stack resolves to system-installed
+   * Bengali faces until self-hosting is approved. */
+  --font-bengali: 'SolaimanLipi', 'Noto Sans Bengali', 'Bangla Sangam MN', sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Primitives — dark (README §17.2) */
+  --canvas: 9 11 13; /* #090B0D */
+  --surface: 17 20 22; /* #111416 */
+  --elevated: 27 32 36; /* #1B2024 */
+  --ink: 242 244 245; /* #F2F4F5 */
+  --muted: 139 148 156; /* #8B949C */
+  --muted-strong: 139 148 156; /* #8B949C */
+  --border: 41 49 55; /* #293137 */
+  --teal: 85 184 165; /* #55B8A5 */
+  --teal-tint: 32 60 54; /* #203C36 */
+  --amber: 217 168 87; /* #D9A857 */
+  --red: 224 135 127; /* #E0877F */
+
+  /* Constants shared by both themes */
+  --accent: 217 232 174; /* #D9E8AE */
+  --code-ink: 242 244 245; /* #F2F4F5 */
+  --code-surface: var(--elevated);
+  --text-on-accent: 23 25 27;
+
+  /* Semantic aliases — dark (tokens.json#color/semantic/dark) */
+  --surface-hover: var(--elevated);
+  --surface-selected: var(--teal-tint);
+  --border-control: var(--muted);
+  --border-selected: var(--teal);
+  --focus: var(--teal);
+  --action-primary-background: var(--teal);
+  /*
+   * BLOCKED (do not ship): tokens.json#color/semantic/dark/action/primary/foreground
+   * mirrors README §17.8's Ink-on-Teal pair (≈2.17:1, fails WCAG AA) and marks it
+   * blocked pending owner approval of a contrast-safe mapping. The token below is
+   * preserved verbatim for token parity; no component in this codebase may use
+   * the dark primary action until the conflict is resolved.
+   */
+  --action-primary-foreground: var(--ink);
+  --action-destructive-background: var(--red);
+  --action-destructive-foreground: var(--canvas);
+
+  /* State composites — dark (tokens.json#color/semantic/dark/state) */
+  --state-selected-background: var(--teal-tint);
+  --state-selected-foreground: var(--teal);
+  --state-selected-border: var(--teal);
+  --state-success-background: var(--teal-tint);
+  --state-success-foreground: var(--teal);
+  --state-success-body: var(--ink);
+  --state-success-border: var(--teal);
+  --state-warning-background: var(--surface);
+  --state-warning-foreground: var(--amber);
+  --state-warning-body: var(--ink);
+  --state-warning-border: var(--amber);
+  --state-error-background: var(--surface);
+  --state-error-foreground: var(--red);
+  --state-error-body: var(--ink);
+  --state-error-border: var(--red);
+  --state-information-background: var(--surface);
+  --state-information-foreground: var(--ink);
+  --state-information-icon: var(--muted);
+  --state-information-border: var(--border);
+
+  /* Elevation — dark elevation is tonal; shadows nearly invisible */
+  --shadow-popover: 0 2px 8px rgb(9 11 13 / 0.16);
+  --shadow-dialog: 0 8px 24px rgb(9 11 13 / 0.2);
+  --shadow-drag: 0 8px 20px rgb(9 11 13 / 0.22);
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-canvas font-sans text-body text-ink antialiased;
+    font-feature-settings: 'ss01' on;
+  }
+
+  /* Visible focus indication everywhere (tokens.json#accessibility/focus):
+   * 2 px outline, 2 px offset, Teal. Never remove without replacement. */
+  :focus-visible {
+    outline: 2px solid rgb(var(--focus));
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  ::selection {
+    background-color: rgb(var(--teal-tint));
+    color: rgb(var(--ink));
+  }
+
+  /* Bengali runs: scoped font, ≥1.75 line-height, never justified
+   * (README §4.5 / docs/design/typography.md). */
+  :lang(bn),
+  .lang-bn {
+    font-family: var(--font-bengali);
+    line-height: 1.75;
+    text-align: start;
+  }
+
+  /* Code/terminal surfaces stay dark in both themes (README §17.2). */
+  .code-surface {
+    background-color: rgb(var(--code-surface));
+    color: rgb(var(--code-ink));
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.6;
+    border-radius: 10px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
