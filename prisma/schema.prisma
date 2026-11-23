@@ -1,0 +1,24 @@
+// ICT Atlas — Prisma schema
+//
+// IMPORTANT — no domain models are defined here yet, on purpose.
+//
+// The approved database documentation (docs/database/) deliberately does not
+// approve a physical schema: cardinalities, nullability, snapshot/versioning
+// strategy, source model, result lifecycle and retention are tracked as open
+// decisions (OD-08 – OD-13, OD-18–OD-21, OD-28–OD-29 in
+// docs/architecture/technology-decisions.md). Defining models now would mean
+// inventing those decisions.
+//
+// The first migration may only be created once the relevant open decisions
+// are approved. Do not add models by hand to test this file.
+//
+// See docs/development/database-migrations.md for the migration workflow.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../lib/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
