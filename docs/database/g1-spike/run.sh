@@ -140,7 +140,7 @@ fks_present() {
     ORDER BY conname;"
 }
 
-present="$(fks_present)"
+present="$(fks_present || true)"
 [ "$(printf '%s\n' "$present" | grep -c .)" = "5" ] \
   || fail "expected 5 composite FKs after creation, found: ${present:-none}"
 ok "5/5 composite FKs created: $(printf '%s' "$present" | tr '\n' ' ')"
@@ -212,8 +212,9 @@ case "$rc" in
      printf '\n----- end of diff excerpt -----\n'
      # GitHub annotations are capped at ~64 KiB; keep the excerpt short but
      # specific so the cause is visible without downloading the artefact.
-     diff_excerpt="$(head -c 3000 "$OUT_DIR/04-drift-empty.sql" | tr '\n' ' ')"
-     diff_summary="$(grep -oiE 'DROP [A-Z]+ [^;]*|ALTER TABLE [^;]*|CREATE [A-Z]+ [^;(]*' "$OUT_DIR/04-drift-empty.sql" | head -12 | tr '\n' ' ')"
+     # `|| true`: a command substitution that finds nothing must not trip errexit
+     diff_excerpt="$(head -c 3000 "$OUT_DIR/04-drift-empty.sql" | tr '\n' ' ' || true)"
+     diff_summary="$(grep -oiE 'DROP [A-Z]+ [^;]*|ALTER TABLE [^;]*|CREATE [A-Z]+ [^;(]*' "$OUT_DIR/04-drift-empty.sql" | head -12 | tr '\n' ' ' || true)"
      fail "the no-change diff is NOT empty — Prisma wants to change the schema. Statement summary: ${diff_summary:-none parsed}. Raw excerpt: $diff_excerpt" ;;
   *) cat "$OUT_DIR/04-drift-empty.err"
      fail "prisma migrate diff errored (exit $rc)" ;;
@@ -375,7 +376,7 @@ step "7. final catalog state (main spike database)"
     AND conname = ANY (ARRAY[$(printf "'%s'," "${COMPOSITE_FKS[@]}" | sed 's/,$//')])
   ORDER BY conname;" | tee "$OUT_DIR/07-final-catalog.txt"
 
-final="$(fks_present)"
+final="$(fks_present || true)"
 [ "$(printf '%s\n' "$final" | grep -c .)" = "5" ] \
   || fail "expected 5 composite FKs at the end, found: ${final:-none}"
 ok "5/5 composite FKs present at the end"
