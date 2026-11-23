@@ -1,8 +1,15 @@
 # G-1 experiment 2 — Prisma migration history + manually appended composite FKs
 
-**Status: see [`expected/`](expected/) for the recorded result, and
-[§11.3.3](../../phase-04a-question-bank-physical-schema-proposal.md#1133-g1-experiment-2--result)
-of the proposal for the disposition.**
+**Status: FAILED — and decisive.** See [`expected/RESULT.md`](expected/RESULT.md) for the
+recorded result (commit, run URLs, versions, exact procedure, per-criterion results) and
+[§11.3.3](../../phase-04a-question-bank-physical-schema-proposal.md#1133-g1-experiment-2--result-fail-but-decisive)
+of the proposal for the disposition.
+
+The short version: the five composite FKs **can** be created, deployed and enforced inside a
+Prisma-managed database (14/14 enforcement cases, and the no-change diff is confined to
+exactly the five). But Prisma's no-change `migrate dev` **generates a migration that drops
+all five** — it reads them as drift. Acceptance criterion 4 fails; criteria 5–6 were never
+reached because the harness stops at the first failure.
 
 Experiment 1 asked: *when the five approved composite FKs exist in PostgreSQL but
 not in the Prisma datamodel, does Prisma drop them?* It answered **yes** — and that

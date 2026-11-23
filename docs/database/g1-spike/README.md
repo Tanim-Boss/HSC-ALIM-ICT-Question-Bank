@@ -1,6 +1,26 @@
 # G-1 spike — Prisma drift test for the five composite foreign keys
 
-**Status: FAILED.** The experiment has been run end to end in CI and it does not pass: on a
+**There are two experiments in this directory. Both results are recorded and neither
+is rewritten.**
+
+| | Experiment 1 (`sql/`, `prisma/`, `expected/`) | Experiment 2 (`experiment-2/`) |
+|---|---|---|
+| Question | Does Prisma drop constraints it did not create? | Does Prisma's real migration workflow tolerate them? |
+| Schema created by | hand-written SQL, **no migration history** | **Prisma**, real migration history |
+| Result | **FAIL** — dropped everything, incl. ordinary FKs | **FAIL** — drops exactly the five composite FKs |
+| Evidence | [`expected/ci-evidence.md`](expected/ci-evidence.md) | [`experiment-2/expected/RESULT.md`](experiment-2/expected/RESULT.md) |
+
+Experiment 1 could not isolate the composite FKs, because with no migration history
+Prisma proposed rebuilding the whole schema. Experiment 2 removed that confound and
+produced the decisive answer: the constraint layer deploys and is *enforced* (14/14),
+but Prisma's no-change `migrate dev` generates a migration that deletes all five.
+
+See §11.3.2 and §11.3.3 of the
+[proposal](../phase-04a-question-bank-physical-schema-proposal.md).
+
+---
+
+**Experiment 1 status: FAILED.** The experiment has been run end to end in CI and it does not pass: on a
 disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1, all five composite FKs are
 created and enforced (14/14 cases) and introspection sees all ten tables, but Prisma's
 no-change diff proposes `DROP CONSTRAINT` for all five — and for every plain foreign key in
