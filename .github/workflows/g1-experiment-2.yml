@@ -1,0 +1,171 @@
+name: G-1 experiment 2 — Prisma migration history + appended composite FKs
+
+# Isolated G-1 experiment. Disposable databases only, no production
+# credentials, no production database URL. Every version is pinned.
+#
+# Experiment 1 (g1-prisma-drift-spike.yml) built the schema by hand and
+# asked what Prisma thought of it; it FAILED. This workflow asks the
+# production question: when the schema is created BY Prisma (so migration
+# history exists) and the five composite FKs are APPENDED to Prisma's own
+# generated migration, do they survive deployment, subsequent migrations,
+# and shadow-database replay?
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - '.github/workflows/g1-experiment-2.yml'
+      - 'docs/database/g1-spike/experiment-2/**'
+      - 'docs/database/g1-spike/sql/**'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/g1-experiment-2.yml'
+      - 'docs/database/g1-spike/experiment-2/**'
+      - 'docs/database/g1-spike/sql/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  experiment-2:
+    name: G-1/2 (${{ matrix.node }}, postgres 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22']
+
+    # TWO disposable databases, both created fresh for this job:
+    #   test   — receives the deployed migrations
+    #   shadow — used by Prisma for shadow-database replay
+    # Neither carries any data, and neither is reachable outside this job.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: g1
+          POSTGRES_PASSWORD: g1spike
+          POSTGRES_DB: g1_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U g1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres-shadow:
+        image: postgres:16
+        env:
+          POSTGRES_USER: g1
+          POSTGRES_PASSWORD: g1spike
+          POSTGRES_DB: g1_shadow
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U g1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PRISMA_VERSION: '7.10.1'
+      PGPASSWORD: g1spike
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Assert the pinned Prisma CLI and client
+        run: |
+          set -euo pipefail
+          cli="$(node -p "require('./node_modules/prisma/package.json').version")"
+          client="$(node -p "require('./node_modules/@prisma/client/package.json').version")"
+          echo "prisma CLI: $cli"
+          echo "@prisma/client: $client"
+          test "$cli" = "$PRISMA_VERSION" || { echo "::error::prisma CLI is $cli, expected $PRISMA_VERSION"; exit 1; }
+          test "$client" = "$PRISMA_VERSION" || { echo "::error::@prisma/client is $client, expected $PRISMA_VERSION"; exit 1; }
+          # npx must never be able to download a different Prisma.
+          test -x node_modules/.bin/prisma || { echo "::error::pinned prisma binary missing"; exit 1; }
+
+      - name: Report PostgreSQL versions
+        run: |
+          set -euo pipefail
+          psql -h localhost -p 5432 -U g1 -d g1_test   -Atc 'select current_setting(''server_version'');'
+          psql -h localhost -p 5433 -U g1 -d g1_shadow -Atc 'select current_setting(''server_version'');'
+
+      - name: Run G-1 experiment 2
+        run: |
+          set -euo pipefail
+          bash docs/database/g1-spike/experiment-2/run.sh \
+            --url        "postgresql://g1:g1spike@localhost:5432/g1_test?schema=public" \
+            --shadow-url "postgresql://g1:g1spike@localhost:5433/g1_shadow?schema=public"
+
+      # Independent of the script: re-read the catalog directly. If the
+      # script's own bookkeeping were wrong, this would still catch it.
+      - name: Assert the five composite FKs are still in the catalog
+        if: always()
+        run: |
+          set -euo pipefail
+          for port in 5432 5433; do
+            db=g1_test; [ "$port" = "5433" ] && db=g1_shadow
+            n="$(psql -h localhost -p "$port" -U g1 -d "$db" -Atc "
+              SELECT count(*) FROM pg_constraint
+              WHERE connamespace = 'public'::regnamespace
+                AND conname IN (
+                  'fk_questions_level_subject','fk_questions_chapter_subject',
+                  'fk_questions_topic_chapter','fk_questions_subtopic_topic',
+                  'fk_answer_keys_options_of_version');" 2>/dev/null || echo 0)"
+            echo "$db (port $port): $n/5 composite FKs"
+            if [ "$n" != "5" ]; then
+              echo "::error::$db has $n/5 composite FKs"
+              exit 1
+            fi
+          done
+
+      - name: Upload artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-experiment-2-${{ matrix.node }}
+          path: |
+            docs/database/g1-spike/experiment-2/out/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Job summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## G-1 experiment 2 — Prisma migration history + appended composite FKs"
+            echo
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Node | ${{ matrix.node }} |"
+            echo "| Prisma (pinned) | $PRISMA_VERSION |"
+            echo "| PostgreSQL | 16 |"
+            echo "| Result | ${{ job.status }} |"
+            echo
+            if [ -f docs/database/g1-spike/experiment-2/out/RESULT.txt ]; then
+              echo '```'
+              cat docs/database/g1-spike/experiment-2/out/RESULT.txt
+              echo '```'
+            else
+              echo "The experiment did not reach its summary. Read the failing step above;"
+              echo "each step states which operation it tests and what its result establishes."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
