@@ -1,10 +1,10 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 3)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 4 — FINAL APPROVAL)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
-**Revision 3 scope:** review findings applied — MCQ correctness authority resolved (request **D**), asset-pointer integrity resolved (`block_ref` `NOT NULL` + rooted grammar), the five composite foreign keys restated as request **C** with a mandatory Prisma-drift gate, and request **E** broken out into an item-by-item review. Revision 2 completed §3 and §7; revision 1 (decision review, ER sketch, Prisma sketch, policy) is preserved below and remains the record of the approved decisions.
+**Revision 4 scope:** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
-**Status:** Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**
+**Status:** Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. Design authority is now approved; implementation is gated on G‑1 and G‑2 (§11.3).
 **Related docs:** README.md §2, §4.4, §6; `docs/database/`; `docs/architecture/technology-decisions.md` (open-decision register OD-01…OD-32 + blueprint inconsistencies); `docs/modules/question-bank.md`; `docs/modules/examination-engine.md`; `docs/development/database-migrations.md`
 
 ---
@@ -15,7 +15,8 @@
 |---|---|---|
 | 1 | Inspection findings, OD-08/OD-09/OD-10 review, abbreviated table list, ER sketch, Prisma sketch, index rationale, JSONB-in-principle, deletion policy | Preserved in full below; its approved decisions are unchanged |
 | 2 | **§3 completed** (full 18-table inventory with types, nullability, defaults, keys, FKs, constraints, indexes, archival rules, complete ER diagram, dependency-ordered creation, supporting-table justification, partial unique index SQL, domain `CHECK`s, the `educationLevelId`+`subjectId` composite-FK analysis, migration impact and rollback) and **§7 completed** (OD-18 envelope, ten block types with valid *and* invalid examples, profiles, document versioning, rejection behaviour, sanitization and Zod strategy, rubric schema, hard limits) | Documentation only. §3 and §7 await approval (requests **A** and **B**); three further schema decisions raised as **C**, **D** and **E** |
-| 3 (this revision) | **Review findings applied.** ① Request **D resolved**: `question_options.is_correct` removed, `uq_question_options_one_correct_per_version` removed, `answer_keys.mcq_correct_option_key` made the single authority, guarantee re-expressed via `UNIQUE (answer_keys.version_id)` + composite FK, publish gate retained (I‑4, I‑13). ② **Asset pointers**: `block_ref` is `NOT NULL` with a rooted grammar covering stem, option and nested-subquestion content, `UNIQUE (version_id, block_ref)`, new §7.6.5 worked example. ③ **Request C** restated as five named composite FKs with a mandatory six-step Prisma-drift spike; no claim that Prisma represents them. ④ **Request E** split into 17 individually reviewed items with recommendation, consequence and "changes the model?" per item. ⑤ Consistency sweep across ER diagram, SQL, Prisma sketch, examples and the register. | Documentation only. Requests **A**, **B** and **C** plus 14 open **E** items await disposition; **D** (E‑16) and the asset-pointer decision (E‑2/E‑17) are resolved. No migration, no schema change, no application code |
+| 3 | **Review findings applied.** ① Request **D resolved**: `question_options.is_correct` removed, `uq_question_options_one_correct_per_version` removed, `answer_keys.mcq_correct_option_key` made the single authority, guarantee re-expressed via `UNIQUE (answer_keys.version_id)` + composite FK, publish gate retained (I‑4, I‑13). ② **Asset pointers**: `block_ref` is `NOT NULL` with a rooted grammar covering stem, option and nested-subquestion content, `UNIQUE (version_id, block_ref)`, new §7.6.5 worked example. ③ **Request C** restated as five named composite FKs with a mandatory six-step Prisma-drift spike; no claim that Prisma represents them. ④ **Request E** split into 17 individually reviewed items with recommendation, consequence and "changes the model?" per item. ⑤ Consistency sweep across ER diagram, SQL, Prisma sketch, examples and the register. | Documentation only. Requests **A**, **B** and **C** plus 14 open **E** items awaited disposition; **D** (E‑16) and the asset-pointer decision (E‑2/E‑17) resolved. No migration, no schema change, no application code |
+| **4 (this revision — FINAL)** | **Final approval recorded.** A, B, C (conditional on G‑1), D and asset pointers **approved**. Request E fully dispositioned: **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15 accepted**; **E‑2, E‑16, E‑17 already resolved**; **E‑7 changed** to globally unique `(subject_id, chapter_number)` (no reuse without a curriculum-revision model); **E‑9 changed** — `negative_marks <= marks` retained, column type `integer` → `numeric` with **precision/scale left as an open pre-migration decision**; **E‑10 rejected** — global CQ-total `CHECK` removed, structure moved to the `cq_stem` profile + publish check I‑15. SQL, ER diagram, Prisma sketch, examples and §6 updated accordingly. | **Approved design, not yet implemented.** No migration, no schema change, no application code. Two gates remain: G‑1 Prisma-drift spike, G‑2 `numeric(p,s)` |
 
 ---
 
@@ -26,14 +27,15 @@
 | 1 | OD-08 — Source model | **APPROVED** (Option B) |
 | 2 | OD-09 — Taxonomy / education level | **APPROVED WITH CHANGE** — add `educationLevelId` to `Question`; enforce subject↔level membership |
 | 3 | OD-10 — Versioning / snapshots / keys | **APPROVED WITH CONDITIONS** (Option B) |
-| 4 | Migration 0001 scope | **SPECIFIED IN FULL (§3) — NOT YET APPROVED** — 18-table inventory, creation order, constraints and rollback are complete; scope approval is request **A** in §11 |
-| 5 | JSONB usage | **APPROVED IN PRINCIPLE** — OD-18 content-block schema **specified in full (§7)**; final approval is request **B** in §11 |
+| 4 | Migration 0001 scope (request **A**) | **APPROVED** — all 18 tables (14 essential + 4 supporting), creation order, constraints and rollback |
+| 5 | JSONB usage / OD‑18 content-block schema (request **B**) | **APPROVED** — envelope, ten block types, profiles, validation, versioning, sanitization, Zod strategy |
 | 6 | Deletion and integrity | **APPROVED WITH CLARIFICATIONS** |
 | 7 | OD-11 / OD-12 / OD-13 | **ACKNOWLEDGED** — deferred to Phase 05; **no values invented in this revision** |
-| 8 | MCQ correctness authority (request **D**) | **RESOLVED — reviewer accepted**: `answer_keys.mcq_correct_option_key` is the sole authority; `question_options.is_correct` and its partial unique index removed |
-| 9 | Asset pointer integrity | **RESOLVED — reviewer accepted**: `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covers stem/option/nested-subquestion content |
-| 10 | Composite foreign keys (request **C**) | **PENDING** — five FKs retained and strengthened by D; Prisma cannot represent them; disposable PostgreSQL drift spike is a mandatory gate |
-| 11 | Physical-schema tightenings (request **E**) | **PENDING — item by item** — §3.15 reviews 17 items; E‑7, E‑9 and E‑10 explicitly not recommended for silent approval |
+| 8 | MCQ correctness authority (request **D**) | **APPROVED** — `answer_keys.mcq_correct_option_key` is the sole authority; `question_options.is_correct` and its partial unique index permanently removed |
+| 9 | Asset pointer integrity | **APPROVED** — `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem/option/nested-subquestion content |
+| 10 | Composite foreign keys (request **C**) | **APPROVED WITH CONDITION** — five FKs + three support keys, conditional on a **successful** disposable-PostgreSQL Prisma-drift spike (G‑1). Prisma does not represent them natively |
+| 11 | Physical-schema tightenings (request **E**) | **DECIDED IN FULL** — 11 accepted, 3 already resolved, **E‑7 changed** (no chapter-number reuse), **E‑9 changed** (`numeric`, precision open), **E‑10 rejected** (no global CQ-total `CHECK`). No E item open |
+| 12 | Pre-migration gates | **OPEN** — **G‑1** Prisma-drift spike (condition of C) and **G‑2** `numeric(p,s)` for `negative_marks`. Migration 0001 may not be created until both clear (§11.3) |
 
 ---
 
@@ -119,9 +121,9 @@ Direction noted in the earlier report; required before Phase 05 (examinations), 
 
 ## 3. Migration 0001 — complete 18-table inventory
 
-**Status: SPECIFICATION COMPLETE — NOT YET APPROVED, except two items resolved by review.** This section replaces the earlier abbreviated inventory. It is a reviewable design, not authorization to create a migration: `prisma/schema.prisma` stays untouched and no `prisma/migrations/` directory is created until the reviewer approves §3 and §7 ([§11](#11-decisions-still-awaiting-your-final-approval)).
+**Status: SPECIFICATION COMPLETE — APPROVED (Request A), with two pre-migration gates open.** This section replaces the earlier abbreviated inventory. It is a reviewable design, not authorization to create a migration: `prisma/schema.prisma` stays untouched and no `prisma/migrations/` directory is created until the reviewer approves §3 and §7 ([§11](#11-approval-register--final-state)).
 
-Every table below is **PROPOSED**. Items marked **(P)** are physical details that this document proposes beyond what the earlier report settled; each maps to an **E‑n** row in [§3.15](#315-corrections-and-tightenings--individual-review-request-e) and to request **E** in [§11](#11-decisions-still-awaiting-your-final-approval) — **none is approved by being written down.** Two schema decisions are marked **(review)** instead of (P) because the reviewer resolved them in this round: MCQ correctness authority (request **D**) and asset-pointer integrity. Nothing in this section changes an approved decision: [§3.1.4](#314-approved-decisions-this-section-preserves) maps each preserved decision to the artifact that enforces it.
+Every table below is **APPROVED** (Request A), with per-item dispositions recorded in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions). Three schema decisions were taken by the reviewer and are marked accordingly: MCQ correctness authority (Request **D**), asset-pointer integrity, and the Request E dispositions. The two items still open are **not** schema design questions — they are the Prisma-drift spike (**G‑1**, a condition of Request C) and `negative_marks` precision/scale (**G‑2**, E‑9) — both in [§11.3](#113-pre-migration-gates--both-must-clear-before-migration-0001-is-created). Nothing in this section changes an approved decision: [§3.1.4](#314-approved-decisions-this-section-preserves) maps each preserved decision to the artifact that enforces it.
 
 ### 3.1 Scope, conventions and preserved decisions
 
@@ -321,9 +323,11 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `subject_id` → `subjects(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (id, subject_id)` — the support key for composite FK C‑2 in [§3.11.6](#3116-composite-foreign-keys-request-c), needed only if request **C** is approved; it is what lets `questions(chapter_id, subject_id)` prove the chapter belongs to the question's subject. Active-number uniqueness via the partial index `uq_chapters_subject_number_active` on `(subject_id, chapter_number) WHERE is_active` (item **E‑7**, which **needs an explicit curriculum-numbering decision**) instead of a plain unique constraint, so a retired chapter's number can be reused after a curriculum revision. `CHECK (chapter_number > 0)`; non-blank title checks.
+**Unique / CHECK.** `UNIQUE (id, subject_id)` — the support key for composite FK C‑2 in [§3.11.6](#3116-composite-foreign-keys-request-c), needed only if request **C** is approved; it is what lets `questions(chapter_id, subject_id)` prove the chapter belongs to the question's subject. **`UNIQUE (subject_id, chapter_number)` — a plain, global unique constraint (item E‑7, decided).** `CHECK (chapter_number > 0)`; non-blank title checks.
 
-**Indexes.** The partial unique index above covers `subject_id` prefixes. If the plain `UNIQUE (subject_id, chapter_number)` is preferred over the partial index, it also covers them.
+**Chapter numbering is globally unique per subject — no reuse of a retired number (E‑7 decision).** The earlier proposal used a partial unique index `… WHERE is_active` so that a retired chapter's number could be reused after a curriculum revision. The reviewer **rejected that**: there is no curriculum-revision entity or versioning policy in the approved model, and reuse without one makes "chapter 3" ambiguous across two different curricula in the same subject. A retired chapter therefore keeps its number reserved while its row exists; renumbering or replacement requires an explicit, reviewed data change. **A future curriculum-revision model may revisit this** — if a `curriculum_revisions` entity (or versioned taxonomy) is ever approved, this constraint becomes the thing to relax, by migration, with the historical-mapping question answered first.
+
+**Indexes.** `UNIQUE (subject_id, chapter_number)` covers `subject_id` prefixes and is the only index the table needs beyond the primary key and the C‑2 support key.
 
 **Soft delete / archival.** `is_active = false`; a chapter stays visible to historical questions through its FK. Deletion is `RESTRICT`ed while any topic or question references it.
 
@@ -350,9 +354,11 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** `chapter_id` → `chapters(id)` `RESTRICT`.
 
-**Unique / CHECK.** `UNIQUE (id, chapter_id)` (support key for composite FK C‑3, request **C**); `uq_topics_chapter_order_active` on `(chapter_id, order_index) WHERE is_active` (item **E‑7**); `CHECK (order_index >= 0)`; non-blank name checks.
+**Unique / CHECK.** `UNIQUE (id, chapter_id)` (support key for composite FK C‑3, request **C**); **`UNIQUE (chapter_id, order_index)`** — a plain global unique, applied on the same reasoning as E‑7 below; `CHECK (order_index >= 0)`; non-blank name checks.
 
-**Indexes.** The partial unique index covers `chapter_id` prefixes.
+**Indexes.** `UNIQUE (chapter_id, order_index)` covers `chapter_id` prefixes.
+
+**Topic order follows the chapter-numbering decision.** E‑7 as decided addresses chapter numbers explicitly. The partial `(chapter_id, order_index) WHERE is_active` index proposed earlier rested on exactly the same retire-and-reuse assumption — reuse of a retired position without a curriculum-revision model — so it is dropped with its chapter counterpart rather than left as the single surviving inconsistency. **This is a consequential extension of the E‑7 decision, not a separate approval**, and it is flagged for confirmation in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions).
 
 **Soft delete / archival.** As `chapters`.
 
@@ -404,8 +410,8 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 | `chapter_id` | `uuid` | yes | `NULL` | FK → `chapters.id` (RESTRICT) |
 | `topic_id` | `uuid` | yes | `NULL` | FK → `topics.id` (RESTRICT); requires `chapter_id` |
 | `subtopic_id` | `uuid` | yes | `NULL` | FK → `subtopics.id` (RESTRICT); requires `topic_id` |
-| `marks` | `integer` | no | `1` | MCQ: mark value. CQ: total of the four parts = 10 |
-| `negative_marks` | `integer` | no | `0` | Negative marking is an exam-scoring input, not question content |
+| `marks` | `integer` | no | `1` | MCQ: mark value. CQ: total, which must equal the sum of the rubric's subquestion marks at publish (I‑15) |
+| `negative_marks` | `numeric` — **precision/scale NOT YET DECIDED** | no | `0` | Changed from `integer` to decimal-capable `numeric` by the E‑9 decision. The exact `numeric(p,s)` is a **pre-migration decision**; this document deliberately does not invent it |
 | `created_at` | `timestamptz(3)` | no | `now()` | |
 | `updated_at` | `timestamptz(3)` | no | none | |
 
@@ -413,11 +419,17 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** Five, all `RESTRICT` on delete: `education_level_id`, `subject_id`, `chapter_id`, `topic_id`, `subtopic_id`.
 
-**Unique / CHECK.** No natural unique key: two identical-looking stems are two questions until content hashing is decided (**OD-27**). Checks: `marks >= 0`; `negative_marks >= 0`; `negative_marks <= marks` (item **E‑9**, flagged — interacts with the open OD‑21 negative-mark floor); `topic_id IS NULL OR chapter_id IS NOT NULL`; `subtopic_id IS NULL OR topic_id IS NOT NULL`; `type <> 'CQ' OR marks = 10` (item **E‑10** — **not recommended for silent approval**: it hard-codes the current curriculum's 10-mark CQ shape); `type <> 'MCQ' OR marks >= 1` (item **E‑11**).
+**Unique / CHECK.** No natural unique key: two identical-looking stems are two questions until content hashing is decided (**OD‑27**). Checks: `marks >= 0`; `negative_marks >= 0` (**E‑12**); `negative_marks <= marks` (**E‑9**, decided — retained as an upper bound); `topic_id IS NULL OR chapter_id IS NOT NULL`; `subtopic_id IS NULL OR topic_id IS NOT NULL`; `type <> 'MCQ' OR marks >= 1` (**E‑11**).
+
+**No `CHECK (type <> 'CQ' OR marks = 10)` — E‑10 rejected.** The global CQ-total constraint is removed. The 1 + 2 + 3 + 4 = 10 structure is a property of the **current HSC/ALIM ICT curriculum**, not of the `CQ` question type, and enforcing it in the database would block any future level whose CQ structure differs — which OD‑09 explicitly requires the model to support. The structure is retained in the **`cq_stem` content profile** ([§7.5](#75-document-profiles)) and enforced at publish by **I‑15**: a question's `marks` must equal the sum of its rubric parts' marks and of the `maxMarks` declared by the content's four subquestions.
+
+**`negative_marks` is `numeric`, and its precision/scale is an open pre-migration decision (E‑9).** The reviewer changed the type from `integer` to a decimal-capable `numeric` so a fractional penalty is representable, but **did not decide precision and scale**, and this document does not invent them. Before migration 0001 the reviewer must settle `numeric(p,s)`: the choice affects the `CHECK` casts, the `@db.Decimal(p,s)` annotation in the Prisma sketch, and every scoring comparison downstream (**OD‑21**). Until settled, read `numeric` here as "a `numeric(p,s)` still to be named". Both `negative_marks >= 0` and `negative_marks <= marks` hold for any `(p,s)` — they compare `numeric` against an `integer` that widens implicitly.
+
+**The OD‑21 negative-mark floor is NOT decided here.** `negative_marks <= marks` is an upper bound on one question's penalty. It says nothing about exam-level score floors, per-item versus per-paper application, or unanswered-question handling — all still **OD‑21**.
 
 **Indexes.** `(education_level_id)`, `(subject_id)`, `(chapter_id)`, `(topic_id)`, `(subtopic_id)`, `(education_level_id, subject_id)` (level→subject facet entry point), `(subject_id, chapter_id, topic_id)` (chapter→topic cascade), `(type, status)`, `(status, type, difficulty)` (published listing with facets). Optional, not proposed for 0001: `(created_at DESC)` for "recently added" admin listings (no measured need yet). No GIN or full-text index — search is **OD-32**.
 
-**Soft delete / archival.** `status = 'ARCHIVED'` is the soft delete ([§8](#8-data-integrity-and-deletion-policy--approved-with-clarifications)). No `deleted_at` column: two deletion mechanisms (`status` and a timestamp) would let a row be archived-but-not-deleted, or deleted-but-active. Hard delete is permitted only for a draft question with no published version, no source-row history worth keeping and no exam reference (none can exist in Phase 04). "Why no `archived_at`" is recorded in [§3.15](#315-corrections-and-tightenings--individual-review-request-e): status-transition timestamps belong to the audit log (**OD-27**), which is not in 0001.
+**Soft delete / archival.** `status = 'ARCHIVED'` is the soft delete ([§8](#8-data-integrity-and-deletion-policy--approved-with-clarifications)). No `deleted_at` column: two deletion mechanisms (`status` and a timestamp) would let a row be archived-but-not-deleted, or deleted-but-active. Hard delete is permitted only for a draft question with no published version, no source-row history worth keeping and no exam reference (none can exist in Phase 04). "Why no `archived_at`" is recorded in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions): status-transition timestamps belong to the audit log (**OD-27**), which is not in 0001.
 
 **Dependencies.** `education_levels`, `subjects`, `chapters`, `topics`, `subtopics`.
 
@@ -859,7 +871,7 @@ erDiagram
         uuid topic_id FK
         uuid subtopic_id FK
         integer marks
-        integer negative_marks
+        numeric negative_marks "numeric(p,s) TBD pre-migration"
     }
     QUESTION_VERSION {
         uuid id PK
@@ -1032,20 +1044,25 @@ ALTER TABLE subtopics
   ADD CONSTRAINT ck_subtopics_name_en_not_blank CHECK (btrim(name_en) <> ''),
   ADD CONSTRAINT ck_subtopics_name_bn_not_blank CHECK (btrim(name_bn) <> '');
 
--- ── Questions: marks, hierarchy chain, CQ shape ───────────────────────────
+-- ── Questions: marks, hierarchy chain ─────────────────────────────────────
+-- negative_marks is `numeric` (E-9 decision). Its precision/scale is NOT yet
+-- decided: the CREATE TABLE column is written `numeric(<p>,<s>)` once approved.
+-- Nothing below depends on the choice — the CHECKs compare numeric to integer,
+-- which widens implicitly.
 ALTER TABLE questions
   ADD CONSTRAINT ck_questions_marks_nonnegative CHECK (marks >= 0),
   ADD CONSTRAINT ck_questions_negative_marks_nonnegative CHECK (negative_marks >= 0),
-  -- (E-9, flagged: interacts with the open OD-21 negative-mark floor) a penalty
-  -- may never exceed the mark it applies to
+  -- (E-9, decided) an upper bound on one question's penalty only.
+  -- The OD-21 exam-level negative-mark FLOOR remains undecided and is not set here.
   ADD CONSTRAINT ck_questions_negative_marks_not_above_marks CHECK (negative_marks <= marks),
   -- an optional parent chain may not have holes: topic requires chapter, subtopic requires topic
   ADD CONSTRAINT ck_questions_topic_requires_chapter
     CHECK (topic_id IS NULL OR chapter_id IS NOT NULL),
   ADD CONSTRAINT ck_questions_subtopic_requires_topic
     CHECK (subtopic_id IS NULL OR topic_id IS NOT NULL),
-  -- (E-10, NOT recommended: hard-codes the current curriculum's 10-mark CQ shape)
-  ADD CONSTRAINT ck_questions_cq_total_marks CHECK (type <> 'CQ' OR marks = 10),
+  -- (E-10 REJECTED) no ck_questions_cq_total_marks: the 1+2+3+4 = 10 structure
+  -- belongs to the cq_stem content profile and to publish-time check I-15, not
+  -- to the CQ question type globally.
   -- (E-11) an MCQ is worth at least one mark
   ADD CONSTRAINT ck_questions_mcq_marks_positive CHECK (type <> 'MCQ' OR marks >= 1);
 
@@ -1167,19 +1184,22 @@ CREATE UNIQUE INDEX uq_question_sources_identity
   ON question_sources (question_id, source_type, board_id, college_id, academic_year_id)
   NULLS NOT DISTINCT;
 
--- active taxonomy uniqueness: a retired chapter number may be reused
-CREATE UNIQUE INDEX uq_chapters_subject_number_active
-  ON chapters (subject_id, chapter_number) WHERE is_active;
-
-CREATE UNIQUE INDEX uq_topics_chapter_order_active
-  ON topics (chapter_id, order_index) WHERE is_active;
+-- taxonomy uniqueness is now GLOBAL (E-7 decision): a retired chapter number is
+-- NOT reusable while no curriculum-revision entity/versioning policy exists, so
+-- these are ordinary unique constraints rather than `WHERE is_active` partials.
+-- Prisma models plain uniques natively, so these are no longer hand-written SQL
+-- in the final migration — they are listed here only to record the change.
+ALTER TABLE chapters ADD CONSTRAINT uq_chapters_subject_number
+  UNIQUE (subject_id, chapter_number);
+ALTER TABLE topics ADD CONSTRAINT uq_topics_chapter_order
+  UNIQUE (chapter_id, order_index);
 
 -- human-facing uniqueness must ignore case
 CREATE UNIQUE INDEX uq_tags_name_lower ON tags (lower(name));
 CREATE UNIQUE INDEX uq_colleges_name_lower ON colleges (lower(name));
 ```
 
-Fallback if the target PostgreSQL is older than 15 (it is not, for the planned Supabase instance — but the choice must be recorded): replace `uq_question_sources_identity` with three partial indexes — one where all three dimensions are non-null, one where `college_id` and `academic_year_id` are null, and one where `academic_year_id` is null — or accept service-level de-duplication (weaker). This is approval request **E** in [§11](#11-decisions-still-awaiting-your-final-approval).
+Fallback if the target PostgreSQL is older than 15 (it is not, for the planned Supabase instance — but the choice must be recorded): replace `uq_question_sources_identity` with three partial indexes — one where all three dimensions are non-null, one where `college_id` and `academic_year_id` are null, and one where `academic_year_id` is null — or accept service-level de-duplication (weaker). This is approval request **E** in [§11](#11-approval-register--final-state).
 
 Prisma treats partial and expression indexes as unsupported features: they must be added to the generated migration SQL **before** the migration is first applied, and every later `prisma migrate dev` run must be reviewed to confirm it does not emit a `DROP INDEX` for them. That review step is part of the workflow in [database-migrations.md](../development/database-migrations.md).
 
@@ -1226,7 +1246,7 @@ Three costs must be accepted explicitly:
 
 #### 3.11.5 Decision status
 
-Option B is **not yet approved**. It is a new schema artifact that OD-09's disposition did not consider, so it must not be created silently. Approval request **C** in [§11](#11-decisions-still-awaiting-your-final-approval) covers it, including the Prisma-drift spike. If the reviewer declines, Option A applies with no schema change and the mitigation in [§3.13](#313-invariants-that-cannot-be-enforced-declaratively).
+**Option B is APPROVED (Request C), with one condition.** The five composite foreign keys and three support unique keys are authorised; they are created only after the **mandatory disposable-PostgreSQL Prisma-drift spike** (**G‑1**, [§11.3](#113-pre-migration-gates--both-must-clear-before-migration-0001-is-created)) passes and its result is recorded in the approval register. If the spike fails, Option B is not silently dropped: the documented fallback is service validation plus a scheduled integrity query, which requires re-approval because it removes the declarative guarantees C‑1…C‑5.
 
 #### 3.11.6 Composite foreign keys (Request C)
 
@@ -1332,6 +1352,7 @@ The physical types in this section are authoritative. Where [§5](#5-proposed-pr
 | I‑11 | `version_number` is contiguous from 1 with no gaps | Sequence rule | Version service (a gap is a lost version, not a schema error) |
 | I‑12 | Archived/retired rows are never the target of new references | Temporal rule | Services resolve only active rows; historical references remain valid by FK |
 | I‑14 | `question_version_assets.block_ref` resolves inside the version it names — the root selects the document and the path exists there | Grammar is a `CHECK`; existence is JSONB-dependent | `ck_question_version_assets_block_ref_pointer` proves the grammar; the publish gate proves each pointer exists (part of I‑8) |
+| I‑15 | A CQ question's `marks` equals the sum of its rubric parts' marks, which equals the sum of the `maxMarks` on its four content subquestions — for the current curriculum, 1 + 2 + 3 + 4 = 10 | Cross-document (three places) **and** curriculum-dependent, so it cannot be a global `CHECK` (E‑10 rejected: a database-wide `type='CQ' ⇒ marks = 10` would hard-code one curriculum's shape) | Publish gate: sum the parsed rubric, sum the parsed subquestion `maxMarks`, compare both to `questions.marks`. The 1+2+3+4 = 10 requirement lives in the `cq_stem` content profile ([§7.5](#75-document-profiles)), not in the table |
 
 Each invariant needs at least one integration test against a disposable PostgreSQL instance before 0001 is considered done (**OD‑26** still owns the pipeline). Note that I‑9 no longer exists: removing `question_options.is_correct` (request **D**) eliminated the two-writable-sources-of-truth problem it described, and I‑13 replaces it with the requirement that actually matters — one valid key per MCQ version, none for a CQ.
 
@@ -1339,7 +1360,9 @@ Each invariant needs at least one integration test against a disposable PostgreS
 
 **Impact at creation (greenfield).**
 
-- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys** (plus 5 composite FKs and 3 support `UNIQUE (id, parent_id)` keys if request **C** is approved), **50 hand-written `CHECK` constraints**, and **6 hand-written indexes** (3 `WHERE is_active` partial uniques, 1 `WHERE status = 'PUBLISHED'` partial unique, 1 `NULLS NOT DISTINCT` unique, 2 case-insensitive expression uniques) — down from 7 in the previous revision because `uq_question_options_one_correct_per_version` is removed with `question_options.is_correct` (request **D**). All in addition to what Prisma generates.
+- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys**, **5 composite foreign keys and 3 support `UNIQUE (id, parent_id)` keys** (Request **C**, approved — created only after gate G‑1), **49 hand-written `CHECK` constraints**, and **4 hand-written indexes**.
+- Count movement across revisions, so the numbers are auditable: `CHECK` count went 50 → **49** because **E‑10 rejected** `ck_questions_cq_total_marks`; hand-written index count went 7 → 6 (Request **D** removed the `is_correct` partial unique) → **4** now, because **E‑7** converted the two `WHERE is_active` partial uniques into Prisma-native plain unique constraints. The 4 remaining hand-written indexes are: `uq_question_versions_one_published_per_question` (`WHERE status = 'PUBLISHED'`), `uq_question_sources_identity` (`NULLS NOT DISTINCT`), `uq_tags_name_lower` and `uq_colleges_name_lower` (expression uniques). All in addition to what Prisma generates.
+- **`questions.negative_marks` is `numeric` (E‑9)**; its `numeric(p, s)` is gate **G‑2** and is deliberately not fixed here.
 - Zero data migration: no production or staging data exists, so creation cannot corrupt anything. The only real risks are (a) a wrong `CHECK` that rejects legitimate seed data, and (b) a wrong delete action that makes a legitimate operation fail. Both are found by seeding the six ICT chapters, a handful of subjects/boards/years and one MCQ + one CQ end-to-end fixture in a disposable database **before** the migration is committed.
 - No application code is required: `lib/db.ts` is schema-agnostic and the generated client is git-ignored.
 - Exam tables are unaffected and will attach additively in Phase 05 through `question_versions.id`.
@@ -1367,33 +1390,51 @@ question_assets → subjects → education_levels → (enum types)
 3. Re-run `prisma migrate dev` with no schema change and confirm it produces an **empty** migration (proves the hand-written artifacts did not create drift).
 4. Attempt every forbidden operation and confirm each fails at the right layer: two published versions, duplicate `(version_id, key)`, an answer key naming a key that is not in the version, `block_ref` without a `/content` or `/options/{KEY}` root, board+college on one source, topic without chapter, duplicate source row → **database** rejects. Two answer keys for one version, an MCQ version with three options or no key, a CQ version with an MCQ key, an option `content` carrying a `table` block → **publish gate** rejects (I‑4, I‑13). Both layers are exercised; neither is assumed.
 
-### 3.15 Corrections and tightenings — individual review (Request E)
+### 3.15 Corrections and tightenings — final Request E decisions
 
-Every item previously bundled into "request E" is reviewed here on its own merits. The point of this table is that none of them is approved by being written down: "Recommendation" is what this document advises, "Consequence" is what changes in the database if it is accepted, and "Changes the approved physical model?" answers the governance question explicitly. **Items already decided by this review round are marked RESOLVED** and are no longer part of request E.
+All Request E items are now **decided by the reviewer**. The table records the decision, the technical consequence actually implemented in this revision, and whether the item changed the approved physical model. **No item is pending.** Three items were decided against this document's earlier recommendation (E‑7, E‑9, E‑10) and are documented as such rather than quietly absorbed.
 
-Legend: **Model change** = *No* means it is consistent with, or a clarification of, something already approved; *Yes* means it introduces a physical detail that no approved decision covers and therefore needs a recorded decision.
+Legend: **Model change** = *No* means it is consistent with, or a clarification of, something already approved; *Yes* means it introduces a physical detail that required an explicit decision.
 
-| # | Item | Recommendation | Technical consequence if accepted | Changes the approved physical model? | Status |
-|---|---|---|---|---|---|
-| E‑1 | `level_subjects` delete actions from `CASCADE` to `RESTRICT` | **Accept** | Deleting a level or subject row fails while an unremoved membership exists; removing membership becomes an explicit, auditable service step instead of a silent cascade. Prevents "delete a subject → question classification silently orphaned". Requires the taxonomy service to surface a clear error. | **No** — OD‑09 approved the join table; delete action was never specified. | Pending |
-| E‑2 | Surrogate `id` + `UNIQUE (version_id, block_ref)` on `question_version_assets` (replacing `(version_id, asset_id)`) | **Accept** (partly superseded) | Needed because one asset legitimately appears at several pointers in one version. This revision goes one step further and makes `block_ref` **NOT NULL** with a rooted grammar — see §3.3.12. Accepting E‑2 without the `NOT NULL` half leaves an unresolvable-link state. | **No** — join-table shape and asset-pointer storage were open under OD‑18/OD‑19. | **RESOLVED in this revision** (as part of the asset-pointer decision) |
-| E‑3 | `question_options.order` renamed to `sort_order` (Prisma field keeps `order` via `@map`) | **Accept** | `order` is a reserved word in PostgreSQL and must be double-quoted in every hand-written statement; the rename removes a class of SQL-authoring bug. Prisma field name is unchanged, so no service code is affected. | **No** — naming only; no column semantics change. | Pending |
-| E‑4 | `question_versions.updated_at` added | **Accept** | `status` legitimately transitions `DRAFT → PUBLISHED → ARCHIVED` on an otherwise immutable row, so an updated timestamp is meaningful. Content immutability is unaffected (I‑5). Cost: one column and a write per transition. | **No** — timestamp presence was unspecified; this does not make content mutable. | Pending |
-| E‑5 | `question_assets.updated_at` added | **Accept** | Metadata (alt text, long description) is explicitly correctable while bytes are immutable; without the column a metadata fix is invisible. | **No** | Pending |
-| E‑6 | All timestamps typed `timestamptz(3)` | **Accept — strongly** | Prisma's default `timestamp(3)` is timezone-naive. For server-authoritative exam timing, a naive timestamp is a correctness bug waiting to happen at the first timezone or DST change. Requires `@db.Timestamptz(3)` annotations and a schema-test that fails if any `DateTime` lacks it. | **No** — L3 already makes server timing authoritative; this is the physical expression of it. | Pending |
-| E‑7 | `WHERE is_active` partial uniques for `(subject_id, chapter_number)` and `(chapter_id, order_index)` | **Accept** | A retired chapter's number becomes reusable after a curriculum revision, which a plain unique constraint forbids. Cost: two partial indexes Prisma cannot model, so they join the hand-written set and the drift review. | **Yes** — a curriculum-revision policy for numbering (retire-and-reuse) had not been decided; OD‑09 mentions "curriculum revisions" without a rule. **Needs a recorded decision**: either retire-and-reuse (partial unique) or keep numbers globally unique per subject (plain unique). | Pending — decision required |
-| E‑8 | Source de-duplication using `NULLS NOT DISTINCT` | **Accept** | The earlier `WHERE board_id IS NOT NULL AND college_id IS NOT NULL AND …` partial index silently skipped every partially-specified source, so duplicates slipped through. `NULLS NOT DISTINCT` (PostgreSQL 15+) closes that. Requires PostgreSQL 15+ — true for the planned Supabase instance, but must be recorded, with the three-partial-index fallback documented in §3.10. | **No** — dedup was approved under OD‑08; only its expression was wrong. | Pending |
-| E‑9 | `questions.negative_marks <= marks` | **Recommend, with a caveat** | Prevents a penalty larger than the mark it applies to. **Caveat:** negative-marking policy is a scoring question, and OD‑21 owns "negative-mark floor". This constraint is a data-shape guard, not a scoring policy — but if OD‑21 later allows a per-question penalty above the mark value, the constraint must be dropped by migration. | **Marginal** — it constrains data, not scoring. Recommended, flagged because OD‑21 is open. | Pending — flagged |
-| E‑10 | `questions.type = 'CQ' ⇒ marks = 10` | **Recommend, with a caveat** | Encodes the approved 1+2+3+4 shape. **Caveat:** it hard-codes the current curriculum's CQ total. A future level with a different CQ structure (approved under OD‑09's "must support other levels") would collide. Safer variant: leave the total to the publish gate (which already sums the rubric) and keep only `marks >= 0`. | **Yes** — a hard 10 for all CQ types is a curriculum assumption not stated in any approved decision. | Pending — **do not accept silently** |
-| E‑11 | `questions.type = 'MCQ' ⇒ marks >= 1` | **Accept** | An MCQ worth zero marks is not a question. Cheap and harmless. | **No** | Pending |
-| E‑12 | `questions.negative_marks >= 0` (previous revision) | **Accept** | Already stated as a blueprint rule ("marks and negative marks cannot be negative"); the `CHECK` is its expression. | **No** | Pending |
-| E‑13 | Identifier generation client-side only (no database `default`) | **Accept** | One generator, one truth. Raw SQL inserts must supply ids explicitly — acceptable because such writes are reviewed scripts. | **No** | Pending |
-| E‑14 | `updated_at` has no database default | **Accept** | A missed application write then fails loudly (`NOT NULL` violation) instead of silently reusing `now()`. | **No** | Pending |
-| E‑15 | No `deleted_at` / no `archived_at` on `questions` | **Accept** | `status = 'ARCHIVED'` is the single soft-delete mechanism (§3.3.7); status-transition timestamps belong to the audit log, which **OD‑27** owns and which is not in 0001. Two deletion mechanisms would allow an archived-but-not-deleted or deleted-but-active row. | **No** | Pending |
-| E‑16 | Correctness authority: `answer_keys.mcq_correct_option_key` sole source; drop `is_correct` and `uq_question_options_one_correct_per_version` | **ACCEPTED by review** | The partial unique index is removed with the column; the guarantee moves to `UNIQUE (answer_keys.version_id)` + the composite FK to `question_options(version_id, key)` (**C‑5**), with four-options/one-key presence enforced at the publish gate (I‑4, I‑13). | **Yes** — but **approved by the reviewer** in this round, not assumed. | **RESOLVED — approved** |
-| E‑17 | `question_version_assets.block_ref` `NOT NULL`, rooted pointer grammar covering stem, option and nested-subquestion content | **ACCEPTED by review** | Unique asset-per-location across all three content homes; the `CHECK` enforces the grammar, I‑8/I‑14 enforce resolution. See §3.3.12. | **Yes** — but **approved by the reviewer** in this round. | **RESOLVED — approved** |
+| # | Item | Decision | Consequence implemented in this revision | Changes the approved physical model? |
+|---|---|---|---|---|
+| E‑1 | `level_subjects` delete actions `CASCADE` → `RESTRICT` | **ACCEPTED** | Deleting a level or subject row fails while an unremoved membership exists; removing membership becomes an explicit, auditable service step instead of a silent cascade. The taxonomy service must surface a clear error. | No — OD‑09 approved the join table; the delete action was never specified. |
+| E‑2 | Surrogate `id` + `UNIQUE (version_id, block_ref)` on `question_version_assets` | **ALREADY RESOLVED** (asset-pointer decision) | Superseded and strengthened: `block_ref` is also `NOT NULL` with the rooted grammar (§3.3.12). | No |
+| E‑3 | `question_options.order` → `sort_order` (Prisma field keeps `order` via `@map`) | **ACCEPTED** | `order` is reserved in PostgreSQL and needs quoting in every hand-written statement. Prisma field name unchanged, so no service code is affected. | No — naming only. |
+| E‑4 | `question_versions.updated_at` added | **ACCEPTED** | `status` transitions `DRAFT → PUBLISHED → ARCHIVED` on an otherwise immutable row, so the timestamp is meaningful. Content immutability unaffected (I‑5). | No — timestamp presence was previously unspecified. |
+| E‑5 | `question_assets.updated_at` added | **ACCEPTED** | Metadata (alt text, long description) is correctable while bytes are immutable; without the column a metadata fix is invisible. | No |
+| E‑6 | All timestamps typed `timestamptz(3)` | **ACCEPTED** | Prisma's default `timestamp(3)` is timezone-naive, which is unsafe for server-authoritative exam timing. Requires `@db.Timestamptz(3)` on every `DateTime`, plus a schema test that fails if one lacks it. | No — physical expression of the L3 authority rule. |
+| **E‑7** | `WHERE is_active` partial uniques for chapter numbering / topic order | **CHANGED — reuse rejected** | **No chapter-number reuse while no curriculum-revision entity or versioning policy exists.** Both are now **plain global unique constraints**: `UNIQUE (subject_id, chapter_number)` on `chapters` and `UNIQUE (chapter_id, order_index)` on `topics`. The two partial indexes are removed. **A future curriculum-revision model may revisit this**; it becomes the constraint to relax by migration, with the historical-mapping question answered first. Side effect: plain uniques are Prisma-native, so they leave the hand-written SQL set. | **Yes** — a retire-and-reuse numbering policy was assumed and is now explicitly refused. |
+| E‑8 | Source de-duplication via `NULLS NOT DISTINCT` | **ACCEPTED** | The earlier `WHERE board_id IS NOT NULL AND college_id IS NOT NULL AND …` partial index silently skipped partially-specified sources, so duplicates slipped through. `NULLS NOT DISTINCT` closes that. Requires PostgreSQL 15+ (true for the planned Supabase instance); the three-partial-index fallback is documented in §3.10. | No — OD‑08 approved de-duplication; only the expression was wrong. |
+| **E‑9** | `negative_marks <= marks` and the column type | **CHANGED — accept bound, widen type** | The upper bound `negative_marks <= marks` is **retained**. The column type changes **`integer` → numeric** (decimal-capable) so fractional penalties are representable. **`numeric(p,s)` precision/scale is NOT decided and is not invented here** — it is a **pre-migration decision** (see [§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)). **The OD‑21 negative-mark floor is NOT decided**; this constraint is an upper bound on one question's penalty only. | **Yes** — column type changes; the floor remains open under OD‑21. |
+| **E‑10** | `CHECK (type <> 'CQ' OR marks = 10)` | **REJECTED — constraint removed** | The global CQ-total `CHECK` is **deleted**. The 1 + 2 + 3 + 4 = 10 structure is kept in the **`cq_stem` content profile** (§7.5), not in the table. Publish-time validation (**I‑15**) requires the question's `marks` to equal the sum of its rubric subquestion `maxMarks`. A future level with a different CQ shape therefore needs no migration. | **Yes** — a previously proposed constraint is withdrawn; the guarantee moves to the publish gate. |
+| E‑11 | `questions.type = 'MCQ' ⇒ marks >= 1` | **ACCEPTED** | An MCQ worth zero marks is not a question. Cheap and harmless. | No |
+| E‑12 | `questions.negative_marks >= 0` | **ACCEPTED** | Expresses the blueprint rule that marks and negative marks cannot be negative. Holds for any `numeric(p,s)`. | No |
+| E‑13 | Identifier generation client-side only (no database `default`) | **ACCEPTED** | One generator, one truth. Raw-SQL inserts must supply ids explicitly — acceptable because such writes are reviewed scripts. | No |
+| E‑14 | `updated_at` has no database default | **ACCEPTED** | A missed application write then fails loudly (`NOT NULL` violation) instead of silently reusing `now()`. | No |
+| E‑15 | No `deleted_at` / no `archived_at` on `questions` | **ACCEPTED** | `status = 'ARCHIVED'` is the single soft-delete mechanism (§3.3.7). Status-transition timestamps belong to the audit log, which **OD‑27** owns and which is not in 0001. Two deletion mechanisms would allow archived-but-not-deleted or deleted-but-active rows. | No |
+| E‑16 | Correctness authority: `answer_keys.mcq_correct_option_key` sole source; drop `is_correct` and its partial unique index | **ALREADY RESOLVED** (= Request D) | The partial unique index is removed with the column; the guarantee moves to `UNIQUE (answer_keys.version_id)` + composite FK **C‑5**, with four-options/one-key presence enforced by I‑4 and I‑13. | Yes — resolved in the previous round. |
+| E‑17 | `block_ref` `NOT NULL`, rooted pointer grammar across stem, option and nested-subquestion content | **ALREADY RESOLVED** (asset-pointer decision) | Unique asset-per-location across all three content homes; the `CHECK` enforces the grammar, I‑8/I‑14 enforce resolution. See §3.3.12. | Yes — resolved in the previous round. |
 
-**Summary of request E as it now stands.** Seventeen items are listed. **Fourteen remain for disposition**; **three are resolved** — E‑2 (subsumed by the asset-pointer decision), E‑16 (request **D**) and E‑17 (asset pointers). Three items are *not* recommended for silent approval: **E‑7** (needs an explicit curriculum-numbering policy), **E‑9** (interacts with the open OD‑21 negative-mark floor) and **E‑10** (hard-codes a curriculum total). Everything else is a low-risk physical detail that is consistent with an approved decision.
+**Net effect on the physical model.** Twelve tightenings accepted as proposed (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15, plus E‑16/E‑17 already resolved), two changed by the reviewer (E‑7 numbering, E‑9 type), one rejected (E‑10). Three items are resolved from the earlier round (E‑2, E‑16, E‑17). **No E item remains open.**
+
+#### 3.15.1 Open pre-migration decision: `negative_marks` precision and scale
+
+E‑9 mandates a decimal-capable `numeric` type but deliberately leaves the precision and scale open. **This document does not choose them.** Before migration 0001 is created, the reviewer must settle `numeric(p, s)`, because the choice propagates to:
+
+| Affected artefact | What the choice fixes |
+|---|---|
+| `questions.negative_marks` column definition | `numeric(p, s)` in the `CREATE TABLE` |
+| Prisma model | `@db.Decimal(p, s)` annotation on `negativeMarks`; the §5 sketch shows `Decimal` with the annotation left to be filled in |
+| `ck_questions_negative_marks_not_above_marks` | No change needed — `numeric` vs `integer` widens implicitly for any `(p, s)` |
+| Scoring and analytics (**OD‑21**) | Rounding and comparison behaviour when penalties are summed or averaged |
+| API/JSON serialisation (**OD‑17**) | Decimal-as-string versus number, and the maximum representable penalty |
+
+Candidate questions the decision must answer: do penalties need sub-mark precision at all (e.g. 0.25 for a quarter-mark penalty), and does any scaling formula under OD‑21 produce more than two decimal places? The recommended starting point for review — **not adopted here** — is that the scale follows whatever OD‑21 permits, since the column cannot be narrower than the scoring rule that writes it.
+
+#### 3.15.2 Note on the E‑7 extension to `topics`
+
+The reviewer's E‑7 decision names chapter numbers. The topic ordering constraint rested on the identical retire-and-reuse assumption, so it is changed consistently (plain `UNIQUE (chapter_id, order_index)`) rather than left as the one surviving partial unique. This is recorded as a **consequential extension**, not a new request: if the reviewer prefers to keep partial uniqueness for topic order while chapter numbers are global, it is a one-line change to §3.10 and §3.3.5.
 
 ## 4. Entity map (candidate view — superseded by §3.5)
 
@@ -1548,6 +1589,7 @@ model Chapter {
   subject     Subject  @relation(fields: [subjectId], references: [id], onDelete: Restrict)
   topics      Topic[]
   questions   Question[]
+  // E-7: GLOBAL unique — a retired chapter number is not reusable
   @@unique([subjectId, chapterNumber])
   @@map("chapters")
 }
@@ -1628,7 +1670,9 @@ model Question {
   topicId        String?
   subtopicId     String?
   marks          Int              @default(1)
-  negativeMarks  Int              @default(0)
+  // E-9: numeric, decimal-capable. Precision/scale is an OPEN pre-migration
+  // decision — this sketch deliberately does not pick @db.Decimal(p, s).
+  negativeMarks  Decimal          @default(0) // @db.Decimal(<p>, <s>) TBD
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   educationLevel EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Restrict)
@@ -1772,7 +1816,7 @@ model QuestionSource {
 
 The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (domain `CHECK` constraints), [§3.10](#310-partial-and-expression-unique-index-sql) (partial and expression unique indexes) and [§3.11.6](#3116-composite-foreign-keys-request-c) (the five composite foreign keys of request **C**). The earlier draft's inline SQL is superseded and deliberately not repeated: two copies of a constraint list is how a "fixed" index gets re-broken by a partial edit. **Two of the three artifact groups it contained survive** — one published version per question, and the OD-08 board/college guard. The third, "at most one correct option per version", is **gone**: it depended on `question_options.is_correct`, which this revision removes (request **D**); the guarantee now comes from `UNIQUE (answer_keys.version_id)` plus composite FK C‑5.
 
-**Model-level deviations from the SQL in §3.** Where the Prisma sketch above and §3 disagree, §3 wins; the differences are enumerated in [§3.15](#315-corrections-and-tightenings--individual-review-request-e) (`sort_order` vs `order` — **E‑3**; surrogate `id` + `UNIQUE (version_id, block_ref)` + non-null rooted `block_ref` on `question_version_assets` — **E‑2**, resolved; `RESTRICT` on `level_subjects` — **E‑1**; `updated_at` on `question_versions`/`question_assets` — **E‑4/E‑5**; `timestamptz(3)` everywhere — **E‑6**).
+**Model-level deviations from the SQL in §3.** Where the Prisma sketch above and §3 disagree, §3 wins; the differences are enumerated in [§3.15](#315-corrections-and-tightenings--final-request-e-decisions) (`sort_order` vs `order` — **E‑3**; surrogate `id` + `UNIQUE (version_id, block_ref)` + non-null rooted `block_ref` on `question_version_assets` — **E‑2**, resolved; `RESTRICT` on `level_subjects` — **E‑1**; `updated_at` on `question_versions`/`question_assets` — **E‑4/E‑5**; `timestamptz(3)` everywhere — **E‑6**).
 
 ---
 
@@ -1787,8 +1831,8 @@ The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (doma
 - **Composite `(subject_id, chapter_id, topic_id)`** — serves the chapter→topic cascade.
 - **`(status, type, difficulty)`** — published listing with type/difficulty facets.
 - **Partial unique indexes** — publish-safety (one current version, §3.10 `uq_question_versions_one_published_per_question`), source dedup (`uq_question_sources_identity`), active-taxonomy uniqueness. The former `uq_question_options_one_correct_per_version` is **removed** with `question_options.is_correct` (request D); MCQ correctness is now `answer_keys.mcq_correct_option_key` under `UNIQUE (answer_keys.version_id)` plus the request‑C composite FK to `question_options(version_id, key)`.
-- **Checks** — `marks >= 0`, `negative_marks >= 0`, `version_number > 0`, single-char option key, at-most-one organisation per source. §3.9 keeps all of these and adds hierarchy-chain, CQ-total, envelope and format guards.
-- **`WHERE is_active` partial uniques** *(new in this revision)* — a retired chapter number or topic order must be reusable after a curriculum revision, which a plain unique constraint forbids.
+- **Checks** — `marks >= 0`, `negative_marks >= 0`, `version_number > 0`, single-char option key, at-most-one organisation per source. §3.9 keeps all of these and adds the hierarchy-chain, envelope and format guards. **Two changes from the previous revision:** `negative_marks` is now `numeric` (E‑9) with `negative_marks <= marks` retained as an upper bound, and the global `type='CQ' ⇒ marks = 10` guard is **removed** (E‑10 rejected — the CQ total belongs to the `cq_stem` profile and publish check I‑15).
+- **Taxonomy uniqueness is global, not partial** *(E‑7 decision)* — `UNIQUE (subject_id, chapter_number)` and `UNIQUE (chapter_id, order_index)` are ordinary unique constraints. The earlier `WHERE is_active` partial indexes assumed a retired number could be reused, which the reviewer rejected while no curriculum-revision entity exists. Side benefit: plain uniques are Prisma-native, so they leave the hand-written SQL set and shrink the drift surface.
 - **No GIN/full-text indexes yet** — search indexing/tokenization is **OD-32**; a `GIN` on `question_versions.content` can be added additively.
 - **No `ORDER BY RANDOM()`-friendly structures** — random selection is a service algorithm (README §7.1.3), not a schema concern.
 
@@ -2289,6 +2333,8 @@ The envelope is shared, but what a *valid document* means depends on where it is
 | `cq_stem` | `question_versions.content` where `questions.type = 'CQ'` | ≥ 1 stimulus block (a block that is not `subquestion`), then **exactly four** `subquestion` blocks in ক→ঘ order with marks 1/2/3/4 | a fifth `subquestion`; duplicate or missing parts; `heading` inside a subquestion |
 | `option` | `question_options.content` | 1 … 3 blocks, each `paragraph`, `math`, `image` or `code` | `heading`, `list`, `table`, `callout`, `flowchart`, `subquestion`; nested blocks; answer-revealing properties |
 | `cq_rubric` | `answer_keys.cq_rubric` | See [§7.7](#77-answer_keyscq_rubric-schema-and-example) | every block type; options; assets |
+
+**The CQ 1 + 2 + 3 + 4 = 10 structure lives here, not in the database (E‑10 decision).** The reviewer **rejected** a global `CHECK (type <> 'CQ' OR marks = 10)`. The `cq_stem` profile below is where the structure belongs, together with publish check **I‑15**: the subquestion `maxMarks` values must be exactly the part mapping (ক = 1, খ = 2, গ = 3, ঘ = 4), their sum must equal the rubric's `totalMaxMarks`, and both must equal `questions.marks`. For the current HSC/ALIM ICT curriculum that total is 10, but the number is now a **curriculum fact expressed in the profile and the publish gate**, so a future level with a different CQ shape can be supported without a migration. Nothing in the database enforces 10.
 
 **Why options are narrower than stems.** An option renders inside a 4-column grid and inside a single table cell in print. A table, list or flowchart inside an option breaks both layouts and makes the option unreadable at print size. Restricting the profile at publish time is the only place the constraint can be enforced honestly.
 
@@ -2977,41 +3023,76 @@ Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured cont
 1. OD-08 — Option B (`QuestionSource` exclusively).
 2. OD-09 — `levelSubjects` join + `educationLevelId` on `Question`; subject↔level membership enforced server-side; no `Group` table.
 3. OD-10 — Option B versioning with conditions (immutable once examined; corrections via new version; `Exam*` deferred).
-4. JSONB boundaries — in principle. The OD-18 content-block schema is **specified in full** (§7) and awaits final approval; no JSONB column may be used before that approval.
-5. Deletion/integrity policy — with clarifications.
-6. **MCQ correctness authority (review round 3)** — `answer_keys.mcq_correct_option_key` is the single source of MCQ correctness; `question_options.is_correct` and `uq_question_options_one_correct_per_version` are removed; four-options/one-key presence is enforced at the publish gate (I‑4, I‑13).
-7. **Asset-pointer integrity (review round 3)** — `question_version_assets.block_ref` is `NOT NULL` with the rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem, option and nested-subquestion content.
+4. Deletion/integrity policy — with clarifications.
+5. **Request A — Migration 0001 scope (APPROVED)**: all 18 tables (14 essential + 4 supporting), the dependency-ordered creation and the exclusion list.
+6. **Request B — OD‑18 content-block schema (APPROVED)**: envelope, ten block types, profiles, validation, versioning, rejection behaviour, sanitization, Zod strategy, hard limits. JSONB may now be used for the three approved columns.
+7. **Request C — five composite FKs + three support keys (APPROVED WITH CONDITION)**: C‑1…C‑5 plus `UNIQUE (id, subject_id)`, `UNIQUE (id, chapter_id)`, `UNIQUE (id, topic_id)`; conditional on a successful Prisma-drift spike (G‑1).
+8. **Request D — MCQ correctness authority (APPROVED)**: `answer_keys.mcq_correct_option_key` is the sole source; `question_options.is_correct` and `uq_question_options_one_correct_per_version` are permanently removed; four-options/one-key presence enforced at the publish gate (I‑4, I‑13).
+9. **Asset-pointer integrity (APPROVED)**: `question_version_assets.block_ref` is `NOT NULL` with the rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem, option and nested-subquestion content.
+10. **Request E (DECIDED IN FULL)** — eleven accepted (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15); three already resolved (E‑2, E‑16, E‑17); **E‑7 changed** (globally unique chapter numbering, no reuse); **E‑9 changed** (`negative_marks <= marks` retained, column becomes `numeric`, precision/scale open as G‑2); **E‑10 rejected** (no global CQ-total `CHECK`; the 1+2+3+4 = 10 structure lives in the `cq_stem` profile and publish check I‑15).
 
 ### Reviewed — direction noted, gated to Phase 05 (exams), not migration 0001
-8. OD-11 — grace window + `SUBMITTED_LATE`.
-9. OD-12 — per-answer idempotency key, one result per session.
-10. OD-13 — CQ rubric JSONB in `answer_keys` (included); responses/self-assessment/teacher override deferred.
+11. OD-11 — grace window + `SUBMITTED_LATE`.
+12. OD-12 — per-answer idempotency key, one result per session.
+13. OD-13 — CQ rubric JSONB in `answer_keys` (included); responses/self-assessment/teacher override deferred. **All three remain deferred; no values were invented for them in any revision.**
 
-### Completed in earlier revisions (specified in full — still awaiting approval)
-11. Migration 0001 scope — the 18-table inventory is specified in full in §3. Approval request **A**.
-12. OD-18 content-block schema — the ten block types, envelope, profiles, validation, examples, document versioning, rejection behaviour, sanitization controls, Zod strategy and hard limits are specified in full in §7. Approval request **B**.
-13. Composite foreign keys — approval request **C** in §3.11.6 and §11; Prisma does not represent them, and the disposable-database drift spike is mandatory.
-14. Physical-schema tightenings — approval request **E**, reviewed item by item in §3.15.
+### Open before migration 0001 (not design decisions — gates)
+
+14. **G‑1** — Prisma-drift spike for Request C, on a disposable PostgreSQL database, result recorded in §11.3.
+15. **G‑2** — `negative_marks` `numeric(p, s)` precision and scale, recorded in §3.15.1.
 
 ### Explicitly unresolved (not decided here; do not implement against)
-Group entity; user linkage (OD-15); moderation states beyond draft/published/archived (OD-27); RLS (OD-16); full-text search (OD-32); retention periods (OD-20); rate-limit store (OD-06); CQ assessment modality (OD-01); strict-expiry vs auto-submit (OD-03); guest practice (OD-04); post-release answer review (OD-14); PDF worker host (OD-02); paper/export model (OD-28); AI cache/isolation (OD-29).
+The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group entity; user linkage (OD-15); moderation states beyond draft/published/archived (OD-27); RLS (OD-16); full-text search (OD-32); retention periods (OD-20); rate-limit store (OD-06); CQ assessment modality (OD-01); strict-expiry vs auto-submit (OD-03); guest practice (OD-04); post-release answer review (OD-14); PDF worker host (OD-02); paper/export model (OD-28); AI cache/isolation (OD-29).
 
 ---
 
-## 11. Decisions still awaiting your final approval
+## 11. Approval register — final state
 
-Nothing in §3 or §7 is approved by being written down. This register is the complete set of items needing an explicit disposition before `prisma/schema.prisma` is edited or migration 0001 is created.
+**All Phase 04A approval requests have been decided.** This register records the disposition of each, what it authorises, and the one item that remains open before migration 0001 may be created.
 
-| ID | Request | Status | Where | If declined |
+### 11.1 Granted approvals
+
+| ID | Decision | Status | What is now authorised | Where implemented |
 |---|---|---|---|---|
-| **A** | Approve the **18-table inventory**, the 14/4 grouping, the dependency order and the migration-0001 scope. | **Pending** | §3.2–§3.8 | No migration 0001; the question bank cannot be implemented. |
-| **B** | Approve the **OD‑18 content-block specification**: envelope, ten block types, profiles, validation, examples, document versioning, unknown-type rejection, sanitization, Zod strategy, hard limits. | **Pending** | §7 | JSONB content columns unusable; no editor, renderer or publish gate. |
-| **C** | Approve the **five composite foreign keys** — C‑1 level+subject, C‑2 chapter+subject, C‑3 topic+chapter, C‑4 subtopic+topic, C‑5 answer key+option — plus the three `UNIQUE (id, parent_id)` support keys, **and** accept the mandatory disposable-PostgreSQL Prisma-drift spike as a pre-migration gate. | **Pending — strengthened by request D**: C‑5 is now the *only* declarative proof that the authoritative MCQ key exists in its version. | §3.11.6 | Option A: service-only validation, a scheduled integrity query and a publish-gate re-check. **Cost is now higher than before D**: no database guarantee that a key names an existing option. |
-| **D** | MCQ correctness authority: `answer_keys.mcq_correct_option_key` as the single source; remove `question_options.is_correct` and `uq_question_options_one_correct_per_version`; keep publish-time validation of exactly four distinct option keys and exactly one valid MCQ key. | **RESOLVED — accepted by review in this round**; implemented throughout this revision | §3.3.9, §3.3.10, §3.10, §3.13 (I‑4, I‑13), §5, §7.1, §7.6.2 | n/a — decided. Recorded here so the change is traceable, not silent. |
-| **E** | The individual physical-schema tightenings, reviewed one by one in §3.15. | **Pending — 14 items open**, 3 resolved of 17 (E‑2 subsumed, E‑16 = request D, E‑17 = asset pointers). **E‑7, E‑9 and E‑10 are explicitly *not* recommended for silent approval** (curriculum numbering policy; interaction with the open OD‑21 negative-mark floor; hard-coding the CQ total of 10). | §3.15 | Each item reverts to the earlier draft's form individually; consequences are stated per row. |
+| **A** | Migration 0001 scope — **all 18 tables (14 essential + 4 supporting)**, the grouping, the dependency order and the scope boundary | **APPROVED** | The 18-table inventory, creation order and exclusions of §3 are approved as specified. `prisma/schema.prisma` may be edited to match §3 once the pre-migration gates below are met. | §3.2–§3.8, §3.6 |
+| **B** | **OD‑18 content-block schema** — envelope, ten block types, profiles, validation rules, examples, document versioning, unknown-type rejection, sanitization controls, Zod strategy, hard limits | **APPROVED** | JSONB content may be used for `question_versions.content`, `question_options.content` and `answer_keys.cq_rubric` under the §7 specification. | §7 (whole section) |
+| **C** | **Five composite foreign keys and three supporting unique keys**, **subject to a mandatory successful disposable-PostgreSQL Prisma-drift spike** | **APPROVED WITH CONDITION** | C‑1 level+subject, C‑2 chapter+subject, C‑3 topic+chapter, C‑4 subtopic+topic, C‑5 answer key+option; plus `UNIQUE (id, subject_id)` on `chapters`, `UNIQUE (id, chapter_id)` on `topics`, `UNIQUE (id, topic_id)` on `subtopics`. **Condition: the spike in §11.3 must pass and be recorded here before the migration is created.** If the spike fails, C is not silently abandoned — the fallback is service validation plus an integrity query, recorded as an explicit deviation requiring re-approval. | §3.11.3, §3.11.6 |
+| **D** | `AnswerKey.mcq_correct_option_key` is the **sole** MCQ correctness authority | **APPROVED** | `question_options.is_correct` and `uq_question_options_one_correct_per_version` are permanently removed. Correctness is `answer_keys.mcq_correct_option_key`, protected by `UNIQUE (answer_keys.version_id)` plus composite FK C‑5, with four-options/one-key presence enforced at publish (I‑4, I‑13). | §3.3.9, §3.3.10, §3.10, §3.13 |
+| **—** | **Asset pointer integrity** — mandatory non-null rooted `block_ref` grammar | **APPROVED** | `question_version_assets.block_ref` is `NOT NULL` with the rooted grammar `/content/blocks/{i}`, `/content/blocks/{i}/data/blocks/{j}`, `/options/{KEY}/blocks/{i}`; `UNIQUE (version_id, block_ref)`; resolution checked by I‑8/I‑14. | §3.3.12, §3.9, §7.6.5 |
 
-**Also resolved in this round (not a standing request):** `question_version_assets.block_ref` is now `NOT NULL` with the rooted pointer grammar `/content/...` or `/options/{KEY}/...`, covering stem, option and nested-subquestion content, with `UNIQUE (version_id, block_ref)` and I‑8/I‑14 as the resolution checks (§3.3.12, §7.6.5). This includes the previous revision's request‑E item E‑2.
+### 11.2 Request E — final dispositions
 
-**Not requested here, and deliberately left open:** OD‑11, OD‑12 and OD‑13 — no values are invented in this revision; they remain as the earlier report left them, deferred to Phase 05. Also open: OD‑09's curriculum-revision numbering rule (E‑7), OD‑21's negative-mark floor (E‑9) and the CQ total for future levels (E‑10), plus the unapproved items under "Explicitly unresolved" in §10.
+| Disposition | Items |
+|---|---|
+| **Accepted** | **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15** |
+| **Already resolved** | **E‑2, E‑16, E‑17** |
+| **Changed — E‑7** | Chapter-number reuse **not permitted** while no curriculum-revision entity or versioning policy exists. `UNIQUE (subject_id, chapter_number)` is now a plain global unique constraint. A future curriculum-revision model may revisit this. |
+| **Changed — E‑9** | `negative_marks <= marks` **retained** as an upper bound; `negative_marks` type changed **`integer` → `numeric`**. Precision and scale remain an **open pre-migration decision** ([§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)), not invented here. The **OD‑21 negative-mark floor is NOT decided** by this constraint. |
+| **Rejected — E‑10** | The global `CHECK (type <> 'CQ' OR marks = 10)` is **removed**. The HSC/ALIM ICT 1 + 2 + 3 + 4 = 10 structure is kept in the `cq_stem` content profile; **I‑15** requires publish-time validation that the question's total marks equal the sum of its rubric subquestion marks. |
 
-**What happens on approval.** On approval of A, B and a disposition for C and E: edit `prisma/schema.prisma` to match §3 → run the **Prisma-drift spike** from §3.11.6 on a disposable database and record the result here → generate migration 0001 → append the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the §3.14 verification checklist → implement the Zod schemas from §7.11 → wire the publish gate. **None of that happens in this documentation phase**, and no step begins without an explicit signal.
+No Request E item remains open. Full per-item rationale, consequence and model-change assessment: [§3.15](#315-corrections-and-tightenings--final-request-e-decisions).
+
+### 11.3 Pre-migration gates — both must clear before migration 0001 is created
+
+| Gate | Requirement | Blocks |
+|---|---|---|
+| **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Record the result (outcome, Prisma version, date) in this section.** If it fails, C reverts to the documented fallback and requires re-approval. | Request C (all five FKs + three support keys) |
+| **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | Settle `numeric(p, s)` and record it in §3.15.1 and the Prisma `@db.Decimal(p, s)` annotation. | The `questions.negative_marks` column definition only |
+
+Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested.
+
+### 11.4 Still deferred — unchanged by this approval
+
+**OD‑11, OD‑12 and OD‑13 remain deferred to Phase 05** (examinations). No values were invented for them in any revision of this document, and these approvals do not touch them:
+
+- **OD‑11** — exam state transitions, authoritative admission timestamp, grace eligibility and late finalisation.
+- **OD‑12** — idempotency scope, retention, same-key/different-payload behaviour, concurrent autosave, multi-tab conflict.
+- **OD‑13** — CQ input modality, per-part/result representation, self-assessment revisions, teacher override.
+
+Also unchanged and still open: the **OD‑21** negative-mark floor, the Group entity, user linkage (OD‑15/OD‑16), moderation states beyond the three approved values (OD‑27), RLS (OD‑16), full-text/Bangla search (OD‑32), retention periods (OD‑20), rate-limit store (OD‑06), CQ assessment modality (OD‑01), expiry policy (OD‑03), guest practice (OD‑04), answer review release (OD‑14), PDF worker host (OD‑02), paper/export model (OD‑28) and AI cache/isolation (OD‑29).
+
+### 11.5 What approval now authorises — and what it does not
+
+**Authorised once G‑1 and G‑2 clear:** edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
+
+**Not authorised, and not done in this phase:** any change to `prisma/schema.prisma`, any migration, any application code or UI. This revision is documentation only.
