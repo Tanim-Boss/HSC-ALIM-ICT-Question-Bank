@@ -331,7 +331,10 @@ ok "5/5 composite FKs present after deployment"
   WHERE connamespace='public'::regnamespace AND contype='f'
   ORDER BY conname;" > "$OUT_DIR/05-catalog-fks.txt"
 assert_nonempty "$OUT_DIR/05-catalog-fks.txt" "foreign key catalog"
-ORD_FK="$(grep -c 'fkey' "$OUT_DIR/05-catalog-fks.txt" || true)"
+# Count every FOREIGN KEY row. Do NOT grep for the 'fkey' name suffix: the
+# five composite constraints are named fk_*, so a suffix match silently
+# excludes exactly the constraints this experiment is about.
+ORD_FK="$(wc -l < "$OUT_DIR/05-catalog-fks.txt")"
 # The datamodel declares 13 relations, so Prisma creates 13 ordinary FKs; the
 # append adds 5 composite ones. 18 is the exact expected total, not a floor:
 # a missing ordinary FK and a duplicated composite one must not average out.
