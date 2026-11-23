@@ -281,6 +281,52 @@ jobs:
           node_modules/.bin/prisma migrate deploy --config prisma.config.ts
           node_modules/.bin/prisma migrate status --config prisma.config.ts
 
+      # The driver's snapshot-to-snapshot diff produced an EMPTY script on the
+      # first real run: exit 0, no error, no SQL. Empty means "no difference",
+      # yet the two datamodels genuinely differ by one @@index. Rather than guess
+      # which argument Prisma 7 honours, try the plausible invocations here and
+      # record what each one actually does. Output is posted to the PR.
+      - name: "V-1 probe — which diff invocation sees a datamodel delta"
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/probe && cd /tmp/probe
+          cp "$GITHUB_WORKSPACE/prisma/schema.prisma" prev.prisma
+          python3 - <<'PY'
+          import io
+          s = io.open('/tmp/probe/prev.prisma', encoding='utf-8').read()
+          a = '  @@index([status, type, difficulty], map: "ix_questions_status_type_difficulty")'
+          s = s.replace(a, a + '\n  @@index([createdAt(sort: Desc)], map: "ix_questions_created_at_desc")', 1)
+          io.open('/tmp/probe/next.prisma', 'w', encoding='utf-8').write(s)
+          PY
+          cat > /tmp/probe/ds.config.ts <<'CFG'
+          import { defineConfig } from 'prisma/config';
+          export default defineConfig({ schema: '/tmp/probe/next.prisma' });
+          CFG
+          out=/tmp/v1-probe.txt
+          : > "$out"
+          run() {  # <label> <args...>
+            echo "===== $1" >> "$out"
+            shift
+            ( cd "$GITHUB_WORKSPACE" && "$@" ) >> "$out" 2>&1
+            echo "----- exit=$?" >> "$out"
+            echo >> "$out"
+          }
+          P=./node_modules/.bin/prisma
+          run "A: --from-schema/--to-schema + session config (what the driver does)" \
+              $P migrate diff --from-schema /tmp/probe/prev.prisma --to-schema /tmp/probe/next.prisma --script --config /tmp/probe/ds.config.ts
+          run "B: --from-schema/--to-schema + repo config" \
+              $P migrate diff --from-schema /tmp/probe/prev.prisma --to-schema /tmp/probe/next.prisma --script --config prisma.config.ts
+          run "C: no --config, both -schema flags" \
+              $P migrate diff --from-schema /tmp/probe/prev.prisma --to-schema /tmp/probe/next.prisma --script
+          run "D: human-readable summary, no --script (A's shape)" \
+              $P migrate diff --from-schema /tmp/probe/prev.prisma --to-schema /tmp/probe/next.prisma --config /tmp/probe/ds.config.ts
+          run "E: --from-empty --to-schema (control: must emit the whole schema)" \
+              $P migrate diff --from-empty --to-schema /tmp/probe/next.prisma --script --config /tmp/probe/ds.config.ts
+          run "F: the CLI's own help text" \
+              $P migrate diff --help
+          echo "probe lines: $(wc -l < "$out")"
+          sed -n '1,200p' "$out"
+
       - name: "V-1 — generate, deploy and verify the second migration"
         run: |
           set -uo pipefail
@@ -322,6 +368,12 @@ jobs:
             echo "Raw logs and artifacts were intermittent, so the driver output is posted here."
             echo
             echo '```'
+            if [ -f /tmp/v1-probe.txt ]; then
+              echo "#### diff-invocation probe"
+              echo '```'
+              head -160 /tmp/v1-probe.txt
+              echo '```'
+            fi
             if [ -f /tmp/v1.log ]; then
               head -120 /tmp/v1.log
               echo '...'
