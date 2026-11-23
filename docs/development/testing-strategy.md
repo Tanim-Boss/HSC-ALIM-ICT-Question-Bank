@@ -1,0 +1,44 @@
+# Testing strategy
+
+**Purpose and scope.** Define verification for the approved architecture and its highest-risk boundaries. Tools are the README's recommendations; this repository has no installed dependencies, test suite or CI result to report.
+
+## Responsibilities and boundaries
+
+Tests are required as each module is developed, not only in phase 10. Domain owners cover pure rules and validation; integration tests exercise real server boundaries and an isolated PostgreSQL database; security/architecture reviewers cover permission and leakage threats. Tests must use representative Bangla content and must not use production secrets or student records.
+
+| Layer | Intended tooling | Focus |
+|---|---|---|
+| Unit | Vitest | Pure evaluation, injected clocks, validation, sampling, UTF-8 encoding and analytics calculations. |
+| Component | React Testing Library | States, labels, focus, renderer and source provenance; UI does not authorize. |
+| API/integration | Vitest + isolated PostgreSQL | Transactions, Prisma constraints, ownership, filtered DTOs, idempotency and concurrent requests. |
+| Browser / visual | Playwright | Full flows, refresh/offline/tabs, responsive layouts, font shaping, keyboard and print/PDF. |
+| Static / security / performance | TypeScript strict mode, ESLint and approved security/load tools | Type/lint, threat cases, bundle/network and database query behavior. CI tooling remains open. |
+
+## Critical scenario matrix
+
+| Area | Required assertions |
+|---|---|
+| Timing | With an injected fixed server clock: `expiresAt − 1 ms`, exactly expiry, inside grace with/without pre-expiry autosave, exactly the inclusive grace end, and after it. No answer writes at/after expiry; only eligible late finalization is accepted. Do not use real sleeps as the authority. |
+| Idempotency / races | Same save replay is a no-op; two simultaneous finalizations produce one logical result, same retry returns it without re-scoring, and conflicting tabs follow the approved policy. Include key reuse with different payload once OD-12 is decided. |
+| Snapshot / scoring | Refresh keeps the same selected versions; a later question/key edit cannot silently change an active attempt. Verify MCQ marking/negative rules and mixed source provenance against approved decisions. |
+| Ownership / secrecy | Another user cannot read/write a session or answer. Recursively inspect all student-facing exam APIs—including finalized result/retry paths—for keys, correct-option identifiers, per-option correctness flags, rubrics, solutions, nested metadata and leaked asset links. Exercise question bank, tutor, caches and exports during active attempts. |
+| CQ | A rubric is not available during an active attempt; self-assessed and teacher-reviewed values are clearly labelled and do not enter MCQ accuracy. AI never proposes/awards marks. Actual input/revision/release paths wait for approval. |
+| Bank | Combined facets, pagination, Bangla/English search, duplicate/source handling, random selection counts and insufficient inventory; unsafe blocks/uploads are rejected. |
+| AI | Provider unavailable/timeout does not affect exams; schema validation, quota concurrency, cache authorization, diagram handling and malicious student instructions cannot leak unrelated keys. |
+| Export / Unicode | Browser and worker PDF text is selectable and Bengali conjuncts/diagrams/page breaks render; document JSON round-trips; UTF-8/Base64 handles `বাংলা`, `ক্ষ`, emoji, empty/large strings and malformed bytes according to OD-28. |
+| Accessibility / responsive | Keyboard/focus, labels, non-color-only states, 44 px touch targets, reduced motion, 320 px overflow, screen-reader announcements and both-theme contrast. Validate actual glyph rendering, not only DOM snapshots. |
+| Recovery | Migration and restore rehearsal, environment isolation, authorized async job/artifact access and retries; production objectives are OD-22. |
+
+For the mobile-network budget, the README targets approximately 200 KB gzipped initial JavaScript on the exam route, compressed appropriately sized images and minimal layout shift. Treat this as a planning target until measurement method and performance gates are approved under OD-26. Do not certify PDF pagination or WCAG conformance without the applicable browser/manual checks.
+
+## Dependencies
+
+Tests depend on final [API contracts](../api/api-contracts.md), [database relationships](../database/entity-relationships.md), [exam rules](../modules/examination-engine.md), [security](../security/security-guidelines.md), and [design/typography](../design/typography.md). Independent test fixtures and CI environments must be provisioned after approval.
+
+## OPEN DECISION
+
+[OD-03–OD-04, OD-10–OD-14, OD-17–OD-19, OD-21–OD-22 and OD-25–OD-29](../architecture/technology-decisions.md#open-decision-register) cover policy-dependent assertions, content/asset handling, operational targets, font verification, tooling, imports, exports and AI privacy.
+
+## Related documentation
+
+[Coding standards](coding-standards.md) · [Roadmap](roadmap.md) · [Exam engine](../modules/examination-engine.md) · [Deployment environments](../deployment/environments.md)
