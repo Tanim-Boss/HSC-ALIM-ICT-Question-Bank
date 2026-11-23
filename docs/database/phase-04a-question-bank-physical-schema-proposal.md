@@ -1,10 +1,11 @@
-# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 12 — G‑2 `negative_marks` precision/scale investigated and recommended)
+# Phase 04A — Question Bank Physical Schema: Approval Report (Revision 13 — G‑2 deferred: negative marking is configurable)
 
 **Project:** ICT Atlas — HSC / ALIM ICT Question Bank & Online Examination Platform
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank` (base `153ef5c`)
 **Revision 4 scope (superseded by Revision 5 only where noted — the `topics` ordering constraint):** **all Phase 04A requests are now decided.** A (18-table migration scope), B (OD‑18 content-block schema), C (five composite FKs + three support keys, conditional on the Prisma-drift spike), D (single MCQ correctness authority) and the asset-pointer decision are **APPROVED**. Request E is fully dispositioned: eleven items accepted, three already resolved, **E‑7 and E‑9 changed**, **E‑10 rejected**. Two pre-migration gates remain (§11.3).
 **Revision 5 scope:** **one narrowly scoped correction to Revision 4.** The consequential E‑7 extension to `topics` is **reverted**: `chapters` keeps its plain global `UNIQUE (subject_id, chapter_number)`, while topic display order returns to an **active-only partial unique index** `(chapter_id, order_index) WHERE is_active`. Rationale: a chapter number is a curriculum identifier; a topic's `order_index` is only a display position, so retiring a topic must free its position without changing the retired topic's identity or the historical question references to it. No other decision changes, and both gates remain open. §3.3.5, §3.10, §3.14, §3.15/§3.15.2, §5, §6, §10 and §11 are updated accordingly.
 **Author role:** Senior PostgreSQL database architect / Prisma engineer
+**Revision 13 scope:** **G‑2 DEFERRED; `negative_marks` removed from the Phase 04A model.** The clarified requirement is that negative marking is **configurable** — **off by default**, switchable by an authorised user when configuring an examination or marking profile, with the **penalty rule configured independently of the switch**. A per-question decimal cannot express that (a `NOT NULL DEFAULT 0` column cannot distinguish "off" from "on with a zero penalty"; a nullable one hides an unvalidated rule while disabled), so **the column does not belong in the question master**. `questions.negative_marks`, `ck_questions_negative_marks_nonnegative` (E‑12) and `ck_questions_negative_marks_not_above_marks` (E‑9) are **removed**; the hand-written `CHECK` count goes 49 → **47**. **The Revision 12 `numeric(4,2)` investigation is preserved unaltered in §3.15.3 as historical research, explicitly not an approved implementation decision** — its PostgreSQL measurements still apply to any future penalty type. **OD‑21 remains open** and is not closed; a new open decision **OD‑NM‑1** records that it is **not assumed** whether the setting belongs to an examination, a marking profile, or another entity. G‑1 remains **FAILED**; G‑3 remains prototype-only. **No schema, migration, service, validator, DTO or UI change.**
 **Revision 12 scope:** **G‑2 investigated, recommended, and left open for approval.** The `negative_marks` precision/scale question is answered with evidence rather than convention: **`numeric(4,2)` is recommended**, because two decimals are *necessary* (the MBBS/BDS admission test — the same HSC cohort — deducts exactly **0.25** per wrong answer against a pass mark of 40, so `39.75` is a real failing score) and because `numeric(4,1)` was **measured** to store `0.3` instead of `0.25`, silently, with every `CHECK` unable to see it. Scale 3 is rejected as having no evidenced use case. The investigation also found that **E‑12 alone does not exclude `NaN`** (`'NaN' >= 0` is true) and that **E‑9 is what excludes it**. **G‑2 is not passed** — approval is requested in §3.15.3.8. **OD‑21 remains completely untouched**, G‑1 remains FAILED, G‑3 remains closed for the prototype only, and no schema, migration or application code changed. §3.15.1 is preserved verbatim with a status banner; nothing earlier was rewritten.
 **Revision 11 scope:** **Option C conditionally approved; G‑3 opened; G‑1 left FAILED.** The reviewer resolved D‑1…D‑4 (§11.4.8): Option C is **conditionally approved** as the migration workflow, **Option A is not approved**, **Option B is rejected for this schema**, and **G‑1 remains FAILED — it is not re-scored and its history is not rewritten**. A new gate, **G‑3** (§11.6), covers production-readiness of the Option C workflow with six mandatory criteria, an explicit acceptance list, and a residual-risk table. Hardening implemented in this revision: a repository/CI guard rejecting `prisma migrate dev` (`option-c/repo-guard.sh`), a shared protected-FK definition plus a checksum check of applied migrations (`option-c/guard.py`), a pre/post-deployment `migrate status` check, a live-catalog assertion for C‑1…C‑5 after every deployment, a migration-SQL integrity check, and documented approved commands. All six G‑3 criteria passed in CI run `45263567929`, **three earlier runs failed on real defects that are recorded rather than hidden**, and the gate must be re-run on the full 18-table model before migration 0001. **G‑3 PASSED for the reduced prototype** in CI run `45263567929` (all six criteria, every control negative-tested); it must still be re-run on the full 18-table model before migration 0001. §11.6.4 states exactly what that run does and does not prove. The constrained-column study (§11.6.2) overturned an earlier assumption: a *coercible* change leaves the constraint intact, and only a *non-coercible* change forces a hand-written drop+re-create. No constraint was weakened, C‑1…C‑5 are unchanged, `prisma/schema.prisma` is untouched and there is no `prisma/migrations/` directory.
 **Revision 10 scope:** **Request C's architectural alternatives analysed; Option C prototyped and verified; decision requested.** G‑1 remains **FAILED** and is not re-scored. Option A is **not** adopted. The approved physical design and C‑1…C‑5 are unchanged. Option C (controlled migration workflow) passed a nine-claim CI prototype, including confirmation that a schema-to-schema diff never proposes dropping the five constraints, and a negative test proving the CI guard detects an injected destructive migration. See [§11.4](#114-architectural-alternatives-for-request-c--analysis-and-decision-request) for the decision matrix and the four open decisions (D‑1…D‑4).
@@ -12,7 +13,8 @@
 **Revision 8 scope:** **G‑1 FAILED.** The hardened pipeline ran on a real GitHub Actions runner with the project's pinned Prisma 7.10.1 and a disposable PostgreSQL 16. Steps 0–3b passed: all five composite FKs are created, PostgreSQL enforces every one (14/14 enforcement cases), introspection sees all ten tables, and the spike datamodel agrees with the SQL schema exactly (fidelity diff: 0 bytes). **Step 4 then failed: Prisma's no-change diff emits `DROP CONSTRAINT` for all five approved composite FKs, and for every plain foreign key in the schema as well.** G‑1 is therefore **FAIL** on its own acceptance criteria; Request C moves to its documented fallback, which needs re-approval. Evidence and run URL: [§11.3.2](#1132-g1-verdict--fail).
 **Revision 7 scope:** **G‑1 hardened, still BLOCKED.** The spike's test harness was audited and corrected (fail-fast, pipeline status, an asserted case count, empty-output detection, pinned-toolchain enforcement, valid Prisma 7 flags and config handling, and a `migrate dev` step that can no longer pass by generating nothing). A dedicated GitHub Actions workflow now runs the full gate on a disposable PostgreSQL 16 with the project's pinned Prisma 7.10.1. **No workflow run has happened yet**, so G‑1 remains BLOCKED and Request C remains conditional. No approved constraint was changed or weakened.
 **Revision 6 scope:** **G‑1 was attempted and is BLOCKED.** The PostgreSQL half is verified (all five composite FKs created and enforced on PostgreSQL 16.2); the Prisma-drift half could not run because the Prisma schema engine's download host was unreachable. The spike is committed as a reproducible artifact under [`g1-spike/`](g1-spike/README.md) and the outcome is recorded in [§11.3.1](#1131-g1-result-revision-67--blocked--superseded-by-1132). No approved constraint was changed or weakened.
-**Status (Revision 12):** **G‑2 is investigated and recommended, not passed.** `numeric(4,2)` is proposed with technical justification; the reviewer must approve (Q‑G2‑1). **G‑1 remains FAILED**, **G‑3 remains passed on the prototype only** with full 18-table validation pending, and **OD‑21 remains open and untouched**. Documentation and research only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The approved physical model is unchanged pending the G‑2 approval.
+**Status (Revision 13):** **G‑2 is DEFERRED, not passed and not closed by a type choice.** Negative marking is configurable and off by default, so `negative_marks` is not part of the Phase 04A schema and there is no precision/scale to approve. The Revision 12 `numeric(4,2)` recommendation survives as **historical research only**. **OD‑21 remains open**; **OD‑NM‑1** records the unresolved question of which entity owns the setting. **G‑1 remains FAILED**; **G‑3 remains prototype-only** with full 18-table validation pending. Documentation only — **no migration, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code**.
+**Status (Revision 12, historical):** **G‑2 is investigated and recommended, not passed.** `numeric(4,2)` is proposed with technical justification; the reviewer must approve (Q‑G2‑1). **G‑1 remains FAILED**, **G‑3 remains passed on the prototype only** with full 18-table validation pending, and **OD‑21 remains open and untouched**. Documentation and research only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The approved physical model is unchanged pending the G‑2 approval.
 **Status (Revision 11, historical):** **Option C is conditionally approved; G‑3 passed for the reduced prototype and must be re-run on the full model.** G‑1 remains **FAILED** and its record is unchanged. The approved physical design and C‑1…C‑5 are unchanged. Implementation is **not** authorised: G‑3 has not passed on the full schema, and G‑2 and OD‑21 remain undecided. Documentation and an isolated, disposable prototype only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**.
 **Status (Revision 10, historical):** **G‑1 remains FAILED; Request C was not approved for implementation at that revision.** A viable workflow (Option C) has now been prototyped and passes, but adopting it is your decision (D‑1), as is how the workflow result interacts with G‑1 (D‑2). The Option A fallback remains **not adopted**.
 **Status (Revision 9):** **G‑1 has FAILED again, and this time the finding is unambiguous: Prisma generates a migration that would delete the constraint layer.** Request C remains the approved architectural design (Option B) but is **not approved for implementation**. The Option A fallback is **not adopted**. A reviewer decision is required. The fallback — service validation plus a scheduled integrity query plus a publish-gate re-check — requires an explicit reviewer decision before migration 0001 can be written. Documentation only — **no migration created, no `prisma/migrations/` directory, `prisma/schema.prisma` untouched, no application code written**. The `g1-spike/` directory is an isolated, disposable test harness and is not part of the application build. Design authority remains approved; implementation is still gated on G‑1 and G‑2 (§11.3).
@@ -52,8 +54,9 @@
 | 9 | Asset pointer integrity | **APPROVED** — `question_version_assets.block_ref` `NOT NULL`, rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem/option/nested-subquestion content |
 | 10 | Composite foreign keys (request **C**) | **APPROVED WITH CONDITION** — five FKs + three support keys, conditional on a **successful** disposable-PostgreSQL Prisma-drift spike (G‑1). Prisma does not represent them natively |
 | 11 | Physical-schema tightenings (request **E**) | **DECIDED IN FULL** — 11 accepted, 3 already resolved, **E‑7 changed** (no chapter-number reuse; *Revision 5 restores the active-only partial unique for topic display order, which is not a curriculum identifier*), **E‑9 changed** (`numeric`, precision open), **E‑10 rejected** (no global CQ-total `CHECK`). No E item open |
-| 12 | Pre-migration gates | **OPEN — three gates now tracked.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, and a second experiment with real Prisma migration history isolates them cleanly — yet Prisma's own no-change `migrate dev` generates a migration that `DROP`s exactly those five ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)). Option A is not adopted. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) |
-| 13 | G‑2 `negative_marks` precision/scale | **INVESTIGATED — RECOMMENDATION `numeric(4,2)`; NOT PASSED.** Two decimals are *necessary* (0.25 is in live use in the MBBS/BDS admission test for this cohort, where a pass mark of 40 makes `39.75` a failing score), and `numeric(4,1)` was measured to store `0.3` for an input of `0.25` silently, before any `CHECK` can see it. Scale 3 has **no evidenced use case** and is rejected as invented precision. Measured on PostgreSQL 16.2: storage is identical across precisions, widening precision is a metadata-only change, and decreasing scale silently rewrote stored values. Also found: **E‑12 (`>= 0`) does not exclude `NaN`** — `'NaN' >= 0` is true — and **E‑9 (`<= marks`) is what excludes it**. Approval requested in §3.15.3.8. **OD‑21 untouched; G‑1 still FAILED; G‑3 still prototype-only.** No schema, migration or code change. |
+| 12 | Pre-migration gates | **OPEN — three gates now tracked.** **G‑1** Prisma-drift spike (condition of C) **FAILED**. PostgreSQL creates and enforces all five composite FKs (14/14), and the spike datamodel matches the SQL exactly, and a second experiment with real Prisma migration history isolates them cleanly — yet Prisma's own no-change `migrate dev` generates a migration that `DROP`s exactly those five ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)). Option A is not adopted. **G‑2** is still open. **G‑2** `numeric(p,s)` for `negative_marks` is still undecided. Migration 0001 may not be created until both clear (§11.3) | **Superseded in part by row 14:** the G‑2 half is now **DEFERRED** and the `negative_marks` column is removed from Phase 04A; G‑1 remains FAILED and G‑3 remains prototype-only as recorded here. |
+| 13 | G‑2 `negative_marks` precision/scale | **SUPERSEDED by row 14 — preserved for audit.** Revision 12 investigated the type and recommended `numeric(4,2)` after measuring that `numeric(4,1)` silently stores `0.25` as `0.3`. The clarified requirement (row 14) makes the question moot for Phase 04A. The research is retained below as historical research, not an approved decision. |
+| 14 | G‑2 deferred — negative marking is configurable | **DEFERRED, and the column removed.** Negative marking must be **configurable, default OFF, switchable by an authorised user**, with the **penalty rule configured independently of the switch**. A per-question decimal cannot represent that pair of states, so `questions.negative_marks` and both its `CHECK`s (E‑9, E‑12) are **removed** from the Phase 04A model; `CHECK` count 49 → **47**. **G‑2 is deferred** to the examination/marking configuration phase, which must support: a default-disabled enable/disable setting; a separately configurable penalty value/rule; validation against the applicable question marks; and consistent behaviour in exam scoring and result calculation. Whether the setting belongs to an **examination**, a **marking profile**, or another entity is **NOT assumed** — recorded as **OD‑NM‑1**. **OD‑21 remains open and is not silently closed.** G‑1 still **FAILED**; G‑3 still prototype-only. Documentation only — no schema, migration, service or UI change. |
 
 ---
 
@@ -429,7 +432,7 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 | `topic_id` | `uuid` | yes | `NULL` | FK → `topics.id` (RESTRICT); requires `chapter_id` |
 | `subtopic_id` | `uuid` | yes | `NULL` | FK → `subtopics.id` (RESTRICT); requires `topic_id` |
 | `marks` | `integer` | no | `1` | MCQ: mark value. CQ: total, which must equal the sum of the rubric's subquestion marks at publish (I‑15) |
-| `negative_marks` | `numeric` — **`numeric(4,2)` RECOMMENDED, not yet approved** | no | `0` | Changed from `integer` to decimal-capable `numeric` by the E‑9 decision. **Revision 12 recommends `numeric(4,2)`** with evidence and PostgreSQL measurements in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation); approval is requested there (Q‑G2‑1). The row above stays `numeric` until approved — **the physical model is unchanged by this revision** |
+| ~~`negative_marks`~~ | **REMOVED (Revision 13)** — not in the Phase 04A schema | — | — | **Negative marking is a configurable examination/marking concern, not a question attribute.** See [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model). The Revision 12 `numeric(4,2)` research is preserved as **historical research only, not an approved implementation decision**. |
 | `created_at` | `timestamptz(3)` | no | `now()` | |
 | `updated_at` | `timestamptz(3)` | no | none | |
 
@@ -437,13 +440,23 @@ Enum types created before any table: `BoardType`, `QuestionType`, `QuestionStatu
 
 **Foreign keys.** Five, all `RESTRICT` on delete: `education_level_id`, `subject_id`, `chapter_id`, `topic_id`, `subtopic_id`.
 
-**Unique / CHECK.** No natural unique key: two identical-looking stems are two questions until content hashing is decided (**OD‑27**). Checks: `marks >= 0`; `negative_marks >= 0` (**E‑12**); `negative_marks <= marks` (**E‑9**, decided — retained as an upper bound); `topic_id IS NULL OR chapter_id IS NOT NULL`; `subtopic_id IS NULL OR topic_id IS NOT NULL`; `type <> 'MCQ' OR marks >= 1` (**E‑11**).
+**Unique / CHECK.** No natural unique key: two identical-looking stems are two questions until content hashing is decided (**OD‑27**). Checks: `marks >= 0`; `topic_id IS NULL OR chapter_id IS NOT NULL`; `subtopic_id IS NULL OR topic_id IS NOT NULL`; `type <> 'MCQ' OR marks >= 1` (**E‑11**). **`ck_questions_negative_marks_nonnegative` (E‑12) and `ck_questions_negative_marks_not_above_marks` (E‑9) are REMOVED in Revision 13**, because both constrain `negative_marks`, which is no longer a column of this table. They are not rejected — they travel with the deferred negative-marking design (§3.15.4.4).
 
 **No `CHECK (type <> 'CQ' OR marks = 10)` — E‑10 rejected.** The global CQ-total constraint is removed. The 1 + 2 + 3 + 4 = 10 structure is a property of the **current HSC/ALIM ICT curriculum**, not of the `CQ` question type, and enforcing it in the database would block any future level whose CQ structure differs — which OD‑09 explicitly requires the model to support. The structure is retained in the **`cq_stem` content profile** ([§7.5](#75-document-profiles)) and enforced at publish by **I‑15**: a question's `marks` must equal the sum of its rubric parts' marks and of the `maxMarks` declared by the content's four subquestions.
 
-**`negative_marks` is `numeric`. Its precision/scale was an open pre-migration decision (E‑9); Revision 12 investigated it and recommends `numeric(4,2)` ([§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation)), but the reviewer has not approved it, so **this document does not treat `numeric(4,2)` as decided and the column definition is unchanged.** The reviewer changed the type from `integer` to a decimal-capable `numeric` so a fractional penalty is representable, but did not decide precision and scale at that time. Before migration 0001 the reviewer must settle `numeric(p,s)`: the choice affects the `CHECK` casts, the `@db.Decimal(p,s)` annotation in the Prisma sketch, and every scoring comparison downstream (**OD‑21**). Until settled, read `numeric` here as "a `numeric(p,s)` still to be named". Both `negative_marks >= 0` and `negative_marks <= marks` hold for any `(p,s)` — they compare `numeric` against an `integer` that widens implicitly.
+**`negative_marks` is not part of this table (Revision 13).** Negative marking is a
+**configurable examination/marking concern**, not an attribute of a question. The
+product requires it to be **off by default**, switchable by an authorised user, with a
+penalty value/rule configured *independently* of the switch. That configuration belongs
+to the examination model, which does not exist in Phase 04A, so the column, its
+`numeric(4,2)` candidate and both its `CHECK`s are **deferred** rather than approved —
+see [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model).
 
-**The OD‑21 negative-mark floor is NOT decided here.** `negative_marks <= marks` is an upper bound on one question's penalty. It says nothing about exam-level score floors, per-item versus per-paper application, or unanswered-question handling — all still **OD‑21**.
+**The OD‑21 negative-mark floor is NOT decided here, and has been joined by more.** With
+no `negative_marks` column, no exam-level floor can be expressed in this schema at all.
+The floor, the enable/disable default, penalty-rule selection, per-item versus per-paper
+application and unanswered handling all move to **OD‑21** and the future examination
+model. Nothing in Phase 04A constrains them.
 
 **Indexes.** `(education_level_id)`, `(subject_id)`, `(chapter_id)`, `(topic_id)`, `(subtopic_id)`, `(education_level_id, subject_id)` (level→subject facet entry point), `(subject_id, chapter_id, topic_id)` (chapter→topic cascade), `(type, status)`, `(status, type, difficulty)` (published listing with facets). Optional, not proposed for 0001: `(created_at DESC)` for "recently added" admin listings (no measured need yet). No GIN or full-text index — search is **OD-32**.
 
@@ -889,7 +902,6 @@ erDiagram
         uuid topic_id FK
         uuid subtopic_id FK
         integer marks
-        numeric negative_marks "numeric(4,2) recommended, not approved (§3.15.3)"
     }
     QUESTION_VERSION {
         uuid id PK
@@ -968,6 +980,8 @@ erDiagram
 ```
 
 Diagram notes:
+
+- **`QUESTIONS.negative_marks` is deliberately absent (Revision 13).** Negative marking is a configurable examination/marking policy, not a question attribute, so it belongs to the examination model that this diagram does not yet contain (§3.15.4).
 
 - `QUESTION_VERSION |o--|| ANSWER_KEY` is drawn zero-or-one to exactly-one from the version side; `UNIQUE (version_id)` plus `NOT NULL version_id` is what makes it zero-or-one in practice.
 - `ANSWER_KEY |o--o{ QUESTION_OPTION` is the composite foreign key from [§3.11.6](#3116-composite-foreign-keys-request-c). It is drawn as **Request C** — recommended and required for a declarative correctness guarantee, but not created until **C** is approved, because Prisma cannot model it. It is **not** a Prisma-native relation, and the candidate model in §5 cannot express it.
@@ -1063,24 +1077,21 @@ ALTER TABLE subtopics
   ADD CONSTRAINT ck_subtopics_name_bn_not_blank CHECK (btrim(name_bn) <> '');
 
 -- ── Questions: marks, hierarchy chain ─────────────────────────────────────
--- negative_marks is `numeric` (E-9 decision). Its precision/scale is NOT yet
--- APPROVED: the CREATE TABLE column is written `numeric(<p>,<s>)` once it is.
--- Revision 12 RECOMMENDS numeric(4,2) with evidence in §3.15.3 — but this file
--- shows `numeric` until the reviewer approves, so quoting it cannot imply a
--- settled type. Nothing below depends on the choice — the CHECKs compare
--- numeric to integer, which widens implicitly.
+-- REVISION 13: negative_marks is NOT a column of this table. Negative marking
+-- is configurable per examination/marking profile, defaults to OFF, and its
+-- penalty rule is configured independently of the on/off switch. It is deferred
+-- to the examination model (§3.15.4). Consequently the two constraints that
+-- used to live here — ck_questions_negative_marks_nonnegative (E-12) and
+-- ck_questions_negative_marks_not_above_marks (E-9) — are REMOVED from Phase 04A.
 --
--- Measured on PostgreSQL 16.2 while preparing §3.15.3, and worth knowing before
--- reading these constraints as complete protection:
+-- They are not rejected. Both were measured as load-bearing and both must be
+-- re-expressed wherever the penalty value eventually lives (§3.15.4.4):
 --   * E-12 alone does NOT exclude NaN: 'NaN'::numeric >= 0 is TRUE.
---   * E-9 (negative_marks <= marks) IS what excludes it: 'NaN' <= 1 is FALSE.
---   Both constraints are therefore load-bearing; neither is redundant.
+--   * E-9 (penalty <= the applicable question marks) IS what excludes it.
+-- The Revision 12 numeric(4,2) research is preserved in §3.15.3 as historical
+-- research only — it is not an approved implementation decision.
 ALTER TABLE questions
   ADD CONSTRAINT ck_questions_marks_nonnegative CHECK (marks >= 0),
-  ADD CONSTRAINT ck_questions_negative_marks_nonnegative CHECK (negative_marks >= 0),
-  -- (E-9, decided) an upper bound on one question's penalty only.
-  -- The OD-21 exam-level negative-mark FLOOR remains undecided and is not set here.
-  ADD CONSTRAINT ck_questions_negative_marks_not_above_marks CHECK (negative_marks <= marks),
   -- an optional parent chain may not have holes: topic requires chapter, subtopic requires topic
   ADD CONSTRAINT ck_questions_topic_requires_chapter
     CHECK (topic_id IS NULL OR chapter_id IS NOT NULL),
@@ -1393,9 +1404,9 @@ Each invariant needs at least one integration test against a disposable PostgreS
 
 **Impact at creation (greenfield).**
 
-- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys**, **5 composite foreign keys and 3 support `UNIQUE (id, parent_id)` keys** (Request **C**, approved — created only after gate G‑1), **49 hand-written `CHECK` constraints**, and **5 hand-written indexes**.
-- Count movement across revisions, so the numbers are auditable: `CHECK` count went 50 → **49** because **E‑10 rejected** `ck_questions_cq_total_marks`; hand-written index count went 7 → 6 (Request **D** removed the `is_correct` partial unique) → 4 (Revision 4's E‑7 conversion of **both** `WHERE is_active` partial uniques to plain uniques) → **5** now, because **Revision 5 reverts the `topics` half of that extension**: only the `chapters` partial unique became a Prisma-native plain unique, while `uq_topics_chapter_order` (`WHERE is_active`) is restored as hand-written SQL. The 5 remaining hand-written indexes are: `uq_question_versions_one_published_per_question` (`WHERE status = 'PUBLISHED'`), **`uq_topics_chapter_order` (`WHERE is_active`)**, `uq_question_sources_identity` (`NULLS NOT DISTINCT`), `uq_tags_name_lower` and `uq_colleges_name_lower` (expression uniques). All in addition to what Prisma generates.
-- **`questions.negative_marks` is `numeric` (E‑9)**; its `numeric(p, s)` is gate **G‑2**. Revision 12 investigated it and **recommends `numeric(4,2)`** with evidence in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation); the reviewer has not approved it, so it is still **not fixed here**.
+- 18 tables (17 surrogate `uuid` primary keys + 1 composite join key), 7 enum types, **21 single-column foreign keys**, **5 composite foreign keys and 3 support `UNIQUE (id, parent_id)` keys** (Request **C**, approved — created only after gate G‑1), **47 hand-written `CHECK` constraints**, and **5 hand-written indexes**.
+- Count movement across revisions, so the numbers are auditable: `CHECK` count went 50 → **49** because **E‑10 rejected** `ck_questions_cq_total_marks`, then → **47** because **Revision 13 removed** `ck_questions_negative_marks_nonnegative` (E‑12) and `ck_questions_negative_marks_not_above_marks` (E‑9) along with the `negative_marks` column itself; hand-written index count went 7 → 6 (Request **D** removed the `is_correct` partial unique) → 4 (Revision 4's E‑7 conversion of **both** `WHERE is_active` partial uniques to plain uniques) → **5** now, because **Revision 5 reverts the `topics` half of that extension**: only the `chapters` partial unique became a Prisma-native plain unique, while `uq_topics_chapter_order` (`WHERE is_active`) is restored as hand-written SQL. The 5 remaining hand-written indexes are: `uq_question_versions_one_published_per_question` (`WHERE status = 'PUBLISHED'`), **`uq_topics_chapter_order` (`WHERE is_active`)**, `uq_question_sources_identity` (`NULLS NOT DISTINCT`), `uq_tags_name_lower` and `uq_colleges_name_lower` (expression uniques). All in addition to what Prisma generates.
+- **`questions.negative_marks` is NOT part of Phase 04A (Revision 13).** Negative marking is configurable per examination/marking profile (default **OFF**), so it is deferred to the examination model as **G‑2 deferred** (§3.15.4). Its two `CHECK`s are removed with the column and are re-specified there. The Revision 12 `numeric(4,2)` research survives as historical research only.
 - Zero data migration: no production or staging data exists, so creation cannot corrupt anything. The only real risks are (a) a wrong `CHECK` that rejects legitimate seed data, and (b) a wrong delete action that makes a legitimate operation fail. Both are found by seeding the six ICT chapters, a handful of subjects/boards/years and one MCQ + one CQ end-to-end fixture in a disposable database **before** the migration is committed.
 - No application code is required: `lib/db.ts` is schema-agnostic and the generated client is git-ignored.
 - Exam tables are unaffected and will attach additively in Phase 05 through `question_versions.id`.
@@ -1439,27 +1450,31 @@ Legend: **Model change** = *No* means it is consistent with, or a clarification 
 | E‑6 | All timestamps typed `timestamptz(3)` | **ACCEPTED** | Prisma's default `timestamp(3)` is timezone-naive, which is unsafe for server-authoritative exam timing. Requires `@db.Timestamptz(3)` on every `DateTime`, plus a schema test that fails if one lacks it. | No — physical expression of the L3 authority rule. |
 | **E‑7** | `WHERE is_active` partial uniques for chapter numbering / topic order | **CHANGED — chapter-number reuse rejected; topic order restored to the partial unique (Revision 5)** | **No chapter-number reuse while no curriculum-revision entity or versioning policy exists**, so `chapters` now carries a **plain global** `UNIQUE (subject_id, chapter_number)` and its partial index is gone. **`topics` is deliberately NOT treated the same way:** `order_index` is a display position rather than a curriculum identifier, so `uq_topics_chapter_order` remains an **active-only partial unique index** on `(chapter_id, order_index) WHERE is_active = true`, letting a retired position be reused without touching the retired topic's identity or historical question references. Revision 4 extended E‑7 to `topics`; **Revision 5 reverts that extension** ([§3.15.2](#3152-note-on-the-reverted-e7-extension-to-topics)). **A future curriculum-revision model may revisit the chapter-number constraint**; it becomes the thing to relax by migration, with the historical-mapping question answered first. Side effect: the chapter unique is Prisma-native and leaves the hand-written SQL set; the topic partial unique stays hand-written. | **Yes** — for `chapters`: a retire-and-reuse **numbering** policy was assumed and is now explicitly refused. **No further change for `topics`** — its original partial index is restored. |
 | E‑8 | Source de-duplication via `NULLS NOT DISTINCT` | **ACCEPTED** | The earlier `WHERE board_id IS NOT NULL AND college_id IS NOT NULL AND …` partial index silently skipped partially-specified sources, so duplicates slipped through. `NULLS NOT DISTINCT` closes that. Requires PostgreSQL 15+ (true for the planned Supabase instance); the three-partial-index fallback is documented in §3.10. | No — OD‑08 approved de-duplication; only the expression was wrong. |
-| **E‑9** | `negative_marks <= marks` and the column type | **CHANGED — accept bound, widen type** | The upper bound `negative_marks <= marks` is **retained**. The column type changes **`integer` → numeric** (decimal-capable) so fractional penalties are representable. **`numeric(p,s)` precision/scale is NOT decided and is not invented here** — it is a **pre-migration decision** (see [§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)). **The OD‑21 negative-mark floor is NOT decided**; this constraint is an upper bound on one question's penalty only. | **Yes** — column type changes; the floor remains open under OD‑21. |
+| **E‑9** | `negative_marks <= marks` and the column type | **CHANGED — accept bound, widen type** | The upper bound `negative_marks <= marks` is **retained**. The column type changes **`integer` → numeric** (decimal-capable) so fractional penalties are representable. **`numeric(p,s)` precision/scale is NOT decided and is not invented here** — it is a **pre-migration decision** (see [§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)). **The OD‑21 negative-mark floor is NOT decided**; this constraint is an upper bound on one question's penalty only. | **Yes** — column type changes; the floor remains open under OD‑21. **Revision 13: DEFERRED** — the column is removed from Phase 04A (negative marking is configurable), so this constraint is re-specified for the examination model in §3.15.4.4; the E‑9 decision itself stands. |
 | **E‑10** | `CHECK (type <> 'CQ' OR marks = 10)` | **REJECTED — constraint removed** | The global CQ-total `CHECK` is **deleted**. The 1 + 2 + 3 + 4 = 10 structure is kept in the **`cq_stem` content profile** (§7.5), not in the table. Publish-time validation (**I‑15**) requires the question's `marks` to equal the sum of its rubric subquestion `maxMarks`. A future level with a different CQ shape therefore needs no migration. | **Yes** — a previously proposed constraint is withdrawn; the guarantee moves to the publish gate. |
 | E‑11 | `questions.type = 'MCQ' ⇒ marks >= 1` | **ACCEPTED** | An MCQ worth zero marks is not a question. Cheap and harmless. | No |
-| E‑12 | `questions.negative_marks >= 0` | **ACCEPTED** | Expresses the blueprint rule that marks and negative marks cannot be negative. Holds for any `numeric(p,s)`. | No |
+| E‑12 | `questions.negative_marks >= 0` | **ACCEPTED** | Expresses the blueprint rule that marks and negative marks cannot be negative. Holds for any `numeric(p,s)`. **Revision 13: DEFERRED** — column removed from Phase 04A; the check is re-specified for the examination model (§3.15.4.4) and must be paired with the upper bound, because `'NaN' >= 0` is TRUE. The E‑12 decision itself stands. | No |
 | E‑13 | Identifier generation client-side only (no database `default`) | **ACCEPTED** | One generator, one truth. Raw-SQL inserts must supply ids explicitly — acceptable because such writes are reviewed scripts. | No |
 | E‑14 | `updated_at` has no database default | **ACCEPTED** | A missed application write then fails loudly (`NOT NULL` violation) instead of silently reusing `now()`. | No |
 | E‑15 | No `deleted_at` / no `archived_at` on `questions` | **ACCEPTED** | `status = 'ARCHIVED'` is the single soft-delete mechanism (§3.3.7). Status-transition timestamps belong to the audit log, which **OD‑27** owns and which is not in 0001. Two deletion mechanisms would allow archived-but-not-deleted or deleted-but-active rows. | No |
 | E‑16 | Correctness authority: `answer_keys.mcq_correct_option_key` sole source; drop `is_correct` and its partial unique index | **ALREADY RESOLVED** (= Request D) | The partial unique index is removed with the column; the guarantee moves to `UNIQUE (answer_keys.version_id)` + composite FK **C‑5**, with four-options/one-key presence enforced by I‑4 and I‑13. | Yes — resolved in the previous round. |
 | E‑17 | `block_ref` `NOT NULL`, rooted pointer grammar across stem, option and nested-subquestion content | **ALREADY RESOLVED** (asset-pointer decision) | Unique asset-per-location across all three content homes; the `CHECK` enforces the grammar, I‑8/I‑14 enforce resolution. See §3.3.12. | Yes — resolved in the previous round. |
 
-**Net effect on the physical model.** Twelve tightenings accepted as proposed (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15, plus E‑16/E‑17 already resolved), two changed by the reviewer (E‑7 numbering, E‑9 type), one rejected (E‑10). Three items are resolved from the earlier round (E‑2, E‑16, E‑17). **No E item remains open.**
+**Net effect on the physical model.** Twelve tightenings accepted as proposed (two of which — E‑9 and E‑12 — are now **deferred with the `negative_marks` column**, Revision 13) (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15, plus E‑16/E‑17 already resolved), two changed by the reviewer (E‑7 numbering, E‑9 type), one rejected (E‑10). Three items are resolved from the earlier round (E‑2, E‑16, E‑17). **No E item remains open.**
 
 #### 3.15.1 Open pre-migration decision: `negative_marks` precision and scale
 
-> **Status change in Revision 12.** This section originally recorded the decision as
-> fully open. It is now **investigated and recommended**: see
+> **Status change in Revision 13 — SUPERSEDED.** This decision no longer exists in the
+> form recorded here. Negative marking is **configurable** and **off by default**, so
+> `negative_marks` is **not a Phase 04A column** and there is no `numeric(p, s)` to
+> choose. **G‑2 is DEFERRED** to the examination/marking configuration phase; see
+> [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model).
+> Revision 12 had investigated this and recommended `numeric(4,2)`; that investigation
+> is preserved unaltered as **historical research** in
 > [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation)
-> for the evidence, the candidate comparison, and the recommendation
-> **`numeric(4,2)`**. The text below is **preserved unaltered** as the record of what
-> was open at Revision 4, and its propagation table remains accurate. **G‑2 is still
-> not PASSED** — approval is requested in §3.15.3.8.
+> and is explicitly **not** an approved implementation decision. The text below is
+> **preserved unaltered** as the record of what was open from Revision 4 to 12, so the
+> audit trail survives.
 
 E‑9 mandates a decimal-capable `numeric` type but deliberately leaves the precision and scale open. **This document does not choose them.** Before migration 0001 is created, the reviewer must settle `numeric(p, s)`, because the choice propagates to:
 
@@ -1473,7 +1488,38 @@ E‑9 mandates a decimal-capable `numeric` type but deliberately leaves the prec
 
 Candidate questions the decision must answer: do penalties need sub-mark precision at all (e.g. 0.25 for a quarter-mark penalty), and does any scaling formula under OD‑21 produce more than two decimal places? The recommended starting point for review — **not adopted here** — is that the scale follows whatever OD‑21 permits, since the column cannot be narrower than the scoring rule that writes it.
 
+#### 3.15.2 Note on the reverted E‑7 extension to `topics`
+
+Revision 4 extended E‑7's "no reuse" rule from chapter numbers to topic display order, turning `topics` into a plain `UNIQUE (chapter_id, order_index)`. **Revision 5 reverts that extension.** The two cases are not alike:
+
+| | `chapters.chapter_number` | `topics.order_index` |
+|---|---|---|
+| What the value means | A **curriculum identifier** — the thing teachers, students and papers call "chapter 3" | A **display position** — the order a topic is listed in, with no external meaning |
+| Consequence of reuse | "Chapter 3" becomes ambiguous across two different curricula in the same subject | None: a re-listed position identifies nothing; questions reference topics by `topic_id` |
+| Approved rule | **Plain global** `UNIQUE (subject_id, chapter_number)`; a retired number stays reserved | **Active-only** partial unique `(chapter_id, order_index) WHERE is_active = true`; a retired position is reusable |
+
+Retiring a topic is a content action, not a curriculum revision: the retired row keeps its `id`, its name and every historical question reference, while a replacement topic may take over its position so the chapter still reads `1, 2, 3, …` without a renumbering exercise. Forbidding that would force either renumbering of live topics on every retirement or permanently burned position numbers, and would buy no integrity that the topic identity does not already provide.
+
+The only integrity rule the partial index must carry is **"no two *active* topics share a position within one chapter"**, which `WHERE is_active` expresses exactly. It is hand-written SQL because Prisma cannot model partial indexes ([§3.10](#310-partial-and-expression-unique-index-sql)); the `topics` model in [§5](#5-proposed-prisma-model-sketch-illustrative--3-is-normative) therefore carries no `@@unique` for order.
+
+The approved chapter-number constraint is **unchanged by this correction** and remains global.
+
 #### 3.15.3 G‑2 investigation: `negative_marks` precision and scale — evidence and recommendation
+
+> **HISTORICAL RESEARCH — SUPERSEDED, NOT AN APPROVED DECISION (Revision 13).**
+> This section is preserved **unaltered** below, because its PostgreSQL measurements
+> remain correct and reusable, and because deleting research to match a changed
+> requirement would destroy the audit trail. **However:** the clarified business
+> requirement is that negative marking is **configurable** and **off by default**,
+> which means `negative_marks` is **not a Phase 04A column at all**. G‑2 is therefore
+> **DEFERRED**, not passed, and the `numeric(4,2)` recommendation below must **not** be
+> read as an approved implementation decision. The current decision is
+> [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model).
+> What still carries forward from this section: the measured facts (`numeric(4,1)`
+> silently stores `0.25` as `0.3`; storage is precision-independent; scale decrease is
+> destructive; `NaN` is excluded by an upper-bound check, not by `>= 0`) and the
+> candidate comparison, which the future examination model should reuse rather than
+> rediscover.
 
 **Status: RECOMMENDED, awaiting approval.** G‑2 asked for a defensible `numeric(p, s)`.
 The investigation below produces one recommendation with a specific technical
@@ -1544,6 +1590,12 @@ above the largest CQ** — so headroom is not the constraint anyone is worried a
 
 > **`negative_marks numeric(4, 2) NOT NULL DEFAULT 0`**
 > Prisma: `negativeMarks Decimal @default(0) @map("negative_marks") @db.Decimal(4, 2)`
+>
+> **⚠ HISTORICAL ONLY (Revision 13) — do not implement.** This is the Revision 12
+> recommendation for a column that **does not exist in Phase 04A**. Negative marking is
+> configurable and off by default; G‑2 is **DEFERRED**. See §3.15.4. It is retained
+> because the arithmetic still applies if the future examination model chooses a fixed
+> decimal penalty.
 
 **Technical justification, in order of weight:**
 
@@ -1647,21 +1699,138 @@ to a documented, single place in the API layer.
 6. **PostgreSQL 16, §8.1 Numeric Types** — precision/scale semantics, silent coercion to declared scale, ties-away-from-zero rounding, `NaN` ordering, variable-length storage, precision ≤ 1000 — [postgresql.org/docs/16/datatype-numeric.html](https://www.postgresql.org/docs/16/datatype-numeric.html)
 7. Prisma `Decimal` defaults to `decimal(65,30)`; `@db.Decimal(p,s)` maps to `numeric(p,s)` — [Prisma schema reference](https://www.prisma.io/docs/orm/v7/reference/prisma-schema-reference), and the measured `System.Decimal` overflow at scale 30 — [hekireki#202](https://github.com/nakita628/hekireki/issues/202)
 
-#### 3.15.2 Note on the reverted E‑7 extension to `topics`
+#### 3.15.4 G‑2 revised — negative marking is configurable, deferred to the examination model
 
-Revision 4 extended E‑7's "no reuse" rule from chapter numbers to topic display order, turning `topics` into a plain `UNIQUE (chapter_id, order_index)`. **Revision 5 reverts that extension.** The two cases are not alike:
+**Status: G‑2 DEFERRED. `negative_marks` is removed from the Phase 04A physical model.
+OD‑21 remains open. No implementation is authorised by this section.**
 
-| | `chapters.chapter_number` | `topics.order_index` |
+Revision 12 recommended `numeric(4,2)` for a `questions.negative_marks` column. The
+reviewer has clarified the actual business requirement, and it changes the shape of the
+problem rather than its arithmetic: **negative marking is configurable, defaults to
+OFF, and its penalty rule is configured independently of the on/off switch.** A single
+per-question decimal cannot express that, so the column does not belong in the question
+master and G‑2 cannot be "passed" by choosing a type.
+
+##### 3.15.4.1 The requirement as stated
+
+| # | Requirement | Consequence for the schema |
 |---|---|---|
-| What the value means | A **curriculum identifier** — the thing teachers, students and papers call "chapter 3" | A **display position** — the order a topic is listed in, with no external meaning |
-| Consequence of reuse | "Chapter 3" becomes ambiguous across two different curricula in the same subject | None: a re-listed position identifies nothing; questions reference topics by `topic_id` |
-| Approved rule | **Plain global** `UNIQUE (subject_id, chapter_number)`; a retired number stays reserved | **Active-only** partial unique `(chapter_id, order_index) WHERE is_active = true`; a retired position is reusable |
+| R1 | Default is **OFF** | Absence of configuration must mean *no penalty*. A `NOT NULL DEFAULT 0` column is **not** equivalent: it also cannot distinguish "off" from "on with a zero penalty". |
+| R2 | An authorised user can **enable** it when configuring an examination or marking profile | The flag belongs to a configuration entity that governs a paper, not to each question. |
+| R3 | An authorised user can **disable** it again | The setting is mutable after creation and must not be frozen into historical question rows. |
+| R4 | When disabled, incorrect answers **incur no negative marks** | Scoring must branch on the flag; a disabled setting must be authoritative even if a penalty value exists. |
+| R5 | When enabled, the **configured penalty rule** determines the deduction | The rule is data, not a constant — it may be a fixed value, a fraction of the question's marks, or otherwise. |
+| R6 | The **penalty value/rule is configurable independently** of the enable/disable flag | Two separate fields, not one nullable column whose NULL doubles as "off". |
 
-Retiring a topic is a content action, not a curriculum revision: the retired row keeps its `id`, its name and every historical question reference, while a replacement topic may take over its position so the chapter still reads `1, 2, 3, …` without a renumbering exercise. Forbidding that would force either renumbering of live topics on every retirement or permanently burned position numbers, and would buy no integrity that the topic identity does not already provide.
+**R1 and R6 together are why a single column cannot work.** `0` meaning "off" makes "on
+with zero penalty" unrepresentable; `NULL` meaning "off" hides a penalty rule from
+validation while it is disabled, so re-enabling it can surface a rule that never passed
+the `<= question marks` check.
 
-The only integrity rule the partial index must carry is **"no two *active* topics share a position within one chapter"**, which `WHERE is_active` expresses exactly. It is hand-written SQL because Prisma cannot model partial indexes ([§3.10](#310-partial-and-expression-unique-index-sql)); the `topics` model in [§5](#5-proposed-prisma-model-sketch-illustrative--3-is-normative) therefore carries no `@@unique` for order.
+##### 3.15.4.2 What physically changed in Phase 04A
 
-The approved chapter-number constraint is **unchanged by this correction** and remains global.
+| Artefact | Revision 12 | Revision 13 |
+|---|---|---|
+| `questions.negative_marks` column | present, type undecided | **removed** |
+| `ck_questions_negative_marks_nonnegative` (E‑12) | present | **removed with the column** |
+| `ck_questions_negative_marks_not_above_marks` (E‑9) | present | **removed with the column** |
+| Hand-written `CHECK` count | 49 | **47** |
+| Prisma `negativeMarks` field | `Decimal`, annotation TBD | **removed** |
+| Tables / FKs / enums / indexes | 18 / 26 / 7 / 5 | **unchanged** — this is a column removal, not a structural change |
+| G‑2 | open pre-migration decision | **DEFERRED** to the examination/marking phase |
+| OD‑21 | open | **open — untouched, and now larger** |
+
+**E‑9 and E‑12 are deferred, not overturned.** Their dispositions (E‑9 "accept the
+upper bound", E‑12 "accept non-negativity") remain the reviewer's decisions; what
+changed is that the column they constrained no longer exists in this phase, so they are
+re-specified where the penalty value eventually lives (§3.15.4.4). No E item is
+silently reversed.
+
+##### 3.15.4.3 Where the setting lives — an explicit future architecture decision
+
+The requirement says "an examination **or** marking profile". That ambiguity is
+deliberate and **is not resolved here**. It is recorded as a named open question so it
+cannot be settled by accident during implementation.
+
+> **OD‑NM‑1 (future). Which entity owns negative-marking configuration — the
+> examination, a reusable marking profile, or another entity?**
+>
+> | Option | Consequence |
+> |---|---|
+> | **Per examination** | Simplest; each paper states its own policy. Duplicates a policy across every exam that shares it, and a change must be repeated. |
+> | **Per marking profile** (referenced by examinations) | Configure once, reuse; requires a profile entity, versioning and a reference from the examination. Historical results must pin the profile version used. |
+> | **Both** (profile default, per-examination override) | Most flexible; needs a defined precedence rule and a record of which value actually applied. |
+>
+> This decision cannot be made before the examination model exists, because the answer
+> determines whether a profile entity is needed at all. **It is not assumed in this
+> revision.**
+
+##### 3.15.4.4 What the future design must support — binding requirements
+
+These are recorded now so the examination-model phase inherits them rather than
+rediscovering them. **None is implemented, and none is authorised here.**
+
+1. **A default-disabled enable/disable setting.** Absence of configuration must behave
+   as OFF (R1). The setting must be mutable after creation (R3) and its *effective*
+   value must be recorded against a result so a later change cannot retroactively alter
+   historical scoring.
+2. **A separately configurable penalty value or rule** (R6). The rule must be
+   representable as data — at minimum a fixed per-question value, and possibly a
+   fraction of the question's marks — with the representation chosen when the model is
+   designed. The Revision 12 analysis is the starting point for that choice: if a fixed
+   decimal is used, `numeric(4,2)` was recommended because `numeric(4,1)` silently
+   stores `0.25` as `0.3` (§3.15.3.2); if a fraction is used, the type question changes
+   entirely.
+3. **Validation of the configured penalty against the applicable question marks.** The
+   E‑9 semantics must be re-expressed against whatever the applicable marks are: a
+   per-question penalty must not exceed that question's `marks`, and a paper-level rule
+   must not exceed the marks it applies to. **Both E‑9 and E‑12 are needed in
+   combination**, not either alone — measured in §3.15.3.2: `'NaN' >= 0` is `TRUE`, so
+   a non-negativity check does not exclude `NaN`; the upper-bound check does. Any
+   re-expression that keeps only one of them reintroduces that hole.
+4. **Consistent behaviour in exam scoring and result calculation.** Enabling
+   negative marking must not change *which* answers are correct, only how a wrong one
+   is penalised; and the same rule must drive live scoring, stored results and any
+   recomputation, from one source. A result must remain reproducible after the
+   configuration is later changed — which requires recording the effective rule, not
+   re-reading current settings.
+5. **A zero penalty and a disabled setting must remain distinguishable** in whatever
+   form the model takes, and in any result snapshot.
+
+**Ownership of these requirements:** OD‑21 owns the scoring *policy* (the floor,
+unanswered handling, per-item vs per-paper application, rounding). OD‑NM‑1 owns the
+*entity* question. The schema shape is owned by the future examination-model phase.
+None of the three is decided here.
+
+##### 3.15.4.5 Preservation of the Revision 12 research
+
+The G‑2 investigation is **kept in full at [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation)**
+and is marked historical. It is not deleted, not softened, and not rewritten, because:
+
+- its **PostgreSQL measurements are still correct and still matter** to any future
+  penalty type — particularly that scale coercion is silent, that it happens before any
+  `CHECK`, that storage is precision-independent, and that decreasing scale is
+  destructive while widening precision is a metadata change;
+- its **candidate comparison is the work that would otherwise be redone** when the
+  examination model is designed;
+- and its **`numeric(4,2)` recommendation may still be the right answer** for a fixed
+  penalty value — it simply cannot be an *approved implementation decision* for a column
+  that this phase does not create.
+
+**What that means concretely:** nothing in Phase 04A depends on `numeric(4,2)`. It is a
+recommendation awaiting a future design, not a decision that constrains one. If the
+examination model chooses a fractional rule instead of a decimal value, the Type-2
+research still supplies the pitfalls to avoid.
+
+##### 3.15.4.6 What this section does and does not do
+
+**Does:** removes the column and its two constraints from the Phase 04A model; marks G‑2
+DEFERRED; records R1–R6 as binding requirements for a future phase; opens OD‑NM‑1 as a
+named architecture decision; preserves the Revision 12 research intact.
+
+**Does not:** implement negative marking; add fields for it; create a migration; change
+any Prisma model; write services, validators, DTOs or UI; close OD‑21; decide whether the
+setting is per examination or per profile; authorise migration 0001.
 
 ## 4. Entity map (candidate view — superseded by §3.5)
 
@@ -1902,11 +2071,10 @@ model Question {
   topicId        String?
   subtopicId     String?
   marks          Int              @default(1)
-  // E-9: numeric, decimal-capable. Revision 12 recommends @db.Decimal(4, 2)
-  // (§3.15.3) but it is NOT approved yet, so this sketch does not adopt it.
-  // Note: leaving the annotation off is NOT neutral — Prisma's Decimal defaults
-  // to decimal(65,30), which is neither the recommendation nor constrained.
-  negativeMarks  Decimal          @default(0) // @db.Decimal(4, 2) RECOMMENDED, not approved
+  // REVISION 13: no negativeMarks field. Negative marking is configurable per
+  // examination/marking profile (default OFF) and is deferred to the
+  // examination model (§3.15.4). The Revision 12 @db.Decimal(4, 2) research is
+  // preserved as historical research only, not an approved decision.
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   educationLevel EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Restrict)
@@ -2065,7 +2233,7 @@ The authoritative SQL is in [§3.9](#39-required-domain-check-constraints) (doma
 - **Composite `(subject_id, chapter_id, topic_id)`** — serves the chapter→topic cascade.
 - **`(status, type, difficulty)`** — published listing with type/difficulty facets.
 - **Partial unique indexes** — publish-safety (one current version, §3.10 `uq_question_versions_one_published_per_question`), source dedup (`uq_question_sources_identity`), active-taxonomy uniqueness. The former `uq_question_options_one_correct_per_version` is **removed** with `question_options.is_correct` (request D); MCQ correctness is now `answer_keys.mcq_correct_option_key` under `UNIQUE (answer_keys.version_id)` plus the request‑C composite FK to `question_options(version_id, key)`.
-- **Checks** — `marks >= 0`, `negative_marks >= 0`, `version_number > 0`, single-char option key, at-most-one organisation per source. §3.9 keeps all of these and adds the hierarchy-chain, envelope and format guards. **Two changes from the previous revision:** `negative_marks` is now `numeric` (E‑9) with `negative_marks <= marks` retained as an upper bound, and the global `type='CQ' ⇒ marks = 10` guard is **removed** (E‑10 rejected — the CQ total belongs to the `cq_stem` profile and publish check I‑15).
+- **Checks** — `marks >= 0`, `version_number > 0`, single-char option key, at-most-one organisation per source. §3.9 keeps all of these and adds the hierarchy-chain, envelope and format guards. **Two changes from the previous revision:** `negative_marks` is now `numeric` (E‑9) with `negative_marks <= marks` retained as an upper bound, and the global `type='CQ' ⇒ marks = 10` guard is **removed** (E‑10 rejected — the CQ total belongs to the `cq_stem` profile and publish check I‑15).
 - **Chapter numbering is global; topic display order is active-only** *(E‑7 decision, extension reverted in Revision 5)* — `chapters` carries the ordinary `UNIQUE (subject_id, chapter_number)`; the earlier `WHERE is_active` partial assumed a retired **number** could be reused, which the reviewer rejected while no curriculum-revision entity exists. That reasoning is about identifiers and does not transfer to `topics.order_index`, which only positions a topic in a list: `uq_topics_chapter_order` stays a hand-written `WHERE is_active` partial unique, so retiring a topic frees its position without changing the retired row's identity or any historical question reference. Side benefit of the chapter change: that plain unique is Prisma-native, so it leaves the hand-written SQL set and shrinks the drift surface.
 - **No GIN/full-text indexes yet** — search indexing/tokenization is **OD-32**; a `GIN` on `question_versions.content` can be added additively.
 - **No `ORDER BY RANDOM()`-friendly structures** — random selection is a service algorithm (README §7.1.3), not a schema concern.
@@ -3263,7 +3431,7 @@ Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured cont
 7. **Request C — five composite FKs + three support keys (APPROVED WITH CONDITION)**: C‑1…C‑5 plus `UNIQUE (id, subject_id)`, `UNIQUE (id, chapter_id)`, `UNIQUE (id, topic_id)`; conditional on a successful Prisma-drift spike (G‑1).
 8. **Request D — MCQ correctness authority (APPROVED)**: `answer_keys.mcq_correct_option_key` is the sole source; `question_options.is_correct` and `uq_question_options_one_correct_per_version` are permanently removed; four-options/one-key presence enforced at the publish gate (I‑4, I‑13).
 9. **Asset-pointer integrity (APPROVED)**: `question_version_assets.block_ref` is `NOT NULL` with the rooted `/content…` or `/options/{KEY}…` grammar, unique per version, covering stem, option and nested-subquestion content.
-10. **Request E (DECIDED IN FULL)** — eleven accepted (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15); three already resolved (E‑2, E‑16, E‑17); **E‑7 changed** (globally unique chapter numbering, no reuse; topic display order keeps its active-only partial unique — Revision 5 reverted the extension to `topics`); **E‑9 changed** (`negative_marks <= marks` retained, column becomes `numeric`, precision/scale open as G‑2); **E‑10 rejected** (no global CQ-total `CHECK`; the 1+2+3+4 = 10 structure lives in the `cq_stem` profile and publish check I‑15).
+10. **Request E (DECIDED IN FULL)** — eleven accepted (E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15); three already resolved (E‑2, E‑16, E‑17); **E‑7 changed** (globally unique chapter numbering, no reuse; topic display order keeps its active-only partial unique — Revision 5 reverted the extension to `topics`); **E‑9 changed** (`negative_marks <= marks` retained, column becomes `numeric`, precision/scale open as G‑2); **E‑10 rejected** (no global CQ-total `CHECK`; the 1+2+3+4 = 10 structure lives in the `cq_stem` profile and publish check I‑15). **Revision 13: E‑9 and E‑12 are DEFERRED with the `negative_marks` column, which is removed from Phase 04A — negative marking is configurable (§3.15.4); both dispositions stand and are re-specified for the examination model.**
 
 ### Reviewed — direction noted, gated to Phase 05 (exams), not migration 0001
 11. OD-11 — grace window + `SUBMITTED_LATE`.
@@ -3273,10 +3441,10 @@ Modular monolith (L1); PostgreSQL + Prisma with JSONB limited to structured cont
 ### Open before migration 0001 (not design decisions — gates)
 
 14. **G‑1** — Prisma-drift spike for Request C. **Executed twice in CI and FAILED both times.** Experiment 1 ([§11.3.2](#1132-g1-verdict--fail)) was confounded by the absence of migration history; experiment 2 ([§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive)) removed that confound and produced the decisive result: the five composite FKs deploy and enforce correctly, but Prisma's no-change `migrate dev` generates a migration that deletes them. Option A is not adopted.
-15. **G‑2** — `negative_marks` `numeric(p, s)` precision and scale. **Investigated in Revision 12 (§3.15.3): `numeric(4,2)` recommended, awaiting approval (Q‑G2‑1).** Recorded in §3.15.1 once approved.
+15. **G‑2** — `negative_marks` `numeric(p, s)` precision and scale. **Investigated in Revision 12** (evidence preserved as historical research in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation)), then **DEFERRED in Revision 13**: negative marking is configurable and off by default, so the column is removed from Phase 04A and there is no type to settle. See [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model).
 
 ### Explicitly unresolved (not decided here; do not implement against)
-The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group entity; user linkage (OD-15); moderation states beyond draft/published/archived (OD-27); RLS (OD-16); full-text search (OD-32); retention periods (OD-20); rate-limit store (OD-06); CQ assessment modality (OD-01); strict-expiry vs auto-submit (OD-03); guest practice (OD-04); post-release answer review (OD-14); PDF worker host (OD-02); paper/export model (OD-28); AI cache/isolation (OD-29).
+The **OD‑21 negative-mark floor**, and now also the enable/disable default and penalty-rule selection for configurable negative marking, plus **OD‑NM‑1** (which entity owns that setting — not assumed); Group entity; user linkage (OD-15); moderation states beyond draft/published/archived (OD-27); RLS (OD-16); full-text search (OD-32); retention periods (OD-20); rate-limit store (OD-06); CQ assessment modality (OD-01); strict-expiry vs auto-submit (OD-03); guest practice (OD-04); post-release answer review (OD-14); PDF worker host (OD-02); paper/export model (OD-28); AI cache/isolation (OD-29).
 
 ---
 
@@ -3301,7 +3469,7 @@ The **OD‑21 negative-mark floor** (E‑9 sets an upper bound only); Group enti
 | **Accepted** | **E‑1, E‑3, E‑4, E‑5, E‑6, E‑8, E‑11, E‑12, E‑13, E‑14, E‑15** |
 | **Already resolved** | **E‑2, E‑16, E‑17** |
 | **Changed — E‑7** | Chapter-number reuse **not permitted** while no curriculum-revision entity or versioning policy exists. `UNIQUE (subject_id, chapter_number)` is now a plain global unique constraint. A future curriculum-revision model may revisit this. **Topic display order is not treated the same way:** `topics` keeps `uq_topics_chapter_order` as an active-only partial unique index `(chapter_id, order_index) WHERE is_active = true`, because `order_index` is a display position rather than a curriculum identifier. Revision 4 extended E‑7 to `topics`; **Revision 5 reverts that extension** ([§3.15.2](#3152-note-on-the-reverted-e7-extension-to-topics)). |
-| **Changed — E‑9** | `negative_marks <= marks` **retained** as an upper bound; `negative_marks` type changed **`integer` → `numeric`**. Precision and scale remain an **open pre-migration decision** ([§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)), not invented here. The **OD‑21 negative-mark floor is NOT decided** by this constraint. |
+| **Changed — E‑9** | `negative_marks <= marks` **retained** as an upper bound; `negative_marks` type changed **`integer` → `numeric`**. Precision and scale remain an **open pre-migration decision** ([§3.15.1](#3151-open-pre-migration-decision-negative_marks-precision-and-scale)), not invented here. The **OD‑21 negative-mark floor is NOT decided** by this constraint. | **Revision 13: DEFERRED** — the column is removed from Phase 04A (negative marking is configurable, §3.15.4); the E‑9 upper-bound decision stands and is re-specified for the examination model. |
 | **Rejected — E‑10** | The global `CHECK (type <> 'CQ' OR marks = 10)` is **removed**. The HSC/ALIM ICT 1 + 2 + 3 + 4 = 10 structure is kept in the `cq_stem` content profile; **I‑15** requires publish-time validation that the question's total marks equal the sum of its rubric subquestion marks. |
 
 No Request E item remains open. Full per-item rationale, consequence and model-change assessment: [§3.15](#315-corrections-and-tightenings--final-request-e-decisions).
@@ -3311,7 +3479,7 @@ No Request E item remains open. Full per-item rationale, consequence and model-c
 | Gate | Requirement | Blocks |
 |---|---|---|
 | **G‑1 — Prisma-drift spike (Request C condition)** | On a **disposable** PostgreSQL database, apply the five composite FKs and three support keys as hand-written SQL, then run `prisma migrate dev` with no schema change and confirm it generates an **empty** migration; run it again after an unrelated additive change and confirm the constraints survive; run `prisma migrate diff` and confirm no diff; exercise each constraint with a deliberately invalid write; exercise valid Prisma Client writes through the single-column relations. **Executed twice. [§11.3.2](#1132-g1-verdict--fail): FAIL (confounded). [§11.3.3](#1133-g1-experiment-2--result-fail-but-decisive): FAIL and decisive** — with real migration history Prisma's no-change `migrate dev` generates `DROP CONSTRAINT` for exactly the five. | Request C (all five FKs + three support keys) — **failed; Option A not adopted; reviewer decision required** |
-| **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | Settle `numeric(p, s)` and record it in §3.15.1 and the Prisma `@db.Decimal(p, s)` annotation. **Investigated in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation): `numeric(4,2)` recommended with technical justification; approval requested (Q‑G2‑1). Not yet passed.** | The `questions.negative_marks` column definition only |
+| **G‑2 — `negative_marks` precision and scale (Request E / E‑9)** | ~~Settle `numeric(p, s)`~~ **DEFERRED (Revision 13).** Negative marking is configurable (default **OFF**) with an independently configured penalty rule, so `negative_marks` is **removed from Phase 04A** and G‑2 moves to the examination/marking configuration phase. The Revision 12 `numeric(4,2)` research is retained as historical research only. See [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model). | **Nothing in Phase 04A** — deferred |
 | **G‑3 — Option C workflow production-readiness (new, [§11.6](#116-g3--production-readiness-gate-for-the-option-c-workflow))** | Six mandatory criteria: workflow enforcement, migration-history consistency, protected-constraint integrity, constrained-column safety, tampering detection, reproducibility. **PASSED on the reduced prototype** (CI run `45263567929`); **must be re-run on the full 18-table model** before migration 0001. | Option C adoption as the migration workflow; therefore migration 0001 |
 
 Prisma does **not** represent the five composite FKs or the support keys natively ([§3.11.6](#3116-composite-foreign-keys-request-c)); G‑1 exists precisely because that is unproven until it is tested. **G‑1 remains FAILED** and is not re-scored by G‑3: G‑1 asked whether the *ordinary* Prisma workflow preserves the constraints (it does not), while G‑3 asks whether the *replacement* workflow is safe enough to operate production with. Both must be settled before implementation, and neither is settled by the other.
@@ -3899,8 +4067,7 @@ which is already negative-tested.
 > D‑4 was therefore implemented in the corrected form plus the expanded control set
 > in §11.6.1, not as originally worded.
 
-**Still explicitly not decided by this section:** G‑2 (`negative_marks`
-precision/scale — investigated and recommended in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation), awaiting approval), OD‑21 (negative-mark floor). OD‑11/OD‑12/OD‑13 remain deferred.
+**Still explicitly not decided by this section:** G‑2 (**DEFERRED** — negative marking is configurable, so `negative_marks` is not a Phase 04A column; see [§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model)), OD‑21 (negative-mark floor, and now the enable/disable default and penalty-rule selection too), **OD‑NM‑1** (which entity owns the setting — not assumed). OD‑11/OD‑12/OD‑13 remain deferred.
 
 #### 11.4.8 Decision received — D‑1 … D‑4 resolved
 
@@ -4117,72 +4284,78 @@ for a Prisma run.
 #### 11.6.7 What G‑3 does not decide
 
 G‑2 (`negative_marks` precision/scale) and OD‑21 (negative-mark floor) remain
-**open and undecided** — G‑2 is investigated and recommended in [§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation) but not passed. OD‑11/OD‑12/OD‑13 remain deferred. C‑1…C‑5 are unchanged:
+**open and undecided**: **G‑2 is DEFERRED** because negative marking is configurable and
+the column is not part of this phase ([§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model)); **OD‑21 is untouched and remains open**; and **OD‑NM‑1** records that it is not assumed which entity owns the setting. OD‑11/OD‑12/OD‑13 remain deferred. C‑1…C‑5 are unchanged:
 no constraint was weakened, relaxed or removed to make any test pass, and the
 guard's encoded definitions are the approved §3.11.6 definitions.
 
-### 11.7 G‑2 — `negative_marks` precision and scale: investigation record
+### 11.7 G‑2 — DEFERRED: negative marking is configurable
 
-**Status at Revision 12: INVESTIGATED, RECOMMENDED, NOT PASSED.** Approval is
-requested in [§3.15.3.8](#31538-the-one-open-question-requiring-explicit-human-approval).
-The full evidence, the PostgreSQL measurements and the candidate comparison are in
-[§3.15.3](#3153-g2-investigation-negative_marks-precision-and-scale--evidence-and-recommendation);
-this section is the decision record only.
+**Status at Revision 13: G‑2 is DEFERRED, not passed and not closed by a type choice.**
+`negative_marks` is **removed from the Phase 04A physical model**. Negative marking
+becomes a configurable examination/marking concern, deferred to the phase that designs
+the examination model. Full rationale and binding requirements:
+[§3.15.4](#3154-g2-revised--negative-marking-is-configurable-deferred-to-the-examination-model).
 
-#### 11.7.1 What the investigation changed, and what it did not
+#### 11.7.1 The decision, and why it changed
 
-| Item | Before Revision 12 | After Revision 12 |
-|---|---|---|
-| `negative_marks` type | `numeric`, precision/scale **undecided** | `numeric`, **`numeric(4,2)` recommended** — not yet approved |
-| G‑2 status | Open, no investigation | **Investigated; recommendation issued; still NOT PASSED** |
-| E‑9 (`negative_marks <= marks`) | Decided | **Unchanged** — and now shown to be load-bearing: it is the constraint that excludes `NaN` |
-| E‑12 (`negative_marks >= 0`) | Decided | **Unchanged** — but measured to be insufficient on its own for `NaN` |
-| OD‑21 (negative-mark floor) | Open | **Still open. Not touched, not implied, not resolved.** |
-| Physical model | Approved | **Unchanged.** No column definition changes until approval |
+Revision 12 treated G‑2 as a question of *which* `numeric(p,s)` to pick, and
+recommended `numeric(4,2)`. The clarified requirement shows the question was
+mis-framed: negative marking must be **configurable, default OFF, with its penalty rule
+configured independently of the on/off switch**. A per-question decimal attribute cannot
+express that — a `NOT NULL DEFAULT 0` column cannot distinguish "off" from "on with a
+zero penalty", and a nullable column lets an unvalidated penalty rule sit hidden while
+disabled. **The column does not belong in the question master**, so choosing a type
+would have been answering the wrong question.
 
-**Nothing earlier was rewritten.** §3.15.1 keeps its original text with a status banner
-added above it, so the record of what was open at Revision 4 survives verbatim.
+This is recorded as a correction to my own Revision 12 framing, not as a change of
+requirement by the reviewer.
 
-#### 11.7.2 The findings that decide the recommendation
+#### 11.7.2 What moved, precisely
 
-1. **The board exam has no negative marking at all**, so the board case sets no
-   precision requirement. `negative_marks` exists for practice tests.
-2. **`0.25` is in live use in this exact cohort** — the MBBS/BDS admission test deducts
-   0.25 per wrong answer with a pass mark of 40, so `39.75` is a real failing score.
-   Two decimals are therefore **necessary**, not merely plausible.
-3. **`numeric(4,1)` cannot store 0.25.** Measured: it stores `0.3`. The coercion is
-   silent, happens before every `CHECK`, and cannot be detected by any constraint.
-4. **Scale is the asymmetric risk.** Storage is identical across precisions and widening
-   precision is a metadata-only change; decreasing scale silently rewrote stored `0.25`
-   values to `0.3` in every row during testing. A scale chosen too small is destructive
-   to correct later.
-5. **Scale 3 has no evidenced use case.** Recommending it would invent a requirement.
+| Item | Disposition |
+|---|---|
+| `questions.negative_marks` | **Removed** from Phase 04A |
+| `ck_questions_negative_marks_nonnegative` (E‑12) | **Removed** with the column; re-specified for the future phase (§3.15.4.4) |
+| `ck_questions_negative_marks_not_above_marks` (E‑9) | **Removed** with the column; re-specified for the future phase (§3.15.4.4) |
+| Hand-written `CHECK` count | 49 → **47** |
+| Prisma `negativeMarks` field | **Removed** |
+| G‑2 | **DEFERRED** to the examination/marking configuration phase |
+| Revision 12 `numeric(4,2)` research | **Preserved unaltered** in §3.15.3 as **historical research**, explicitly not an approved implementation decision |
+| OD‑21 | **Still open**, and now broader — it also carries the enable/disable default and penalty-rule selection |
+| New open decision | **OD‑NM‑1** — which entity owns negative-marking configuration (§3.15.4.3). Not assumed. |
 
-#### 11.7.3 Residual uncertainty this record accepts
+**E‑9 and E‑12 are deferred, not overturned.** The reviewer's dispositions of those items
+stand; only the column they constrained is gone from this phase.
 
-| Uncertainty | Why it is not resolved here | What would resolve it |
-|---|---|---|
-| The **complete set** of penalty values the platform will offer | No approved document enumerates them; the QB product's own penalty catalogue does not exist yet | Reviewer answers **Q‑G2‑1** (§3.15.3.8) |
-| Whether any future OD‑21 scaling formula produces thousandths | OD‑21 is open and may divide a penalty | If it does, widen `numeric(4,2)` → `numeric(6,3)`: metadata-only, no rewrite |
-| Rounding policy for aggregate scores | OD‑21 owns it | OD‑21 decision; G‑2 deliberately does not decide it |
-| Decimal JSON serialisation | OD‑17 owns it | OD‑17 decision |
+#### 11.7.3 What the future phase must satisfy
 
-**The recommendation is safe under every one of those uncertainties.** If thousandths
-ever become real, the widening is free. If they do not, the schema never claimed a
-precision the domain does not have.
+Recorded as binding requirements so they are inherited, not rediscovered
+([§3.15.4.4](#31544-what-the-future-design-must-support--binding-requirements)):
 
-#### 11.7.4 What G‑2 does not decide, restated because it matters
+1. default-disabled enable/disable setting, mutable, with the effective value recorded
+   against a result;
+2. a penalty value **or rule** configured independently of the switch;
+3. validation of the configured penalty against the applicable question marks — and
+   using **both** the non-negativity and upper-bound checks, because measurement showed
+   the former does not exclude `NaN` and the latter does;
+4. consistent behaviour across live scoring, stored results and recomputation, from one
+   source, reproducible after the configuration changes;
+5. a disabled setting and a zero penalty must remain distinguishable.
 
-- **OD‑21 is untouched.** The floor, unanswered handling, per-item vs per-paper
-  application and rounding policy remain open. G‑2 fixes the width of the column, not
-  the scoring rule.
-- **G‑1 remains FAILED** and is not affected.
-- **G‑3 remains closed for the prototype only**; full 18-table validation is still
-  pending. G‑2 does not touch it.
-- **No schema, migration or application code** is changed by this record.
+#### 11.7.4 What this deferral does not change
+
+- **G‑1 remains FAILED.** Untouched.
+- **G‑3 remains passed for the prototype only**; full 18-table validation is still
+  pending. Untouched.
+- **OD‑21 remains open** and is explicitly *not* closed.
+- **The approved physical model loses one column and two checks**; it gains nothing.
+  Tables (18), FKs (21 single + 5 composite), enums (7) and hand-written indexes (5) are
+  unchanged.
+- **No schema file, migration, service, validator, DTO or UI** is created or modified.
 
 ### 11.8 What approval now authorises — and what it does not
 
-**Authorised only once G‑1 is resolved (it has now FAILED — a fallback decision is required) and G‑2 clears:** edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
+**Authorised only once G‑1 is resolved (it has now FAILED — a fallback decision is required).** G‑2 is **deferred and does not block migration 0001**, because the `negative_marks` column it concerned is no longer part of the schema (§3.15.4): edit `prisma/schema.prisma` to match §3 → create migration 0001 with the hand-written artifacts from §3.9/§3.10/§3.11.6 → run the [§3.14](#314-migration-impact-and-rollback) verification checklist → implement the Zod schemas from §7.11 → wire the publish gate.
 
 **Not authorised, and not done in this phase:** any change to `prisma/schema.prisma`, any migration, any application code or UI. This revision is documentation only.
