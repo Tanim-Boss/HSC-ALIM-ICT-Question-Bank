@@ -325,8 +325,12 @@ ok "5/5 composite FKs present after deployment"
   ORDER BY conname;" > "$OUT_DIR/05-catalog-fks.txt"
 assert_nonempty "$OUT_DIR/05-catalog-fks.txt" "foreign key catalog"
 ORD_FK="$(grep -c 'fkey' "$OUT_DIR/05-catalog-fks.txt" || true)"
-info "foreign keys in the catalog: $ORD_FK total (5 composite + the ordinary ones)"
-[ "$ORD_FK" -ge 18 ] || fail "only $ORD_FK foreign keys in the catalog; the ordinary FKs did not survive deployment"
+# The datamodel declares 13 relations, so Prisma creates 13 ordinary FKs; the
+# append adds 5 composite ones. 18 is the exact expected total, not a floor:
+# a missing ordinary FK and a duplicated composite one must not average out.
+EXPECTED_FKS=18
+info "foreign keys in the catalog: $ORD_FK (expected exactly $EXPECTED_FKS = 13 ordinary + 5 composite)"
+[ "$ORD_FK" = "$EXPECTED_FKS" ] || fail "the catalog holds $ORD_FK foreign keys, expected exactly $EXPECTED_FKS (13 ordinary from the datamodel + 5 appended composite)"
 for uq in uq_chapters_id_subject uq_topics_id_chapter uq_subtopics_id_topic uq_topics_chapter_order; do
   "$PSQL" "$URL" -Atc "SELECT 1 FROM pg_class WHERE relname='$uq' AND relkind='i';" | grep -q 1 \
     || fail "index '$uq' is missing after deployment"
