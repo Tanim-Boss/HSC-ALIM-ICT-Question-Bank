@@ -128,13 +128,16 @@ jobs:
           done
           exit $rc
 
+      # NOTE: no "?schema=public" here. That parameter is Prisma-specific and
+      # libpq (psql) rejects it with "invalid URI query parameter". The spike
+      # uses the default `public` schema, so it is not needed.
       - name: Run G-1 experiment 2
         id: experiment
         run: |
           set -euo pipefail
           bash docs/database/g1-spike/experiment-2/run.sh \
-            --url        "postgresql://g1:g1spike@localhost:5432/g1_test?schema=public" \
-            --shadow-url "postgresql://g1:g1spike@localhost:5433/g1_shadow?schema=public"
+            --url        "postgresql://g1:g1spike@localhost:5432/g1_test" \
+            --shadow-url "postgresql://g1:g1spike@localhost:5433/g1_shadow"
 
       # Independent of the script: re-read the catalog directly. If the
       # script's own bookkeeping were wrong, this would still catch it.
