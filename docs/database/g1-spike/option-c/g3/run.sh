@@ -747,17 +747,20 @@ assert_catalog "$URL" "after restoring the baseline schema"
 
 info ""
 info "--- 4c: the hand-written SAFE migration must be ACCEPTED by the guard ---"
-info "The safe pattern for a change PostgreSQL would refuse: drop the protected"
-info "constraint, make the change, then re-add the constraint with its approved"
-info "definition. Here: narrow question_options.key to char(1) after proving no"
-info "wider value exists, which C-5's column must follow."
+info "The safe pattern for a change PostgreSQL would refuse: drop the PROTECTED"
+info "constraint, make the change, then re-add it with its approved definition."
+info "Here: narrow question_options.key to char(1), which C-5's column must follow."
+info ""
+info "Note on the support unique: Prisma emits a @@unique as a CREATE UNIQUE"
+info "INDEX, not a named table constraint (verified: DROP CONSTRAINT on it fails"
+info "with 'constraint ... does not exist'). An ALTER TYPE needs no drop for it,"
+info "so this migration deliberately does not touch it. CI run 45263190274 failed"
+info "here precisely because the earlier version tried to DROP CONSTRAINT it."
 cat > "$OUT_DIR/04c-safe-column-change.sql" <<'SQL'
 BEGIN;
 ALTER TABLE "answer_keys" DROP CONSTRAINT "fk_answer_keys_options_of_version";
-ALTER TABLE "question_options" DROP CONSTRAINT "uq_question_options_version_key";
 ALTER TABLE "question_options" ALTER COLUMN "key" TYPE char(1);
 ALTER TABLE "answer_keys" ALTER COLUMN "mcq_correct_option_key" TYPE char(1);
-ALTER TABLE "question_options" ADD CONSTRAINT "uq_question_options_version_key" UNIQUE ("version_id","key");
 -- re-added with the approved columns and actions, unchanged
 ALTER TABLE "answer_keys" ADD CONSTRAINT "fk_answer_keys_options_of_version"
   FOREIGN KEY ("version_id","mcq_correct_option_key")
