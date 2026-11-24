@@ -154,7 +154,18 @@ export async function loadQuestionSnapshot(
   client: QuestionReader,
   questionId: string,
 ): Promise<QuestionSnapshot> {
-  const row = await client.question.findUnique<SnapshotRow>({
+  // Mutation switch, for the D2 regression proof ONLY. When this variable is
+  // set, the snapshot is read through the global pool instead of the caller's
+  // client — which is exactly the pre-fix behaviour. The D2 regression test
+  // must FAIL in that mode and pass without it; CI asserts both, so the test is
+  // proven to detect the defect rather than merely to pass alongside the fix.
+  // It can never take effect in a normal process: nothing sets this variable
+  // outside that one CI step.
+  const reader: QuestionReader =
+    process.env.V45_MUTATE_D2_SNAPSHOT_CLIENT === 'pool'
+      ? ((await import('@/lib/db')).getPrisma() as unknown as QuestionReader)
+      : client;
+  const row = await reader.question.findUnique<SnapshotRow>({
     where: { id: questionId },
     select: {
       id: true,

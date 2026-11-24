@@ -203,6 +203,39 @@ jobs:
           echo "integration tests executed against: ${DATABASE_URL%%@*}@…"
           exit "$rc"
 
+      - name: Mutation proof — the D2 regression test must FAIL on the old behaviour
+        run: |
+          set -uo pipefail
+          # A regression test that passes only proves it agrees with the fix. This
+          # step re-introduces the pre-fix behaviour (snapshot read through the
+          # global pool instead of the locking transaction) and requires the D2
+          # test to FAIL. Without this, nobody would know the test can detect the
+          # defect at all.
+          echo "::group::D2 mutation — snapshot read through the pool"
+          V45_MUTATE_D2_SNAPSHOT_CLIENT=pool \
+            npx vitest run --config vitest.integration.config.ts \
+              tests/integration/questions/snapshot-transaction.test.ts 2>&1 | tee /tmp/d2-mutant.log
+          mutant_rc=${PIPESTATUS[0]}
+          echo "::endgroup::"
+          clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/d2-mutant.log | tr -d '\r')"
+          if [ "$mutant_rc" -eq 0 ]; then
+            echo "::error title=D2 MUTATION::the regression test PASSED against the old behaviour — it cannot detect the defect"
+            printf '%s\n' "$clean" | grep -E "Tests +[0-9]+" | while IFS= read -r l; do
+              echo "::error title=D2 mutation::$l"
+            done
+            exit 1
+          fi
+          # Failing is necessary but not sufficient: it must fail for the right
+          # reason, on the assertion about the transaction's view.
+          if ! printf '%s\n' "$clean" | grep -qE "sees an uncommitted write made inside the same transaction"; then
+            echo "::error title=D2 MUTATION::the suite failed, but not on the transaction-view assertion"
+            printf '%s\n' "$clean" | grep -E "FAIL |AssertionError" | head -10 | while IFS= read -r l; do
+              echo "::error title=D2 mutation::$l"
+            done
+            exit 1
+          fi
+          echo "OK: the D2 regression test fails when the snapshot is read through the pool"
+
       - name: Emit failing cases as annotations
         if: always()
         run: |
