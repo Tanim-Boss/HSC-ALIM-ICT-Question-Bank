@@ -79,7 +79,13 @@ async function createQuestion(
     const question = await db.question.create({
       data: {
         type,
-        status: versionStatuses.every((s) => s === 'ARCHIVED') ? 'ARCHIVED' : 'DRAFT',
+        // With no versions nothing was ever published, so the question is a
+        // draft. `.every` is vacuously true on an empty array, so the emptiness
+        // is checked explicitly rather than inherited from that quirk.
+        status:
+          versionStatuses.length > 0 && versionStatuses.every((s) => s === 'ARCHIVED')
+            ? 'ARCHIVED'
+            : 'DRAFT',
         difficulty: 'MEDIUM',
         createdVia: 'MANUAL',
         educationLevelId: tax.levelId,
@@ -139,10 +145,16 @@ beforeAll(async () => {
     update: {},
   });
   const chapter = await prisma.chapter.upsert({
-    where: { subjectId_number: { subjectId: subject.id, number: 1 } },
+    // The column is `chapter_number` (Prisma `chapterNumber`), and the
+    // composite unique is `@@unique([subjectId, chapterNumber])`. Getting these
+    // names wrong throws inside `beforeAll`, which skips every test in the file
+    // while reporting the file as failed — the suite looks like it ran and found
+    // nothing. CI's generated-client typecheck caught it; the name is fixed here
+    // against prisma/schema.prisma rather than guessed.
+    where: { subjectId_chapterNumber: { subjectId: subject.id, chapterNumber: 1 } },
     create: {
       subjectId: subject.id,
-      number: 1,
+      chapterNumber: 1,
       titleBn: 'অধ্যায়',
       titleEn: 'Chapter',
     },
