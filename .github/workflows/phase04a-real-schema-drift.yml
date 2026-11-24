@@ -178,7 +178,10 @@ jobs:
           # not bytes. The first run of this workflow failed here on the sentinel
           # alone — an assertion bug in the harness, not a defect in Option C.
           bytes="$(wc -c < "$OUT/e2-snapshot-nochange.sql")"
-          statements="$(grep -vE '^[[:space:]]*(--.*)?$' "$OUT/e2-snapshot-nochange.sql" | wc -l)"
+          # `|| true`: with `bash -e -o pipefail` (how Actions runs steps) a
+          # grep that selects no line exits 1 and would abort the step before
+          # the count is even examined. That is what failed run 45381042601.
+          statements="$(grep -vE '^[[:space:]]*(--.*)?$' "$OUT/e2-snapshot-nochange.sql" | wc -l || true)"
           echo "E2 output bytes=$bytes, statements=$statements (expect 0 statements)"
           if [ "$statements" -ne 0 ]; then
             cat "$OUT/e2-snapshot-nochange.sql"
@@ -275,8 +278,8 @@ jobs:
           echo "::notice title=E1 DROP CONSTRAINT::$(grep -c 'DROP CONSTRAINT' "$f" || true)"
           echo "::notice title=E1 DROP INDEX::$(grep -c 'DROP INDEX' "$f" || true)"
           echo "::notice title=E1 ADD CONSTRAINT::$(grep -c 'ADD CONSTRAINT' "$f" || true)"
-          echo "::notice title=E1 composite FKs named::$(grep -oE 'fk_(questions_(level_subject|chapter_subject|topic_chapter|subtopic_topic)|answer_keys_options_of_version)' "$f" | sort -u | wc -l)"
-          echo "::notice title=E1 hand-written indexes named::$(grep -oE '(uq_(question_versions_one_published_per_question|question_sources_identity|topics_chapter_order|tags_name_lower|colleges_name_lower)|ix_question_assets_checksum)' "$f" | sort -u | wc -l)"
+          echo "::notice title=E1 composite FKs named::$(grep -oE 'fk_(questions_(level_subject|chapter_subject|topic_chapter|subtopic_topic)|answer_keys_options_of_version)' "$f" | sort -u | wc -l || true)"
+          echo "::notice title=E1 hand-written indexes named::$(grep -oE '(uq_(question_versions_one_published_per_question|question_sources_identity|topics_chapter_order|tags_name_lower|colleges_name_lower)|ix_question_assets_checksum)' "$f" | sort -u | wc -l || true)"
           echo "::notice title=E3 additive SQL::$(tr '\n' ' ' < "$OUT/e3-additive.sql" | cut -c1-400)"
 
       # The job log is not always reachable (a sandbox or an auditor may only
