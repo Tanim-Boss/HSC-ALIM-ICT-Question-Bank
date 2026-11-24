@@ -299,9 +299,17 @@ export async function publishVersion(input: {
   const prisma = getPrisma();
 
   try {
-    return await prisma.$transaction(async (tx: TransactionClient) => {
+    // `tx` is deliberately NOT annotated with `TransactionClient`: the real
+    // client's callback parameter is the full transaction client, and under
+    // strictFunctionTypes a narrower annotation is rejected because a caller
+    // could pass something conforming to the wider type. Annotating it also
+    // stops the result being inferred as PublishResult. One explicit narrowing
+    // keeps both properties and still forbids implicit any.
+    return await prisma.$transaction(async (tx): Promise<PublishResult> => {
+      const db = tx as unknown as TransactionClient;
+
       // 1. serialise concurrent publishes of the same question
-      await tx.$queryRaw`SELECT id FROM questions WHERE id = ${input.questionId}::uuid FOR UPDATE`;
+      await db.$queryRaw`SELECT id FROM questions WHERE id = ${input.questionId}::uuid FOR UPDATE`;
 
       // 2. read inside the transaction
       const snapshot = await loadQuestionSnapshot(input.questionId);
@@ -355,11 +363,11 @@ export async function publishVersion(input: {
       if (!rollupCheck.isEmpty) throw rollupCheck.list()[0];
 
       // 4. write: version status, then the I-3 rollup, then commit.
-      await tx.questionVersion.update({
+      await db.questionVersion.update({
         where: { id: input.versionId },
         data: { status: 'PUBLISHED' },
       });
-      await tx.question.update({
+      await db.question.update({
         where: { id: input.questionId },
         data: { status: questionStatus },
       });

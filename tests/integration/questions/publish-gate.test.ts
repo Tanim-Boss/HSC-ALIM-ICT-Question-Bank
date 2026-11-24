@@ -200,12 +200,12 @@ async function loadSnapshot(questionId: string): Promise<QuestionSnapshot> {
           ? null
           : { id: q.subtopic.id, topicId: q.subtopic.topicId, isActive: q.subtopic.isActive },
     },
-    versions: q.versions.map((v: AnyRow) => ({
+    versions: (q.versions as unknown as AnyRow[]).map((v) => ({
       id: v.id,
       versionNumber: v.versionNumber,
       status: v.status as 'DRAFT' | 'PUBLISHED' | 'ARCHIVED',
       content: v.content,
-      options: v.options.map((o: AnyRow) => ({
+      options: v.options.map((o) => ({
         id: o.id,
         key: o.key,
         sortOrder: o.order,
@@ -219,7 +219,7 @@ async function loadSnapshot(questionId: string): Promise<QuestionSnapshot> {
               cqRubric: v.answerKey.cqRubric,
               isVerified: v.answerKey.isVerified,
             },
-      assetLinks: v.assets.map((a: AnyRow) => ({ assetId: a.assetId, blockRef: a.blockRef })),
+      assetLinks: v.assets.map((a) => ({ assetId: a.assetId, blockRef: a.blockRef })),
     })),
   };
 }
