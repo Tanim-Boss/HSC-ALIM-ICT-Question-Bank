@@ -290,11 +290,16 @@ jobs:
         if: always()
         run: |
           set -uo pipefail
+          SUMMARY=""
           emit() {
             file="$1"; label="$2"
             [ -f "$file" ] || { echo "::notice title=${label}::<no file>"; return; }
             bytes="$(wc -c < "$file")"
-            echo "::notice title=${label} bytes::${bytes}"
+            # GitHub caps the annotations a single step may create (about ten),
+            # and silently drops the rest. Run 45381341939 lost the last two
+            # emits that way, so only ONE summary notice is spent here and the
+            # rest is reserved for the SQL chunks themselves.
+            SUMMARY="${SUMMARY}${label}=${bytes}B "
             n=0
             if [ "$bytes" -gt 0 ]; then
               split -b 6000 -d -a 3 "$file" "/tmp/chunk.${label}."
@@ -305,7 +310,6 @@ jobs:
               done
               rm -f "/tmp/chunk.${label}."*
             fi
-            echo "::notice title=${label} chunks::${n}"
           }
           emit "$OUT/e1-nochange.sql" "E1-SQL"
           emit "$OUT/e3-additive.sql" "E3-SQL"
@@ -313,6 +317,7 @@ jobs:
           emit "$OUT/02-catalog-before.txt" "CATALOG-BEFORE"
           emit "$OUT/04-catalog-delta.txt" "CATALOG-DELTA"
           emit "$OUT/05-e1-inventory.txt" "E1-INVENTORY"
+          echo "::notice title=emitted bytes::${SUMMARY}"
 
       - name: Confirm the existing guards still pass with this workflow present
         run: |
