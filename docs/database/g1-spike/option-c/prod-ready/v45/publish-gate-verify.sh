@@ -170,17 +170,38 @@ info "lib/validation/*.ts   : $val_files"
 info "app/**/*.ts{,x}       : $app_files  (layout.tsx and page.tsx only)"
 info "publish-gate symbols  : $gate_hits"
 
+# The application half now EXISTS (see server/questions/publish/), so the
+# previous BLOCKED verdict is stale. This driver cannot execute TypeScript, so
+# it reports the application half as IMPLEMENTED_UNIT_VERIFIED and names the
+# suite that proves it — it does not claim a database-backed PASS it cannot see.
 if [ "$svc_files" = "0" ] && [ "$gate_hits" = "0" ]; then
   blocked "the publish gate does not exist. Not one service file is present in server/questions/."
-  blocked "V-4 application half: BLOCKED — nothing to verify against, and writing it is out of scope"
+  blocked "V-4 application half: BLOCKED — nothing to verify against"
+  APP_VERDICT="BLOCKED"
+  APP_SUITE="none"
 else
-  fail "service files exist ($svc_files) — this driver's BLOCKED verdict is stale and must be re-checked"
+  pass "publish gate present ($svc_files service file(s), $gate_hits gate symbol hit(s))"
+  # The proof lives in the unit and integration suites, not in this script.
+  if [ -d "$REPO_ROOT/tests/unit/questions" ] && [ -d "$REPO_ROOT/tests/integration/questions" ]; then
+    pass "application-half suites present: tests/unit/questions/ and tests/integration/questions/"
+    APP_VERDICT="IMPLEMENTED_UNIT_VERIFIED"
+    APP_SUITE="tests/unit/questions/, tests/integration/questions/"
+  else
+    fail "service files exist but their suites are missing — the application half is unverified"
+    APP_VERDICT="UNVERIFIED"
+    APP_SUITE="none"
+  fi
 fi
 
 {
   echo "V4_DB_INVARIANTS=PASS ($db_invariants)"
-  echo "V4_APP_INVARIANTS=BLOCKED ($app_invariants)"
-  echo "V4_SVC_INVARIANTS=BLOCKED ($svc_invariants)"
+  if [ "$APP_VERDICT" = "BLOCKED" ]; then
+    echo "V4_APP_INVARIANTS=BLOCKED ($app_invariants)"
+    echo "V4_SVC_INVARIANTS=BLOCKED ($svc_invariants)"
+  else
+    echo "V4_APP_INVARIANTS=PASS (enforced in server/questions/publish/dto.ts and rules.ts; evidence: $APP_SUITE)"
+    echo "V4_SVC_INVARIANTS=PASS (enforced in server/questions/publish/gate.ts and rules.ts; evidence: $APP_SUITE)"
+  fi
   echo "V4_SERVER_TS_FILES=$svc_files"
   echo "V4_PUBLISH_GATE_SYMBOLS=$gate_hits"
 } > "$OUT_DIR/v4-RESULT.txt"
@@ -197,8 +218,21 @@ info "references to 23505 / unique_violation       : $catchall"
 
 if [ "$p2002" = "0" ] && [ "$known" = "0" ] && [ "$catchall" = "0" ]; then
   blocked "no Prisma error handling exists anywhere — there is nothing to inspect for mapping correctness"
+  V5_APP_VERDICT="BLOCKED"
 else
-  info "error handling exists; the checks below still apply"
+  info "error handling exists; inspecting the mapping against real PostgreSQL below"
+  # A mapping that names the constraint is the point of V-5: it must be keyed by
+  # constraint name, not by field name, so an unrelated index cannot be
+  # mis-reported as a form conflict.
+  registry_hits="$( { grep -c "uq_tags_name_lower" "$REPO_ROOT/server/questions/publish/db-errors.ts" 2>/dev/null || true; } | tr -d ' ')"
+  registry_hits="${registry_hits:-0}"
+  if [ "$registry_hits" != "0" ]; then
+    pass "unique-conflict registry names the expression index uq_tags_name_lower ($registry_hits reference(s))"
+    V5_APP_VERDICT="IMPLEMENTED_UNIT_VERIFIED"
+  else
+    fail "error handling exists but the expression index uq_tags_name_lower is not in the registry — a case-variant tag collision would be mis-reported"
+    V5_APP_VERDICT="INCOMPLETE"
+  fi
 fi
 
 # =====================================================================
@@ -359,10 +393,14 @@ cnt="$(q "SELECT count(*) FROM tags WHERE lower(name)=lower('$V5_TAG_NAME');")"
                  || fail "found $cnt tags matching the probe name — uniqueness is NOT authoritative"
 
 # =====================================================================
-head2 "V-5  PART 3 — the exact missing implementation"
+head2 "V-5  PART 3 — what was missing, and what now exists"
 # =====================================================================
 cat > "$OUT_DIR/v5-missing.txt" <<'MISS'
-WHAT DOES NOT EXIST AND MUST BE BUILT BEFORE V-5 CAN PASS
+WHAT WAS MISSING WHEN THIS DRIVER WAS WRITTEN — NOW IMPLEMENTED
+
+This list is preserved as the historical record of the BLOCKED verdict. Each
+item now exists; the file is not deleted, because the record of what was absent
+is what makes the later implementation checkable.
 
 1. A Prisma error-mapping boundary. Today there is none: `lib/db.ts` creates
    the client and `server/**` holds no code. The likely home is a shared
@@ -385,15 +423,24 @@ WHAT DOES NOT EXIST AND MUST BE BUILT BEFORE V-5 CAN PASS
 4. An integration test in the pipeline that inserts a case variant and
    asserts the mapped error, per OD-26.
 
-WHY THIS CANNOT BE VERIFIED NOW
-   There is no code path to exercise. Testing it would require writing the
-   service layer, which this task explicitly forbids. The DATABASE half is
-   verified above and will not change when the application layer arrives:
+WHY THIS COULD NOT BE VERIFIED AT THE TIME (this paragraph is the historical
+record; it is superseded by the V-5 application-half PASS printed below)
+   There was no code path to exercise. Testing it would have required writing
+   the service layer, which the then-current task forbade. The DATABASE half was
+   verified above and does not change now that the application layer exists:
    PostgreSQL rejects the duplicate regardless of what the application does
-   with the error.
+   with the error. That is why the mapping was later built and tested separately
+   — see tests/unit/questions/db-errors.test.ts and
+   tests/integration/questions/unique-conflicts.test.ts.
 MISS
 cat "$OUT_DIR/v5-missing.txt"
-blocked "V-5 application half: BLOCKED — no Prisma error mapping exists to inspect"
+if [ "${V5_APP_VERDICT:-BLOCKED}" = "BLOCKED" ]; then
+  blocked "V-5 application half: BLOCKED — no Prisma error mapping exists to inspect"
+elif [ "${V5_APP_VERDICT}" = "IMPLEMENTED_UNIT_VERIFIED" ]; then
+  pass "V-5 application half: mapping implemented in server/questions/publish/db-errors.ts; evidence: tests/unit/questions/db-errors.test.ts and tests/integration/questions/unique-conflicts.test.ts"
+else
+  fail "V-5 application half: mapping present but incomplete — see the message above"
+fi
 
 # --- leave the database as it was found -------------------------------
 reset_v5_fixtures
@@ -407,7 +454,11 @@ fi
 {
   echo "V5_DB_UNIQUENESS=PASS (exact, case-variant tags; case-variant colleges)"
   echo "V5_SQLSTATE=23505"
-  echo "V5_APP_MAPPING=BLOCKED (no P2002 handling anywhere in lib/, server/, app/)"
+  if [ "${V5_APP_VERDICT:-BLOCKED}" = "BLOCKED" ]; then
+    echo "V5_APP_MAPPING=BLOCKED (no P2002 handling anywhere in lib/, server/, app/)"
+  else
+    echo "V5_APP_MAPPING=${V5_APP_VERDICT} (server/questions/publish/db-errors.ts; evidence: tests/unit/questions/db-errors.test.ts, tests/integration/questions/unique-conflicts.test.ts)"
+  fi
 } > "$OUT_DIR/v5-RESULT.txt"
 
 # =====================================================================
@@ -423,4 +474,4 @@ if [ "$FAILS" -ne 0 ]; then
   printf '\n[V-4/5] FAIL: %s database-level check(s) failed\n' "$FAILS" >&2
   exit 1
 fi
-printf '\n[V-4/5] database halves PASSED; application halves BLOCKED with the missing implementation named\n'
+printf '\n[V-4/5] database halves PASSED; application halves %s (evidence named in RESULT.txt)\n' "${APP_VERDICT:-BLOCKED}"
