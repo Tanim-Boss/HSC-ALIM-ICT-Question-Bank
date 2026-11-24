@@ -178,6 +178,31 @@ jobs:
           [ "$a" = "$b" ] || { echo "::error::the second restore does not match the source"; exit 1; }
           echo "::notice::V-3b the same dump restores identically a second time"
 
+      - name: Post the V-2 / V-3 results to the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          {
+            echo "<!-- v23-results -->"
+            echo "### V-2 / V-3 results (${GITHUB_SHA::7})"
+            echo
+            echo '```'
+            cat /tmp/v2/RESULT.txt 2>/dev/null || echo "no V-2 RESULT.txt"
+            echo
+            cat /tmp/v3/RESULT.txt 2>/dev/null || echo "no V-3 RESULT.txt"
+            echo '```'
+            echo
+            echo "Failing checks, if any:"
+            echo '```'
+            grep -hE "FAIL" /tmp/v2.log /tmp/v3.log 2>/dev/null | head -30 || echo "none"
+            echo '```'
+          } > /tmp/v23-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v23-comment.md \
+            || echo "::warning title=V-2/3 diagnostics::could not post the comment"
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -478,6 +503,29 @@ jobs:
             done
           fi
           exit "$rc"
+
+      - name: Post the V-4 / V-5 results to the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          {
+            echo "<!-- v45-results -->"
+            echo "### V-4 / V-5 results (${GITHUB_SHA::7})"
+            echo
+            echo '```'
+            cat /tmp/v45/RESULT.txt 2>/dev/null || echo "no V-4/5 RESULT.txt"
+            echo '```'
+            echo
+            echo "Failing checks, if any:"
+            echo '```'
+            grep -E "FAIL" /tmp/v45.log 2>/dev/null | head -30 || echo "none"
+            echo '```'
+          } > /tmp/v45-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45-comment.md \
+            || echo "::warning title=V-4/5 diagnostics::could not post the comment"
 
       - uses: actions/upload-artifact@v4
         if: always()
