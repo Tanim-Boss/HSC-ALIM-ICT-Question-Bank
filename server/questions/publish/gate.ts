@@ -32,7 +32,12 @@ import 'server-only';
 import { getPrisma } from '@/lib/db';
 import { DomainError, ViolationCollector } from './errors';
 import { mapUniqueViolation } from './db-errors';
-import { loadQuestionSnapshot, type QuestionReader } from './snapshot';
+import {
+  loadQuestionSnapshot,
+  type QuestionReader,
+  type TypeLookup,
+  type VersionLookup,
+} from './snapshot';
 import {
   assertTypeChangeAllowed,
   assertVersionMutable,
@@ -219,13 +224,17 @@ export async function publishVersion(input: {
  */
 export async function assertContentWriteAllowed(
   versionId: string,
-  client?: TransactionClient,
+  client?: VersionLookup,
 ): Promise<void> {
   // `client` is optional here (and only here) because this guard is a
   // pre-condition a caller can run inside its own transaction. `publishVersion`
   // deliberately takes no client: it owns its transaction.
-  const prisma = client ?? getPrisma();
-  const version = await prisma.questionVersion.findUnique({
+  //
+  // The cast is a widening, not a lie: the generated client satisfies
+  // VersionLookup. Casting avoids forming a union of two differently-shaped
+  // `findUnique` delegates, which TypeScript rejects as not callable.
+  const reader: VersionLookup = client ?? (getPrisma() as unknown as VersionLookup);
+  const version = await reader.questionVersion.findUnique({
     where: { id: versionId },
     select: { status: true, versionNumber: true },
   });
@@ -245,10 +254,10 @@ export async function assertContentWriteAllowed(
 export async function assertQuestionTypeChangeAllowed(
   questionId: string,
   nextType: QuestionType,
-  client?: TransactionClient,
+  client?: TypeLookup,
 ): Promise<void> {
-  const prisma = client ?? getPrisma();
-  const question = await prisma.question.findUnique({
+  const reader: TypeLookup = client ?? (getPrisma() as unknown as TypeLookup);
+  const question = await reader.question.findUnique({
     where: { id: questionId },
     select: { type: true, versions: { select: { status: true } } },
   });

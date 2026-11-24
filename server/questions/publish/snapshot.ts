@@ -112,6 +112,35 @@ export interface QuestionReader {
 }
 
 /**
+ * What the two write guards need: a single lookup by id.
+ *
+ * Narrower than `QuestionReader` on purpose. The guards accept either the pool
+ * client or a transaction, and holding those two in one expression (`client ??
+ * getPrisma()`) produces a UNION of two delegates with differently-shaped
+ * `findUnique` signatures — which TypeScript reports as "this expression is not
+ * callable". Naming the small capability both actually provide removes the
+ * union without weakening either caller.
+ */
+export interface VersionLookup {
+  readonly questionVersion: {
+    findUnique<T = { readonly status: string; readonly versionNumber: number }>(
+      args: unknown,
+    ): Promise<T | null>;
+  };
+}
+
+/** What the I-6 guard needs: the question's type plus its versions' statuses. */
+export interface TypeLookup {
+  readonly question: {
+    findUnique<
+      T = { readonly type: string; readonly versions: readonly { readonly status: string }[] },
+    >(
+      args: unknown,
+    ): Promise<T | null>;
+  };
+}
+
+/**
  * Loads the snapshot the publish rules need.
  *
  * `client` is REQUIRED and is used for every read. There is no `getPrisma()`
