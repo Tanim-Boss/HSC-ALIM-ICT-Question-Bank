@@ -216,9 +216,18 @@ head2 "V-5  PART 2 — the database half: is uniqueness still authoritative?"
 # tables are empty again at the end.
 V5_TAG_SENTINEL='v5-probe-tag'
 
+# Dedicated fixture names. They must not collide with the V-2 seed data, which
+# CI loads before this script runs: 'Computer Network' and 'Notre Dame College'
+# are both in seed-data.sql, so seeding with those names was itself the
+# violation and the duplicate probe then tested nothing at all.
+V5_TAG_NAME='V5 Probe Tag Canonical'
+V5_COLLEGE_NAME='V5 Probe College Canonical'
+V5_TAG_UPPER='V5 PROBE TAG CANONICAL'
+V5_COLLEGE_UPPER='V5 PROBE COLLEGE CANONICAL'
+
 reset_v5_fixtures() {
-  q_ "DELETE FROM tags WHERE slug LIKE 'cn-dup%' OR name ILIKE '%COMPUTER NETWORK%';" >/dev/null 2>&1 || true
-  q_ "DELETE FROM colleges WHERE name ILIKE '%NOTRE DAME COLLEGE%';" >/dev/null 2>&1 || true
+  q_ "DELETE FROM tags WHERE slug LIKE 'v5-dup%' OR name ILIKE '%V5 PROBE TAG%';" >/dev/null 2>&1 || true
+  q_ "DELETE FROM colleges WHERE name ILIKE '%V5 PROBE COLLEGE%';" >/dev/null 2>&1 || true
 }
 q_() { "$PSQL" "$URL" -Atq -v ON_ERROR_STOP=1 -c "$1"; }
 reset_v5_fixtures
@@ -229,9 +238,9 @@ pass "fixtures cleared before probing (tags=$pre_tags), so results cannot depend
 # exists -- otherwise the negative result is vacuous, exactly as the C-5 probe in
 # V-1 was before it was fixed.
 set +e
-seed_out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup',now());" 2>&1)"
+seed_out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'$V5_TAG_NAME','v5-dup-a',now());" 2>&1)"
 set -e
-if [ -z "$seed_out" ] && [ "$(q_ "SELECT count(*) FROM tags WHERE slug='cn-dup';" | tr -d ' ')" = "1" ]; then
+if [ -z "$seed_out" ] && [ "$(q_ "SELECT count(*) FROM tags WHERE slug='v5-dup-a';" | tr -d ' ')" = "1" ]; then
   pass "seed row created: 'Computer Network' exists, so the duplicate probes below are meaningful"
 else
   printf '%s\n' "$seed_out"; fail "could not create the seed row — the duplicate probes cannot be trusted"
@@ -239,7 +248,7 @@ fi
 
 # --- Tag.name duplicate, exact ---------------------------------------
 set +e
-out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup-a',now());" 2>&1)"
+out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'$V5_TAG_NAME','v5-dup-b',now());" 2>&1)"
 set -e
 if printf '%s' "$out" | grep -q "uq_tags_name_lower"; then
   pass "Tag.name exact duplicate rejected by uq_tags_name_lower"
@@ -249,7 +258,7 @@ fi
 
 # --- Tag.name duplicate, case variant --------------------------------
 set +e
-out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'COMPUTER NETWORK','cn-dup-b',now());" 2>&1)"
+out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'$V5_TAG_UPPER','v5-dup-c',now());" 2>&1)"
 set -e
 if printf '%s' "$out" | grep -q "uq_tags_name_lower"; then
   pass "Tag.name CASE-VARIANT duplicate rejected by uq_tags_name_lower (the expression index doing the work)"
@@ -261,15 +270,15 @@ fi
 # Colleges have the expression index only, so a seed row is needed for the
 # "duplicate" to exist at all.
 set +e
-seed_out="$(q_ "INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'Notre Dame College',now(),now());" 2>&1)"
+seed_out="$(q_ "INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'$V5_COLLEGE_NAME',now(),now());" 2>&1)"
 set -e
-if [ -z "$seed_out" ] && [ "$(q_ "SELECT count(*) FROM colleges WHERE lower(name)='notre dame college';" | tr -d ' ')" = "1" ]; then
+if [ -z "$seed_out" ] && [ "$(q_ "SELECT count(*) FROM colleges WHERE lower(name)=lower('$V5_COLLEGE_NAME');" | tr -d ' ')" = "1" ]; then
   pass "college seed row created, so the case-variant probe below is meaningful"
 else
   printf '%s\n' "$seed_out"; fail "could not create the college seed row"
 fi
 set +e
-out="$(q_ "INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'NOTRE DAME COLLEGE',now(),now());" 2>&1)"
+out="$(q_ "INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'$V5_COLLEGE_UPPER',now(),now());" 2>&1)"
 set -e
 if printf '%s' "$out" | grep -q "uq_colleges_name_lower"; then
   pass "College.name CASE-VARIANT duplicate rejected by uq_colleges_name_lower"
@@ -282,8 +291,8 @@ fi
 # first and the probe then had nothing to violate, so it reported NO-VIOLATION.
 # An ordering bug of the same family as the rest of this file's findings.
 reset_v5_fixtures
-q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup3',now());" >/dev/null 2>&1 || true
-probe_rows="$(q_ "SELECT count(*) FROM tags WHERE slug='cn-dup3';" | tr -d ' ')"
+q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'$V5_TAG_NAME','v5-dup-d',now());" >/dev/null 2>&1 || true
+probe_rows="$(q_ "SELECT count(*) FROM tags WHERE slug='v5-dup-d';" | tr -d ' ')"
 [ "$probe_rows" = "1" ] && pass "seed row re-created for the SQLSTATE probe" \
                        || fail "could not seed the SQLSTATE probe (rows=$probe_rows)"
 
@@ -312,7 +321,7 @@ cat "$OUT_DIR/v5-sqlstate.txt"
 # rests on an observation rather than on knowledge of PostgreSQL.
 set +e
 state="$(PGOPTIONS='-c verbosity=verbose' "$PSQL" "$URL" -v ON_ERROR_STOP=0 -c "
-INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup4',now());" 2>&1 | grep -oE 'ERROR:  [0-9A-Z]{5}' | grep -oE '[0-9A-Z]{5}' | head -1 || true)"
+INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'$V5_TAG_NAME','v5-dup-e',now());" 2>&1 | grep -oE 'ERROR:  [0-9A-Z]{5}' | grep -oE '[0-9A-Z]{5}' | head -1 || true)"
 set -e
 if [ "$state" = "23505" ]; then
   pass "the violation surfaces as SQLSTATE 23505 (observed with verbosity=verbose)"
@@ -322,7 +331,7 @@ else
   state2="$("$PSQL" "$URL" -Atq -v ON_ERROR_STOP=1 <<'SQL' 2>&1
 DO $$
 BEGIN
-  INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup4',now());
+  INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'v5 probe tag canonical','v5-dup-e',now());
   RAISE NOTICE 'NO-VIOLATION';
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'STATE=%', SQLSTATE;
@@ -343,9 +352,11 @@ fi
 # --- prove uniqueness would survive even a WRONG application mapping --
 # i.e. an application that ignores errors entirely still cannot persist a dup.
 info "the application's ignorance of the error cannot create a duplicate row:"
-cnt="$(q "SELECT count(*) FROM tags WHERE lower(name)='computer network';")"
-[ "$cnt" = "1" ] && pass "exactly one tag matches lower(name)='computer network' after three duplicate attempts" \
-                 || fail "found $cnt matching tags — uniqueness is NOT authoritative"
+# Uses the dedicated fixture name, not 'Computer Network': that name is also in
+# the V-2 seed data, so counting it measured the seed, not the probes.
+cnt="$(q "SELECT count(*) FROM tags WHERE lower(name)=lower('$V5_TAG_NAME');")"
+[ "$cnt" = "1" ] && pass "exactly one tag matches the probe name after every duplicate attempt — uniqueness held" \
+                 || fail "found $cnt tags matching the probe name — uniqueness is NOT authoritative"
 
 # =====================================================================
 head2 "V-5  PART 3 — the exact missing implementation"
@@ -387,7 +398,7 @@ blocked "V-5 application half: BLOCKED — no Prisma error mapping exists to ins
 # --- leave the database as it was found -------------------------------
 reset_v5_fixtures
 residue="$(q_ "SELECT (SELECT count(*) FROM tags)||'/'||(SELECT count(*) FROM colleges);" | tr -d ' ')"
-if [ "$residue" = "$(echo "$pre_tags/0")" ] || [ "$(q_ "SELECT count(*) FROM tags WHERE slug LIKE 'cn-dup%';" | tr -d ' ')" = "0" ]; then
+if [ "$residue" = "$(echo "$pre_tags/0")" ] || [ "$(q_ "SELECT count(*) FROM tags WHERE slug LIKE 'v5-dup%';" | tr -d ' ')" = "0" ]; then
   pass "fixtures removed; this driver left the database as it found it (tags/colleges=$residue)"
 else
   fail "fixture cleanup left rows behind (tags/colleges=$residue)"
