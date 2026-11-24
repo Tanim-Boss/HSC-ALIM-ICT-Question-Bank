@@ -1,0 +1,241 @@
+name: Phase 04A — V-4 / V-5 application verification
+
+# Runs the V-4 publish-gate and V-5 error-mapping suits against a REAL
+# PostgreSQL 16 with migration 0001 applied.
+#
+# Why this workflow exists as its own file
+#   The authoring sandbox cannot reach binaries.prisma.sh, so `prisma generate`
+#   fails there and the generated client — which is git-ignored — never exists.
+#   The unit suites run anywhere (they import nothing from the generated client);
+#   the integration suites need it, so they run here.
+#
+# This workflow does NOT deploy anything and does NOT approve anything.
+# B2 remains withheld: no production database is contacted.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - '.github/workflows/phase04a-v45-application.yml'
+      - 'server/questions/**'
+      - 'tests/unit/questions/**'
+      - 'tests/integration/questions/**'
+      - 'tests/fixtures/questions/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/phase04a-v45-application.yml'
+      - 'server/questions/**'
+      - 'tests/unit/questions/**'
+      - 'tests/integration/questions/**'
+      - 'tests/fixtures/questions/**'
+      - 'prisma/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  unit-and-static:
+    name: Unit suites, typecheck, lint, repo guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Assert the pinned Prisma CLI
+        run: |
+          version="$(./node_modules/.bin/prisma --version 2>/dev/null | head -1)"
+          echo "$version"
+          case "$version" in
+            *7.10.1*) echo "OK: pinned Prisma 7.10.1" ;;
+            *) echo "::error title=V-4/5::Prisma is not pinned at 7.10.1"; exit 1 ;;
+          esac
+
+      # The client is git-ignored. Generate it so `tsc` can resolve it; a fresh
+      # clone otherwise reports TS2307 on lib/db.ts, which is not a real defect.
+      - name: Generate the Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check (changed application files only)
+        run: |
+          npx prettier --check \
+            "server/questions/**/*.ts" \
+            "tests/unit/questions/**/*.ts" \
+            "tests/integration/questions/**/*.ts" \
+            "tests/fixtures/questions/**/*.ts" || {
+              echo "::error title=format::run 'npx prettier --write' on these files"
+              exit 1
+            }
+
+      - name: Unit suites — publish rules, error mapping, DTOs, orchestration
+        run: npx vitest run tests/unit/questions/ --reporter=verbose
+
+      - name: Regression — the pre-existing unit suites still pass
+        run: npx vitest run tests/unit/ --reporter=verbose
+
+      # The V-1…V-5 harnesses contain the repo guard; running it proves this
+      # change did not introduce a prohibited Prisma migration command.
+      - name: Repository guard (no prohibited migration command)
+        run: bash docs/database/g1-spike/option-c/repo-guard.sh
+
+      - name: Assert migration 0001 is unchanged
+        run: |
+          # Structural assertions, not a hardcoded digest: a digest would break
+          # on a legitimate future migration and prove nothing here. What this
+          # task must not do is EDIT 0001, so the checks are the facts the task
+          # promised to preserve.
+          sha="$(sha256sum prisma/migrations/0001_phase04a_question_bank/migration.sql | cut -d' ' -f1)"
+          echo "0001 sha256=$sha"
+          tables="$(grep -c '^CREATE TABLE' prisma/migrations/0001_phase04a_question_bank/migration.sql)"
+          [ "$tables" = "18" ] || { echo "::error title=V-4/5::0001 no longer creates 18 tables ($tables)"; exit 1; }
+          grep -q 'fk_questions_level_subject' prisma/migrations/0001_phase04a_question_bank/migration.sql \
+            || { echo "::error title=V-4/5::a protected composite FK is missing from 0001"; exit 1; }
+          echo "OK: 0001 unchanged in shape — 18 tables, protected FKs present"
+
+      - name: Assert candidate migration 0002 is not committed
+        run: |
+          if [ -d prisma/migrations/0002_v1_recently_added_index ]; then
+            echo "::error title=V-4/5::candidate migration 0002 was committed — it must not be"
+            exit 1
+          fi
+          ls prisma/migrations/
+          echo "OK: only the 0001 baseline is present"
+
+  integration:
+    name: Integration suites against real PostgreSQL 16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v45app
+          POSTGRES_PASSWORD: v45app
+          POSTGRES_DB: v45app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U v45app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://v45app:v45app@localhost:5432/v45app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Ensure a PostgreSQL 16 client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          psql --version
+
+      - name: Generate the Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      # apply migration 0001 EXACTLY as the committed file specifies — no
+      # `migrate dev`, no `db push`, no `migrate reset` (all prohibited).
+      - name: Apply migration 0001
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+            -f prisma/migrations/0001_phase04a_question_bank/migration.sql
+          psql "$DATABASE_URL" -tAc "
+            SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public')
+              ||'/'||(SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace)
+              ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace)
+              ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%')"
+
+      # Records what Prisma actually reports for an expression-index violation,
+      # so the report can quote reality instead of a guess.
+      - name: Measure the real error metadata for uq_tags_name_lower
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+            "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Probe Tag','probe-tag',now())"
+          echo "--- direct SQLSTATE (verbosity=verbose):"
+          PGOPTIONS='-c verbosity=verbose' psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
+            "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Probe Tag','probe-tag-2',now())" 2>&1 | head -5 || true
+          psql "$DATABASE_URL" -q -c "DELETE FROM tags WHERE slug LIKE 'probe-tag%'"
+
+      - name: Integration suites — V-4 publish gate and V-5 error mapping
+        run: |
+          set -uo pipefail
+          npx vitest run tests/integration/questions/ --reporter=verbose 2>&1 | tee /tmp/v45app.log
+          rc=${PIPESTATUS[0]}
+          # A skipped integration suite is NOT a pass. Fail loudly if the
+          # database was not actually exercised — this is the false-pass guard
+          # the whole V-1…V-5 effort kept needing.
+          if grep -qE "SKIPPED|Tests .*skipped" /tmp/v45app.log; then
+            echo "::error title=V-4/5::integration tests were SKIPPED — DATABASE_URL was not usable"
+            exit 1
+          fi
+          echo "integration tests executed against: ${DATABASE_URL%%@*}@…"
+          exit "$rc"
+
+      - name: Assert the suites actually ran a non-trivial number of cases
+        run: |
+          count="$(grep -oE "Tests +[0-9]+ passed" /tmp/v45app.log | grep -oE '[0-9]+' | head -1)"
+          echo "passed=$count"
+          if [ -z "${count:-}" ] || [ "$count" -lt 8 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 8"
+            exit 1
+          fi
+
+      - name: Publish results to the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          {
+            echo "<!-- v45-app-results -->"
+            echo "### V-4 / V-5 application verification (${GITHUB_SHA::7})"
+            echo
+            echo '```'
+            grep -E "Tests +[0-9]+|✓|×|SKIPPED" /tmp/v45app.log 2>/dev/null | head -60 || echo "no log"
+            echo '```'
+            echo
+            echo "Failing cases, if any:"
+            echo '```'
+            grep -E "FAIL |AssertionError" /tmp/v45app.log 2>/dev/null | head -20 || echo "none"
+            echo '```'
+          } > /tmp/v45app-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45app-comment.md \
+            || echo "::warning title=V-4/5::could not post the comment"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v45-application-evidence
+          path: /tmp/v45app.log
+          retention-days: 30
