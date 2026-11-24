@@ -173,13 +173,19 @@ jobs:
             echo "::error title=E2::Option C snapshot diff errored (exit $rc)"
             exit 1
           fi
+          # Prisma writes the sentinel "-- This is an empty migration." rather
+          # than a zero-byte file, so emptiness is judged by counting STATEMENTS,
+          # not bytes. The first run of this workflow failed here on the sentinel
+          # alone — an assertion bug in the harness, not a defect in Option C.
           bytes="$(wc -c < "$OUT/e2-snapshot-nochange.sql")"
-          echo "E2 output bytes=$bytes (expect 0)"
-          if [ "$bytes" -ne 0 ]; then
+          statements="$(grep -vE '^[[:space:]]*(--.*)?$' "$OUT/e2-snapshot-nochange.sql" | wc -l)"
+          echo "E2 output bytes=$bytes, statements=$statements (expect 0 statements)"
+          if [ "$statements" -ne 0 ]; then
             cat "$OUT/e2-snapshot-nochange.sql"
-            echo "::error title=E2::Option C reported a change between a snapshot and itself"
+            echo "::error title=E2::Option C reported $statements statement(s) between a snapshot and itself"
             exit 1
           fi
+          echo "::notice title=E2 sentinel bytes::$bytes" 
 
       # ---------------------------------------------------------------------
       # E3 — Option C with one additive probe: only that change may appear
