@@ -36,6 +36,10 @@
 
 import type { DomainErrorInit } from './errors';
 import { isRestrictedAnswerName } from './restricted-names';
+// §7.11: the Zod schemas are the specification's executable form. The gate
+// enforces §7.2/§7.4/§7.5/§7.12 through them rather than re-implementing
+// the rules by hand — see the note on `checkContentProfiles`.
+import { safeParseProfile } from '@/lib/validation/content-blocks';
 import { DomainError, ViolationCollector } from './errors';
 import {
   assetIdsIn,
@@ -1037,13 +1041,14 @@ export function checkTaxonomy(question: QuestionSnapshot, violations: ViolationC
 /** §7.5 — the content profiles the checks above rely on                  */
 /** ------------------------------------------------------------------ */
 
-/** §7.5 `option` profile: the only block types an option may contain. */
-const ALLOWED_OPTION_TYPES: readonly string[] = ['paragraph', 'math', 'image', 'code'];
-
 /**
- * Scans raw JSON for an answer-revealing property name at any depth.
- * §7.5 forbids these in stem, option and content documents — a leaked answer in
- * a student-facing document is the single worst failure this system can have.
+ * Scans raw JSON for a restricted answer-bearing property name at any depth.
+ *
+ * §7.5 forbids these in stem, option and content documents — a leaked answer in a
+ * student-facing document is the single worst failure this system can have.
+ *
+ * The name list lives in `restricted-names.ts`, shared with the student
+ * projection, so the two boundaries cannot diverge again.
  */
 export function findAnswerRevealingProperty(value: unknown, path = '$'): string | null {
   if (Array.isArray(value)) {
@@ -1065,6 +1070,41 @@ export function findAnswerRevealingProperty(value: unknown, path = '$'): string 
   return null;
 }
 
+/**
+ * §7.5 — maps the question type to the profile schema that governs its content.
+ *
+ * This is the ONLY place the gate chooses a profile, so the mapping cannot drift
+ * between the stem check and any future caller.
+ */
+function profileFor(type: QuestionType): 'mcq_stem' | 'cq_stem' {
+  return type === 'MCQ' ? 'mcq_stem' : 'cq_stem';
+}
+
+/**
+ * §7.5 profiles, §7.4 block shapes and §7.12 limits — enforced through the
+ * approved Zod schemas.
+ *
+ * THIS FUNCTION NO LONGER CONTAINS THE RULES. It previously re-implemented
+ * §7.5 by hand (a `paragraph` presence check, an option type allowlist, a
+ * subquestion-ordering scan) while §7.4 and §7.12 were enforced nowhere. That was
+ * a second representation of an approved specification, and §7.11 rule 1 forbids
+ * exactly that: "the Zod schemas are the specification's executable form".
+ *
+ * Two boundaries are kept distinct here, deliberately:
+ *
+ *   1. **Answer-revealing names** (§7.5) are checked FIRST and reported under
+ *      their own message. Zod cannot produce that message — the property is
+ *      unknown to the schema, so it fails as `unrecognized key`. Keeping the
+ *      explicit scan means the operator sees "carries an answer-revealing
+ *      property at $.blocks[0].data.correct" instead of "Unrecognized key:
+ *      correct". The scan is a REPORTING refinement; the rejection itself is
+ *      enforced twice, by the scan and by Zod's strictness.
+ *
+ *   2. **Domain error codes** are preserved (`CONTENT_PROFILE_INVALID`). A Zod
+ *      failure is a schema failure; a `DomainError` is what a caller switches on
+ *      and what `toPublicError` serialises. Mapping one to the other here keeps
+ *      the gate's contract stable while the enforcement moves.
+ */
 export function checkContentProfiles(
   type: QuestionType,
   version: VersionRecordSnapshot,
@@ -1073,15 +1113,8 @@ export function checkContentProfiles(
   const where = `version ${version.versionNumber}`;
   const content = version.content;
 
-  if (!isContentDocument(content)) {
-    violations.fail({
-      code: 'CONTENT_PROFILE_INVALID',
-      message: `The content of ${where} is not a valid content document.`,
-      field: 'content',
-    });
-    return;
-  }
-
+  // (1) Answer-revealing property names — reported precisely, before Zod turns
+  // them into a generic unrecognized-key error.
   const revealed = findAnswerRevealingProperty(content);
   if (revealed !== null) {
     violations.fail({
@@ -1091,107 +1124,43 @@ export function checkContentProfiles(
     });
   }
 
-  if (type === 'MCQ') {
-    // mcq_stem: ≥1 block, ≥1 paragraph, no subquestion, no leading heading.
-    const blocks = content.blocks;
-    if (blocks.length === 0) {
+  // (2) The approved schema does the rest: envelope literals (§7.2), ten block
+  // shapes (§7.4), profile composition (§7.5) and every §7.12 limit.
+  const profile = profileFor(type);
+  const result = safeParseProfile(profile, content);
+  if (!result.ok) {
+    // One violation per distinct issue, capped so a 200-block document cannot
+    // produce 200 lines of output. The first issue is the actionable one.
+    for (const issue of result.issues.slice(0, 5)) {
       violations.fail({
         code: 'CONTENT_PROFILE_INVALID',
-        message: `The stem of ${where} is empty.`,
-        field: 'content.blocks',
+        message: `The ${profile} content of ${where} is not valid — ${issue}`,
+        field: 'content',
       });
     }
-    if (!blocks.some((b) => b.type === 'paragraph')) {
+    if (result.issues.length > 5) {
       violations.fail({
         code: 'CONTENT_PROFILE_INVALID',
-        message: `The stem of ${where} needs at least one paragraph of text.`,
-        field: 'content.blocks',
+        message:
+          `The ${profile} content of ${where} has ${result.issues.length} problems; ` +
+          'the first five are reported above.',
+        field: 'content',
       });
-    }
-    if (blocks.some((b) => b.type === 'subquestion')) {
-      violations.fail({
-        code: 'CONTENT_PROFILE_INVALID',
-        message: `An MCQ stem (${where}) must not contain subquestions.`,
-        field: 'content.blocks',
-      });
-    }
-    if (blocks[0]?.type === 'heading') {
-      violations.fail({
-        code: 'CONTENT_PROFILE_INVALID',
-        message: `An MCQ stem (${where}) must not begin with a heading.`,
-        field: 'content.blocks',
-      });
-    }
-
-    // option profile: 1…3 blocks, only paragraph/math/image/code.
-    for (const option of version.options) {
-      if (!isContentDocument(option.content)) {
-        violations.fail({
-          code: 'CONTENT_PROFILE_INVALID',
-          message: `Option ${option.key} of ${where} is not a valid content document.`,
-          field: `options.${option.key}`,
-        });
-        continue;
-      }
-      const bad = option.content.blocks.filter((b) => !ALLOWED_OPTION_TYPES.includes(b.type));
-      if (option.content.blocks.length < 1 || option.content.blocks.length > 3 || bad.length > 0) {
-        violations.fail({
-          code: 'CONTENT_PROFILE_INVALID',
-          message:
-            `Option ${option.key} of ${where} must hold 1–3 blocks of type ` +
-            `paragraph, math, image or code; found ${option.content.blocks.map((b) => b.type).join(', ') || 'none'}.`,
-          field: `options.${option.key}`,
-        });
-      }
-      const optionRevealed = findAnswerRevealingProperty(option.content);
-      if (optionRevealed !== null) {
-        violations.fail({
-          code: 'CONTENT_PROFILE_INVALID',
-          message: `Option ${option.key} of ${where} carries an answer-revealing property at ${optionRevealed}.`,
-          field: `options.${option.key}`,
-        });
-      }
     }
     return;
   }
 
-  // cq_stem: ≥1 stimulus block (non-subquestion) then exactly four
-  // subquestions in ক→ঘ order. I-15 checks the marks; this checks the shape.
-  const blocks = content.blocks;
-  const stimulusCount = blocks.filter((b) => b.type !== 'subquestion').length;
-  if (stimulusCount === 0) {
-    violations.fail({
-      code: 'CONTENT_PROFILE_INVALID',
-      message: `The CQ stem of ${where} needs at least one stimulus block before its subquestions.`,
-      field: 'content.blocks',
-    });
-  }
-  const stems = subquestionBlocks(content);
-  const firstSubquestionIndex = blocks.findIndex((b) => b.type === 'subquestion');
-  if (
-    firstSubquestionIndex >= 0 &&
-    blocks.slice(firstSubquestionIndex).some((b) => b.type !== 'subquestion')
-  ) {
-    violations.fail({
-      code: 'CONTENT_PROFILE_INVALID',
-      message: `All subquestions of ${where} must come last, after the stimulus.`,
-      field: 'content.blocks',
-    });
-  }
-  for (const stem of stems) {
-    if (stem.data?.['blocks'] !== undefined && Array.isArray(stem.data['blocks'])) {
-      const nested = stem.data['blocks'] as readonly unknown[];
-      const heading = nested.some(
-        (b) =>
-          typeof b === 'object' &&
-          b !== null &&
-          (b as Record<string, unknown>)['type'] === 'heading',
-      );
-      if (heading) {
+  // (3) Options are governed by the `option` profile (§7.5), not by the stem
+  // profile, so they are validated separately — exactly as they are stored
+  // separately.
+  for (const option of version.options) {
+    const optionResult = safeParseProfile('option', option.content);
+    if (!optionResult.ok) {
+      for (const issue of optionResult.issues.slice(0, 3)) {
         violations.fail({
           code: 'CONTENT_PROFILE_INVALID',
-          message: `A subquestion of ${where} must not contain a heading.`,
-          field: 'content.blocks',
+          message: `Option ${option.key} of ${where} is not valid — ${issue}`,
+          field: `options.${option.key}`,
         });
       }
     }
@@ -1368,8 +1337,12 @@ export function assertLegacyArchiveReviewRequired(
   if (options.allowLegacyArchivedTypeChange === true) return;
   if (!versions.every((v) => v.status === 'ARCHIVED')) return;
 
+  // A SPECIFIC code, not QUESTION_TYPE_IMMUTABLE. The distinction is the whole
+  // point of AMB-5: "a published version exists" and "publication status is
+  // unknown" call for different remediation, and only the second one is a
+  // consequence of the missing historical tracking.
   throw new DomainError({
-    code: 'QUESTION_TYPE_IMMUTABLE',
+    code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
     invariant: 'I-6',
     message:
       "This question's versions are all archived, so whether it was ever published cannot be " +

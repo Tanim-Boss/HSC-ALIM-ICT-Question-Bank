@@ -39,6 +39,7 @@ import {
   type VersionLookup,
 } from './snapshot';
 import {
+  assertLegacyArchiveReviewRequired,
   assertTypeChangeAllowed,
   assertVersionMutable,
   checkStatusRollup,
@@ -267,17 +268,26 @@ export async function assertQuestionTypeChangeAllowed(
       message: 'That question does not exist.',
     });
   }
-  assertTypeChangeAllowed(
-    nextType,
-    question.type as QuestionType,
-    question.versions.map((v: { status: string }, index: number) => ({
-      id: String(index),
-      versionNumber: index + 1,
-      status: v.status as VersionStatus,
-      content: null,
-      options: [],
-      answerKey: null,
-      assetLinks: [],
-    })),
-  );
+  const versions = question.versions.map((v: { status: string }, index: number) => ({
+    id: String(index),
+    versionNumber: index + 1,
+    status: v.status as VersionStatus,
+    content: null,
+    options: [],
+    answerKey: null,
+    assetLinks: [],
+  }));
+
+  assertTypeChangeAllowed(nextType, question.type as QuestionType, versions);
+
+  // AMB-5 (owner-approved, FAIL CLOSED). This call is the difference between
+  // the policy existing and the policy being enforced: before it was added,
+  // this entry point returned normally for an all-archived question and a
+  // caller could change its type with no review at all. Both gates run, in this
+  // order, because they answer different questions:
+  //   - assertTypeChangeAllowed      → is a version published RIGHT NOW?
+  //   - assertLegacyArchiveReview…   → is publication status UNKNOWABLE?
+  // A question can satisfy only the second, and only the second is the legacy
+  // archived case the owner decided to fail closed.
+  assertLegacyArchiveReviewRequired(nextType, question.type as QuestionType, versions);
 }

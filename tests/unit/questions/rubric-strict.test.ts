@@ -395,13 +395,21 @@ describe('AMB-5 — fail closed for legacy archived records (owner-approved)', (
     ).toThrow(/archived/i);
   });
 
-  it('the refusal is the I-6 type-immutability error, not a new invented code', () => {
+  it('the refusal carries its own review-required code and invariant I-6', () => {
+    // Task 6 requires a SPECIFIC, structured review-required error — so this is
+    // a new code rather than the generic QUESTION_TYPE_IMMUTABLE, which would
+    // tell a user "a published version exists" when the actual fact is that
+    // publication status is unknowable. It is not an "invented" code: it is the
+    // distinction AMB-5 exists to make, declared in `DomainErrorCode` alongside
+    // the rest of the gate's vocabulary.
     try {
       assertLegacyArchiveReviewRequired('CQ', 'MCQ', [v('ARCHIVED', 1)]);
       throw new Error('should have thrown');
     } catch (error) {
-      expect((error as { code?: string }).code).toBe('QUESTION_TYPE_IMMUTABLE');
+      expect((error as { code?: string }).code).toBe('QUESTION_TYPE_CHANGE_REVIEW_REQUIRED');
       expect((error as { invariant?: string }).invariant).toBe('I-6');
+      // NOT the published-version code.
+      expect((error as { code?: string }).code).not.toBe('QUESTION_TYPE_IMMUTABLE');
     }
   });
 

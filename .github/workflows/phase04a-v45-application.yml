@@ -374,8 +374,29 @@ jobs:
             printf '%s\n' "$clean" | grep -E "AssertionError|FAIL " | head -20 || echo "none"
             echo '```'
           } > /tmp/v45app-comment.md
-          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45app-comment.md \
-            || echo "::warning title=V-4/5::could not post the comment"
+          # OD-26-5: ONE canonical comment per PR, UPDATED in place.
+          #
+          # Posting a fresh comment every run accumulated dozens of near-identical
+          # comments, each authoritative only for its own run, with no way to tell
+          # which was current. The marker below identifies the canonical comment;
+          # it is edited rather than duplicated, and it always points at the exact
+          # run it describes. Previous runs remain reachable through the run URL
+          # and the committed milestone records — evidence is not deleted, only
+          # superseded in place.
+          MARKER="<!-- v45-app-results -->"
+          existing="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" 2>/dev/null | tail -1 || true)"
+          if [ -n "${existing:-}" ]; then
+            gh api -X PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+              -F body=@/tmp/v45app-comment.md >/dev/null \
+              && echo "updated canonical evidence comment ${existing}" \
+              || echo "::warning title=V-4/5::could not update the canonical comment"
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45app-comment.md \
+              || echo "::warning title=V-4/5::could not post the comment"
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -389,4 +410,32 @@ jobs:
           # would fail the upload. 90 days is the longest compliant value; the rest
           # of the 12 months must come from the committed milestone record, which
           # is why that record is required rather than optional.
+          retention-days: 90
+
+      - name: Build the durable milestone record (OD-26-5)
+        if: always()
+        env:
+          PG_IMAGE: postgres:16
+        run: |
+          # The artifact above lasts 90 days — the platform maximum for a public
+          # repository. The owner-approved audit window is 12 months. The gap is
+          # closed by a COMMITTED record, generated here and uploaded alongside
+          # the artifact so it can be committed at the milestone without inventing
+          # push credentials for the workflow.
+          #
+          # This step does NOT commit anything itself: a workflow that pushed to
+          # the branch would rewrite the very commit it is reporting on.
+          mkdir -p /tmp/evidence
+          ./scripts/ci/build-milestone-record.sh \
+            /tmp/evidence/milestone-record-run-${GITHUB_RUN_ID}.md \
+            /tmp/v45app.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: od-26-5-milestone-record
+          path: /tmp/evidence/milestone-record-run-*.md
+          # Same 90-day cap. The record's durability comes from being committed,
+          # not from this retention setting — stated so the artifact is never
+          # mistaken for the 12-month mechanism.
           retention-days: 90

@@ -33,6 +33,13 @@ export type DomainErrorCode =
   | 'INACTIVE_ROW_REFERENCED' // I-12
   | 'CQ_MARKS_MISMATCH' // I-15
   | 'CONTENT_PROFILE_INVALID' // §7.5 profiles, prerequisite of the above
+  // ── AMB-5: fail-closed review gate for legacy archived records ───────────
+  // Distinct from QUESTION_TYPE_IMMUTABLE on purpose. That code means "a
+  // published version exists right now"; this one means "publication status
+  // cannot be determined because every version is archived". Collapsing them
+  // would let a UI tell the user the wrong thing, and would hide the fact that
+  // no historical publication tracking exists.
+  | 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED'
   // ── V-5: unique-constraint mapping ──────────────────────────────────────
   | 'TAG_NAME_CONFLICT' // uq_tags_name_lower
   | 'TAG_SLUG_CONFLICT' // uq_tags_slug
