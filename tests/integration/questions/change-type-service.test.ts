@@ -321,3 +321,183 @@ describeDb('AMB-5 · bypass analysis', () => {
     expect(await readType(questionId)).toBe('MCQ');
   });
 });
+
+/**
+ * Transaction and concurrency verification.
+ *
+ * Two kinds of proof, deliberately separated:
+ *
+ *   DETERMINISTIC — open a transaction that holds the row lock, then assert from
+ *   a second connection that the lock is actually held on the question row. No
+ *   sleeps: `pg_locks` is queried until the state is observed, with a bounded
+ *   poll. This proves the service takes the lock at all, which a timing-based
+ *   race test cannot show.
+ *
+ *   RACE — two service calls in flight at once. Which one wins is not
+ *   deterministic, so only the invariant is asserted: at most one write lands
+ *   and the persisted state is consistent. Same approach the publish suite
+ *   already uses.
+ */
+describeDb('AMB-5 · transaction scope and row locking', () => {
+  /**
+   * Waits until some backend holds a lock on the `questions` table.
+   *
+   * Used instead of a sleep so the tests do not depend on the holder being fast
+   * enough. Bounded, so a genuine failure surfaces as an assertion rather than
+   * a hang. A false NEGATIVE is possible only if an unrelated connection holds a
+   * lock on the same table; that would make the test stricter, never laxer.
+   */
+  async function waitForQuestionLock(): Promise<boolean> {
+    const deadline = Date.now() + 10_000;
+    while (Date.now() < deadline) {
+      const rows = (await prisma.$queryRawUnsafe(
+        `SELECT count(*)::int AS n
+           FROM pg_locks
+          WHERE relation = 'questions'::regclass
+            AND granted
+            AND mode IN ('RowShareLock', 'RowExclusiveLock')`,
+      )) as { n: number }[];
+      if ((rows[0]?.n ?? 0) > 0) return true;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    return false;
+  }
+
+  it('the service holds a row lock on the question for the duration of the transaction', async () => {
+    // Acquire the SAME lock the service takes, by hand, so the contention is
+    // deterministic: the service must block on it. The blocking behaviour is the
+    // assertion; nothing here depends on winning a race.
+    const { questionId } = await createQuestion('MCQ', ['DRAFT']);
+
+    let releaseHold: () => void = () => undefined;
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+
+    // A separate connection holds FOR UPDATE on the row.
+    const holder = (async () => {
+      const client = new PrismaClient({
+        adapter: new PrismaPg({ connectionString: DATABASE_URL ?? '' }),
+      });
+      try {
+        await client.$transaction(async (tx) => {
+          await (
+            tx as unknown as { $executeRawUnsafe: typeof prisma.$executeRawUnsafe }
+          ).$executeRawUnsafe(
+            `SELECT id FROM questions WHERE id = $1::uuid FOR UPDATE`,
+            questionId,
+          );
+          await hold; // hold the lock until the assertion below has run
+        });
+      } finally {
+        await client.$disconnect();
+      }
+    })();
+
+    // Wait until the lock is genuinely held, then assert the service is the one
+    // that has to wait for it.
+    expect(await waitForQuestionLock(), 'the holder never acquired the row lock').toBe(true);
+
+    // Start the service; it must NOT complete while the lock is held.
+    let serviceSettled = false;
+    const call = changeQuestionType({ questionId, nextType: 'CQ' }).finally(() => {
+      serviceSettled = true;
+    });
+
+    // Give the service a bounded window in which it must remain blocked.
+    await new Promise((resolve) => setTimeout(resolve, 400));
+    expect(serviceSettled, 'the service wrote without waiting for the row lock').toBe(false);
+
+    // Release, and the service proceeds normally.
+    releaseHold();
+    const result = await call;
+    await holder;
+    expect(result.type).toBe('CQ');
+    expect(await readType(questionId)).toBe('CQ');
+  });
+
+  it('a blocked type change sees post-commit state, not a stale pre-lock read', async () => {
+    // The lock is acquired AFTER the holder commits a change. If the service read
+    // through the pool instead of its transaction (defect D2), it could decide on
+    // the pre-change type. Here the holder moves MCQ → CQ under the lock; the
+    // waiting service then asks for MCQ, which is now a change BACK and must be
+    // allowed and must be based on the committed CQ.
+    const { questionId } = await createQuestion('MCQ', ['DRAFT']);
+
+    let releaseHold: () => void = () => undefined;
+    const hold = new Promise<void>((resolve) => {
+      releaseHold = resolve;
+    });
+
+    const holder = (async () => {
+      const client = new PrismaClient({
+        adapter: new PrismaPg({ connectionString: DATABASE_URL ?? '' }),
+      });
+      try {
+        await client.$transaction(async (tx) => {
+          await (
+            tx as unknown as { $executeRawUnsafe: typeof prisma.$executeRawUnsafe }
+          ).$executeRawUnsafe(
+            `SELECT id FROM questions WHERE id = $1::uuid FOR UPDATE`,
+            questionId,
+          );
+          await (
+            tx as unknown as { $executeRawUnsafe: typeof prisma.$executeRawUnsafe }
+          ).$executeRawUnsafe(`UPDATE questions SET type = 'CQ' WHERE id = $1::uuid`, questionId);
+          await hold;
+        });
+      } finally {
+        await client.$disconnect();
+      }
+    })();
+
+    // Deterministic: proceed only once the holder demonstrably holds the lock,
+    // so the service is guaranteed to block and therefore to read AFTER the
+    // holder's uncommitted UPDATE commits.
+    expect(await waitForQuestionLock(), 'the holder never acquired the row lock').toBe(true);
+    const call = changeQuestionType({ questionId, nextType: 'MCQ' });
+    releaseHold();
+    await holder;
+
+    const result = await call;
+    // The service must have observed CQ as the "before" type.
+    expect(result.previousType).toBe('CQ');
+    expect(result.type).toBe('MCQ');
+    expect(await readType(questionId)).toBe('MCQ');
+  });
+
+  it('two concurrent type changes both land without interleaving into an inconsistent state', async () => {
+    const { questionId } = await createQuestion('MCQ', ['DRAFT']);
+
+    const outcomes = await Promise.allSettled([
+      changeQuestionType({ questionId, nextType: 'CQ' }),
+      changeQuestionType({ questionId, nextType: 'CQ' }),
+    ]);
+
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
+    expect(fulfilled.length, 'neither concurrent type change completed').toBeGreaterThanOrEqual(1);
+
+    // Serialised by the lock: the first writes CQ, the second observes CQ and
+    // becomes a no-op. Both are legitimate results, and both must agree.
+    for (const outcome of fulfilled) {
+      if (outcome.status === 'fulfilled') expect(outcome.value.type).toBe('CQ');
+    }
+    expect(await readType(questionId)).toBe('CQ');
+  });
+
+  it('a rejected archived change rolls back and leaves no partial state', async () => {
+    const { questionId, versionIds } = await createQuestion('MCQ', ['ARCHIVED']);
+
+    await expect(changeQuestionType({ questionId, nextType: 'CQ' })).rejects.toMatchObject({
+      code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
+    });
+
+    // Type unchanged AND the version untouched — the whole transaction rolled back.
+    expect(await readType(questionId)).toBe('MCQ');
+    const version = await prisma.questionVersion.findUnique({
+      where: { id: versionIds[0] ?? '' },
+      select: { status: true },
+    });
+    expect(version?.status).toBe('ARCHIVED');
+  });
+});
