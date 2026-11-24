@@ -165,7 +165,7 @@ jobs:
           name: g1-spike-artefacts
           path: docs/database/g1-spike/out/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
 
       - name: Summarise the run
         if: always()

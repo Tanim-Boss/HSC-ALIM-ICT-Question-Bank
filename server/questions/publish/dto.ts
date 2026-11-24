@@ -18,6 +18,11 @@
  */
 
 import type { QuestionStatus, QuestionType, VersionStatus } from './rules';
+// The restricted-name policy is shared with the publish gate — see
+// `restricted-names.ts` for why there were two lists and why that was a defect.
+// This boundary does NOT depend on the gate having run: `stripAnswerRevealing`
+// removes every restricted name on its own, and `findLeakedField` asserts it.
+import { isRestrictedAnswerName } from './restricted-names';
 
 /** Who is asking. There is no 'anonymous' case: auth happens before this. */
 export type Audience = 'student' | 'staff';
@@ -67,21 +72,6 @@ export interface QuestionRowLike {
   };
 }
 
-/** Keys that must never reach a student, checked again at the boundary. */
-const FORBIDDEN_IN_STUDENT_OUTPUT = [
-  'mcqCorrectOptionKey',
-  'cqRubric',
-  'answerKey',
-  'isVerified',
-  'verifiedAt',
-  'notes',
-  'correctAnswer',
-  'isCorrect',
-  'solution',
-  'expectedAnswer',
-  'explanation',
-] as const;
-
 /**
  * Removes answer-revealing properties from a content document at any depth.
  *
@@ -96,7 +86,7 @@ export function stripAnswerRevealing(value: unknown): unknown {
 
   const out: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if ((FORBIDDEN_IN_STUDENT_OUTPUT as readonly string[]).includes(key)) continue;
+    if (isRestrictedAnswerName(key)) continue;
     out[key] = stripAnswerRevealing(child);
   }
   return out;
@@ -167,7 +157,7 @@ export function findLeakedField(value: unknown, path = '$'): string | null {
   if (typeof value !== 'object' || value === null) return null;
 
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if ((FORBIDDEN_IN_STUDENT_OUTPUT as readonly string[]).includes(key)) {
+    if (isRestrictedAnswerName(key)) {
       return `${path}.${key}`;
     }
     const found = findLeakedField(child, `${path}.${key}`);
@@ -178,6 +168,11 @@ export function findLeakedField(value: unknown, path = '$'): string | null {
 
 /** Throws in non-production when a student projection leaks a forbidden field. */
 export function assertNoLeak(dto: unknown, label: string): void {
+  // A no-op in production is a deliberate trade — an assertion that throws on a
+  // student exam screen would be worse than the leak it reports — but it means
+  // this function is NOT the control. `toStudentQuestion`'s allowlist plus
+  // `stripAnswerRevealing` are. Do not treat a passing `assertNoLeak` as proof
+  // that a payload is safe in production; assert on the projection itself.
   if (process.env['NODE_ENV'] === 'production') return;
   const leaked = findLeakedField(dto);
   if (leaked !== null) {

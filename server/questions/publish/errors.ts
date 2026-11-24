@@ -23,6 +23,7 @@ export type DomainErrorCode =
   | 'PUBLISHED_VERSION_IMMUTABLE' // I-5
   | 'QUESTION_TYPE_IMMUTABLE' // I-6
   | 'CQ_RUBRIC_PARTS_MISMATCH' // I-7
+  | 'CQ_RUBRIC_INVALID' // §7.7 rubric shape, strict: unknown/malformed fields
   | 'ASSET_POINTER_UNRESOLVED' // I-8 / I-14
   | 'ASSET_POINTER_DUPLICATE' // I-8
   | 'MCQ_ANSWER_KEY_INVALID' // I-13

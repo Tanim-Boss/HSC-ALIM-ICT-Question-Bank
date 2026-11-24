@@ -172,7 +172,7 @@ jobs:
           path: |
             docs/database/g1-spike/experiment-2/out/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
 
       - name: Job summary
         if: always()

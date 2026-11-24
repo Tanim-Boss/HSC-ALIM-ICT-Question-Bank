@@ -67,37 +67,48 @@ export function cqStem(): unknown {
 
 /** A rubric matching `cqStem()` exactly, per §7.7. */
 export function cqRubric(overrides: Record<string, unknown> = {}): unknown {
+  // The full approved §7.7 shape, including the fields the old parser dropped:
+  // `version`, `criteria[].description`, `criteria[].kind`, `expectedAnswer`
+  // and `notes`. The fixture has to carry them because a strict parser must
+  // ACCEPT them — a fixture that omitted them would pass a strict parser for
+  // the wrong reason.
   return {
     format: 'cq_rubric',
     version: 1,
     totalMaxMarks: 10,
     parts: [
-      { part: 'ক', maxMarks: 1, criteria: [{ description: 'সংজ্ঞা', marks: 1 }] },
+      {
+        part: 'ক',
+        maxMarks: 1,
+        criteria: [{ description: 'সংজ্ঞা', marks: 1, kind: 'knowledge' }],
+        expectedAnswer: 'যে সংখ্যা পদ্ধতিতে কেবল ০ ও ১ ব্যবহৃত হয় তাকে বাইনারি বলে।',
+      },
       {
         part: 'খ',
         maxMarks: 2,
         criteria: [
-          { description: 'পদ্ধতি', marks: 1 },
-          { description: 'ফল', marks: 1 },
+          { description: 'পদ্ধতি', marks: 1, kind: 'application' },
+          { description: 'ফল', marks: 1, kind: 'application' },
         ],
       },
       {
         part: 'গ',
         maxMarks: 3,
         criteria: [
-          { description: 'ভাগ', marks: 1 },
-          { description: 'ক্রম', marks: 1 },
-          { description: 'ফল', marks: 1 },
+          { description: 'ভাগ', marks: 1, kind: 'application' },
+          { description: 'ক্রম', marks: 1, kind: 'application' },
+          { description: 'ফল', marks: 1, kind: 'application' },
         ],
+        notes: 'ভাগশেষ নিচ থেকে উপরে পড়তে হবে।',
       },
       {
         part: 'ঘ',
         maxMarks: 4,
         criteria: [
-          { description: 'ক', marks: 1 },
-          { description: 'খ', marks: 1 },
-          { description: 'গ', marks: 1 },
-          { description: 'ঘ', marks: 1 },
+          { description: 'ক', marks: 1, kind: 'comprehension' },
+          { description: 'খ', marks: 1, kind: 'application' },
+          { description: 'গ', marks: 1, kind: 'application' },
+          { description: 'ঘ', marks: 1, kind: 'analysis' },
         ],
       },
     ],

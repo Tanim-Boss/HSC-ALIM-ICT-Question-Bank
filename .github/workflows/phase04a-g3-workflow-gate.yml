@@ -188,7 +188,7 @@ jobs:
           name: phase04a-g3-${{ matrix.node }}
           path: docs/database/g1-spike/option-c/g3/out/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 90
 
       - name: Job summary
         if: always()

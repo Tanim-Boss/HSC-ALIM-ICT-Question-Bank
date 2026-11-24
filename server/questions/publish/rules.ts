@@ -35,6 +35,7 @@
  */
 
 import type { DomainErrorInit } from './errors';
+import { isRestrictedAnswerName } from './restricted-names';
 import { DomainError, ViolationCollector } from './errors';
 import {
   assetIdsIn,
@@ -341,49 +342,303 @@ export function checkAnswerKeyShape(
 /** I-7 — rubric parts mirror the stem's four subquestions               */
 /** ------------------------------------------------------------------ */
 
-interface RubricPart {
+/** §7.7 `kind` values for a rubric criterion. Closed list; see the note below. */
+export const RUBRIC_CRITERION_KINDS = [
+  'knowledge',
+  'comprehension',
+  'application',
+  'analysis',
+] as const;
+
+export type RubricCriterionKind = (typeof RUBRIC_CRITERION_KINDS)[number];
+
+/**
+ * §7.7 approved property names, per level. Anything not listed is REJECTED.
+ *
+ * These four lists are the whole of the approved rubric vocabulary. A property
+ * that appears here but in no §7.7 table would be an invention, so there are
+ * no others and none may be added without amending the specification.
+ */
+const RUBRIC_ROOT_KEYS: readonly string[] = ['format', 'version', 'totalMaxMarks', 'parts'];
+const RUBRIC_PART_KEYS: readonly string[] = [
+  'part',
+  'maxMarks',
+  'criteria',
+  'expectedAnswer',
+  'notes',
+];
+const RUBRIC_CRITERION_KEYS: readonly string[] = ['description', 'marks', 'kind'];
+
+/** §7.12: "Rubric criteria per part — 6". */
+const RUBRIC_MAX_CRITERIA_PER_PART = 6;
+
+export interface RubricCriterion {
+  readonly description: string;
+  readonly marks: number;
+  readonly kind?: RubricCriterionKind;
+}
+
+export interface RubricPart {
   readonly part: string;
   readonly maxMarks: number;
-  readonly criteria: readonly { readonly marks: number }[];
+  readonly criteria: readonly RubricCriterion[];
+  readonly expectedAnswer?: string;
+  readonly notes?: string;
 }
 
 export interface ParsedRubric {
+  readonly version: number;
   readonly totalMaxMarks: number;
   readonly parts: readonly RubricPart[];
 }
 
 /**
- * Parses a rubric defensively. Returns null rather than throwing so the caller
- * reports a domain violation instead of a crash on malformed JSON.
+ * Why a rubric was rejected, addressed at the offending property.
+ *
+ * `path` uses the same `$`-rooted dotted form the leak detector reports and the
+ * `field` values the gate already emits, so a form can map it without a second
+ * convention. Example: `$.parts[2].criteria[1].kind`.
  */
-export function parseRubric(value: unknown): ParsedRubric | null {
-  if (typeof value !== 'object' || value === null) return null;
+export interface RubricIssue {
+  readonly path: string;
+  readonly message: string;
+}
+
+/**
+ * Strict §7.7 parse.
+ *
+ * STRICT means: an unknown property is an ERROR, not something to discard. The
+ * previous implementation kept only `{part, maxMarks, criteria:[{marks}]}` and
+ * silently dropped `version`, `criteria[].description`, `criteria[].kind`,
+ * `expectedAnswer` and `notes` — so a marking guide could be quietly reduced to
+ * a different document while every check still passed. For a marking guide that
+ * is unacceptable: dropping `expectedAnswer` changes what the marker is asked to
+ * award, and dropping `criteria[].marks` can make a part unawardable.
+ *
+ * Rejecting unknown fields is also what §7.11 rule 3 requires of every schema
+ * ("Strict objects everywhere… Unknown keys are errors, so typos and injected
+ * answer fields fail loudly").
+ *
+ * Deliberately does NOT invent rules §7.7 does not state. The `part` alphabet
+ * and the marks mapping are cross-document facts checked by I-7/I-15 against the
+ * stem; duplicating them here would create a second source of truth that could
+ * disagree with the first. See the gap note at `checkRubricShape`.
+ */
+export function parseRubricStrict(
+  value: unknown,
+):
+  | { readonly ok: true; readonly rubric: ParsedRubric }
+  | { readonly ok: false; readonly issue: RubricIssue } {
+  const fail = (path: string, message: string) => ({
+    ok: false as const,
+    issue: { path, message },
+  });
+
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return fail('$', 'The rubric must be a JSON object.');
+  }
   const root = value as Record<string, unknown>;
-  if (root['format'] !== 'cq_rubric') return null;
-  if (typeof root['totalMaxMarks'] !== 'number') return null;
-  const rawParts = root['parts'];
-  if (!Array.isArray(rawParts)) return null;
 
-  const parts: RubricPart[] = [];
-  for (const rawPart of rawParts) {
-    if (typeof rawPart !== 'object' || rawPart === null) return null;
-    const part = rawPart as Record<string, unknown>;
-    if (typeof part['part'] !== 'string') return null;
-    if (typeof part['maxMarks'] !== 'number') return null;
-    const rawCriteria = part['criteria'];
-    if (!Array.isArray(rawCriteria)) return null;
-
-    const criteria: { marks: number }[] = [];
-    for (const rawCriterion of rawCriteria) {
-      if (typeof rawCriterion !== 'object' || rawCriterion === null) return null;
-      const marks = (rawCriterion as Record<string, unknown>)['marks'];
-      if (typeof marks !== 'number') return null;
-      criteria.push({ marks });
-    }
-    parts.push({ part: part['part'], maxMarks: part['maxMarks'], criteria });
+  if (root['format'] !== 'cq_rubric') {
+    return fail('$.format', 'The rubric format must be the literal "cq_rubric".');
   }
 
-  return { totalMaxMarks: root['totalMaxMarks'], parts };
+  const unknownRoot = Object.keys(root).filter((k) => !RUBRIC_ROOT_KEYS.includes(k));
+  if (unknownRoot.length > 0) {
+    return fail(
+      `$.${unknownRoot[0]}`,
+      `The rubric has an unrecognised properties: ${unknownRoot.join(', ')}. ` +
+        'Unknown fields are rejected so a marking guide cannot be silently altered.',
+    );
+  }
+
+  if (typeof root['version'] !== 'number' || !Number.isInteger(root['version'])) {
+    return fail('$.version', 'The rubric version must be an integer.');
+  }
+  const version = root['version'];
+  if (version !== 1) {
+    // §7.8: an unknown version is a validation error, not a fallback.
+    return fail('$.version', `Rubric schema version ${version} is not supported.`);
+  }
+
+  if (typeof root['totalMaxMarks'] !== 'number' || !Number.isInteger(root['totalMaxMarks'])) {
+    return fail('$.totalMaxMarks', 'totalMaxMarks must be an integer.');
+  }
+
+  const rawParts = root['parts'];
+  if (!Array.isArray(rawParts)) {
+    return fail('$.parts', 'The rubric parts must be an array.');
+  }
+
+  const parts: RubricPart[] = [];
+  for (let pi = 0; pi < rawParts.length; pi += 1) {
+    const rawPart: unknown = rawParts[pi];
+    const partPath = `$.parts[${pi}]`;
+    if (typeof rawPart !== 'object' || rawPart === null || Array.isArray(rawPart)) {
+      return fail(partPath, 'Each rubric part must be a JSON object.');
+    }
+    const part = rawPart as Record<string, unknown>;
+
+    const unknownPart = Object.keys(part).filter((k) => !RUBRIC_PART_KEYS.includes(k));
+    if (unknownPart.length > 0) {
+      return fail(
+        `${partPath}.${unknownPart[0]}`,
+        `Part ${pi + 1} has an unrecognised properties: ${unknownPart.join(', ')}.`,
+      );
+    }
+
+    if (typeof part['part'] !== 'string') {
+      return fail(`${partPath}.part`, 'Each part needs a string "part" label.');
+    }
+    if (typeof part['maxMarks'] !== 'number' || !Number.isInteger(part['maxMarks'])) {
+      return fail(`${partPath}.maxMarks`, 'maxMarks must be an integer.');
+    }
+
+    const rawCriteria = part['criteria'];
+    if (!Array.isArray(rawCriteria)) {
+      return fail(`${partPath}.criteria`, 'criteria must be an array.');
+    }
+    if (rawCriteria.length === 0) {
+      return fail(`${partPath}.criteria`, 'A part needs at least one criterion.');
+    }
+    if (rawCriteria.length > RUBRIC_MAX_CRITERIA_PER_PART) {
+      return fail(
+        `${partPath}.criteria`,
+        `A part may have at most ${RUBRIC_MAX_CRITERIA_PER_PART} criteria, but has ${rawCriteria.length}.`,
+      );
+    }
+
+    const criteria: RubricCriterion[] = [];
+    for (let ci = 0; ci < rawCriteria.length; ci += 1) {
+      const rawCriterion: unknown = rawCriteria[ci];
+      const cPath = `${partPath}.criteria[${ci}]`;
+      if (
+        typeof rawCriterion !== 'object' ||
+        rawCriterion === null ||
+        Array.isArray(rawCriterion)
+      ) {
+        return fail(cPath, 'Each criterion must be a JSON object.');
+      }
+      const criterion = rawCriterion as Record<string, unknown>;
+
+      // NESTED unknown fields are checked here, which is the case the old
+      // implementation silently discarded.
+      const unknownCriterion = Object.keys(criterion).filter(
+        (k) => !RUBRIC_CRITERION_KEYS.includes(k),
+      );
+      if (unknownCriterion.length > 0) {
+        return fail(
+          `${cPath}.${unknownCriterion[0]}`,
+          `Criterion ${ci + 1} of part ${pi + 1} has an unrecognised properties: ` +
+            `${unknownCriterion.join(', ')}.`,
+        );
+      }
+
+      if (typeof criterion['description'] !== 'string') {
+        return fail(`${cPath}.description`, 'Each criterion needs a string description.');
+      }
+      if (typeof criterion['marks'] !== 'number' || !Number.isInteger(criterion['marks'])) {
+        return fail(`${cPath}.marks`, 'Criterion marks must be an integer.');
+      }
+
+      let kind: RubricCriterionKind | undefined;
+      if (criterion['kind'] !== undefined) {
+        const rawKind = criterion['kind'];
+        if (
+          typeof rawKind !== 'string' ||
+          !(RUBRIC_CRITERION_KINDS as readonly string[]).includes(rawKind)
+        ) {
+          return fail(
+            `${cPath}.kind`,
+            `Criterion kind must be one of ${RUBRIC_CRITERION_KINDS.join(', ')}.`,
+          );
+        }
+        kind = rawKind as RubricCriterionKind;
+      }
+
+      criteria.push({
+        description: criterion['description'],
+        marks: criterion['marks'],
+        ...(kind === undefined ? {} : { kind }),
+      });
+    }
+
+    // `expectedAnswer` and `notes` are optional in §7.7 but must be preserved
+    // when present — dropping them is the defect this function exists to fix.
+    let expectedAnswer: string | undefined;
+    if (part['expectedAnswer'] !== undefined) {
+      if (typeof part['expectedAnswer'] !== 'string') {
+        return fail(`${partPath}.expectedAnswer`, 'expectedAnswer must be a string.');
+      }
+      expectedAnswer = part['expectedAnswer'];
+    }
+    let notes: string | undefined;
+    if (part['notes'] !== undefined) {
+      if (typeof part['notes'] !== 'string') {
+        return fail(`${partPath}.notes`, 'notes must be a string.');
+      }
+      notes = part['notes'];
+    }
+
+    parts.push({
+      part: part['part'],
+      maxMarks: part['maxMarks'],
+      criteria,
+      ...(expectedAnswer === undefined ? {} : { expectedAnswer }),
+      ...(notes === undefined ? {} : { notes }),
+    });
+  }
+
+  return {
+    ok: true,
+    rubric: { version, totalMaxMarks: root['totalMaxMarks'], parts },
+  };
+}
+
+/**
+ * Reports a rubric that is present but does not satisfy §7.7's shape.
+ *
+ * This is the check that makes strictness reach the caller. Before it existed, a
+ * malformed or unknown-field rubric made `parseRubric` return null, and every
+ * consumer treated null as "already reported elsewhere" and returned — so a
+ * rubric rejected for an unknown field produced NO violation at all and the
+ * publish would proceed on the strength of the other checks. Rejecting a
+ * document and then saying nothing is worse than accepting it.
+ *
+ * Only runs for a CQ version that HAS a rubric; "missing rubric" is I-13's
+ * business (`checkAnswerKeyShape`), and double-reporting it would put two codes
+ * on one problem.
+ */
+export function checkRubricShape(
+  version: VersionRecordSnapshot,
+  violations: ViolationCollector,
+): void {
+  const raw = version.answerKey?.cqRubric;
+  if (raw === null || raw === undefined) return;
+
+  const result = parseRubricStrict(raw);
+  if (result.ok) return;
+
+  violations.fail({
+    code: 'CQ_RUBRIC_INVALID',
+    message:
+      `The rubric of version ${version.versionNumber} is not a valid §7.7 document: ` +
+      `${result.issue.message} (at ${result.issue.path})`,
+    field: 'answerKey.cqRubric',
+  });
+}
+
+/**
+ * Parses a rubric leniently, returning null on any problem.
+ *
+ * Kept for the call sites that only need "is this a usable rubric at all" and
+ * report their own violation. It is now a thin wrapper over the strict parser,
+ * so it can never accept something the strict parser rejects — the two cannot
+ * drift the way the two denylists did.
+ */
+export function parseRubric(value: unknown): ParsedRubric | null {
+  const result = parseRubricStrict(value);
+  return result.ok ? result.rubric : null;
 }
 
 export function checkRubricMatchesStem(
@@ -785,17 +1040,6 @@ export function checkTaxonomy(question: QuestionSnapshot, violations: ViolationC
 /** §7.5 `option` profile: the only block types an option may contain. */
 const ALLOWED_OPTION_TYPES: readonly string[] = ['paragraph', 'math', 'image', 'code'];
 
-/** Property names that would leak an answer if they ever appeared in content. */
-const ANSWER_REVEALING_PROPERTIES = [
-  'correctAnswer',
-  'isCorrect',
-  'correct',
-  'answerKey',
-  'solution',
-  'expectedAnswer',
-  'explanation',
-] as const;
-
 /**
  * Scans raw JSON for an answer-revealing property name at any depth.
  * §7.5 forbids these in stem, option and content documents — a leaked answer in
@@ -812,7 +1056,7 @@ export function findAnswerRevealingProperty(value: unknown, path = '$'): string 
   if (typeof value !== 'object' || value === null) return null;
 
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    if ((ANSWER_REVEALING_PROPERTIES as readonly string[]).includes(key)) {
+    if (isRestrictedAnswerName(key)) {
       return `${path}.${key}`;
     }
     const found = findAnswerRevealingProperty(child, `${path}.${key}`);
@@ -983,6 +1227,9 @@ export function evaluatePublishGate(question: QuestionSnapshot): PublishGateResu
     checkAnswerKeyShape(question.type, version, violations);
 
     if (question.type === 'CQ') {
+      // Shape first: a rubric with unknown fields is rejected on its own terms
+      // rather than only being noticed through a downstream disagreement.
+      checkRubricShape(version, violations);
       checkRubricMatchesStem(version, violations);
       checkCqMarks(question.marks, version, violations);
     }
@@ -1070,24 +1317,111 @@ export function assertVersionMutable(version: {
 }
 
 /**
+ * AMB-5 (owner-approved, fail-closed) — a fully archived question cannot change
+ * type without an explicit review.
+ *
+ * ENFORCES THE OWNER DECISION, NOT A GUESS. The legacy archived-record recovery
+ * policy is FAIL CLOSED:
+ *
+ *   "For fully archived questions whose historical publication status cannot be
+ *    reliably reconstructed: do not automatically permit question-type changes;
+ *    require an explicit review/exception path; do not treat missing historical
+ *    data as proof that the question was never published; do not silently infer
+ *    historical publication status."
+ *
+ * This function throws for a type change on a question with at least one version
+ * where EVERY version is `ARCHIVED`. That state is exactly "historical
+ * publication status cannot be reliably reconstructed", because the schema keeps
+ * only a current status per version.
+ *
+ * ── Scope, deliberately narrow ───────────────────────────────────────────
+ *
+ * It fires ONLY when there is at least one version and all of them are archived.
+ * It does not fire:
+ *   - when a version is published  → `assertTypeChangeAllowed` refuses outright;
+ *   - when a draft exists          → history is not yet at stake, and a draft-only
+ *                                    question was demonstrably not published in
+ *                                    its current form;
+ *   - when there are no versions   → nothing was published by definition.
+ *
+ * ── What this is and is not ──────────────────────────────────────────────
+ *
+ * It is a REVIEW GATE, not a record. It cannot tell whether an archived version
+ * was ever published; it only refuses to let that unknown be resolved silently in
+ * the caller's favour. The exception path is `allowLegacyArchivedTypeChange`,
+ * a deliberate parameter a caller must pass — there is no global switch, because
+ * a global switch is what "silently infer" looks like after a few refactors.
+ *
+ * Historical publication tracking is NOT implemented, and this function must not
+ * be described as implementing it. See the AMB-5 note on
+ * `assertTypeChangeAllowed` and `docs/database/g1-spike/option-c/prod-ready/v45/
+ * AMB-5-LEGACY-ARCHIVE-DECISION.md` for the limitation and its dependency.
+ */
+export function assertLegacyArchiveReviewRequired(
+  nextType: QuestionType,
+  currentType: QuestionType,
+  versions: readonly VersionRecordSnapshot[],
+  options: { readonly allowLegacyArchivedTypeChange?: boolean } = {},
+): void {
+  if (nextType === currentType) return;
+  if (versions.length === 0) return;
+  if (options.allowLegacyArchivedTypeChange === true) return;
+  if (!versions.every((v) => v.status === 'ARCHIVED')) return;
+
+  throw new DomainError({
+    code: 'QUESTION_TYPE_IMMUTABLE',
+    invariant: 'I-6',
+    message:
+      "This question's versions are all archived, so whether it was ever published cannot be " +
+      'determined. Changing its type (MCQ or CQ) requires an explicit review and exception; ' +
+      'missing history is not evidence that it was never published. Create a new question instead.',
+  });
+}
+
+/**
  * I-6: `questions.type` cannot change once a published version exists.
  *
- * AMB-5 — WHICH READING FIRST, THEN WHAT THE CODE DOES.
+ * AMB-5 — OWNER DECISION: FAIL CLOSED FOR LEGACY ARCHIVED RECORDS.
  *
- * The documents do not say whether the freeze applies once ANY version has been
- * published (including after every version is archived) or only while one is
- * published right now.
+ * I-6 says the type cannot change "after a published version exists". The
+ * documents did not say whether that means one exists NOW or has EVER existed.
+ * The owner has now decided the *recovery policy for legacy archived questions*,
+ * and it is fail-closed:
  *
- * The code below implements the SECOND reading — "a published version exists
- * now" — because `versions.some(v => v.status === 'PUBLISHED')` is false once
- * everything is archived. That is not a preference: the schema stores a current
- * status per version and nothing else, so "was ever published" is not
- * recoverable once nothing is PUBLISHED. The stricter reading would need a new
- * column, which is a schema change this work is not authorised to make.
+ *   - A question whose versions are all ARCHIVED must NOT have its type changed
+ *     automatically. Its historical publication status cannot be reconstructed,
+ *     so it must not be treated as never-published.
+ *   - Such a question requires an explicit review/exception path before a type
+ *     change is allowed.
+ *   - Missing history must never be read as proof of non-publication.
  *
- * An earlier revision of this comment claimed the stricter reading was applied.
- * It was not, and the comment was the defect: a reader would have believed a
- * guarantee the code does not provide.
+ * WHAT THIS FUNCTION DOES, PRECISELY. It still refuses only when a version is
+ * published RIGHT NOW (`versions.some(...) === 'PUBLISHED'`), because the schema
+ * stores a current status per version and nothing else. `assertTypeChangeAllowed`
+ * therefore implements the "currently published" half of the rule. The
+ * fail-closed legacy half is enforced by `assertLegacyArchiveReviewRequired`
+ * above, which callers must run for the all-archived case.
+ *
+ * WHY THE FUNCTION IS NOT ITSELF FAIL-CLOSED. It cannot distinguish "all
+ * archived, was published" from "all archived, never published" — the schema
+ * destroys that difference on archival. Making this function throw on every
+ * all-archived question would be fail-closed, but it would ALSO silently forbid
+ * type changes on questions that were only ever drafts and then archived. That
+ * is a real behaviour change affecting live workflows, so it is not made here.
+ * The explicit review requirement is the safe form: refuse to act silently,
+ * require a human.
+ *
+ * ── Known limitation, stated so it is not mistaken for completeness ────────
+ *
+ * Historical publication tracking is NOT implemented. There is no
+ * `first_published_at` column, no publication-event table, and no backfill. The
+ * fail-closed policy is a REVIEW GATE, not a record. Complete tracking requires
+ * a schema change and a backfill whose residual set is unrecoverable for
+ * questions already fully archived — both subject to separate approval
+ * (Migration 0002 is NOT authorised; B2 is WITHHELD).
+ *
+ * An earlier revision of this comment claimed the stricter reading was already
+ * applied. It was not, and the comment was the defect.
  */
 export function assertTypeChangeAllowed(
   nextType: QuestionType,

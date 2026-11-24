@@ -93,7 +93,24 @@ jobs:
         run: npx vitest run tests/unit/questions/ --reporter=verbose
 
       - name: Regression — the pre-existing unit suites still pass
-        run: npx vitest run tests/unit/ --reporter=verbose
+        run: |
+          set -uo pipefail
+          npx vitest run tests/unit/ --reporter=verbose 2>&1 | tee /tmp/unit.log
+          rc=${PIPESTATUS[0]}
+          # A floor, not an exact count: adding tests must not fail the build, but
+          # deleting them must. 390 is the count after the denylist, strict-rubric
+          # and §7.4-catalogue suites landed; 307 before them.
+          count="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/unit.log | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
+          echo "unit tests passed=${count:-<none>}"
+          if [ -z "${count:-}" ]; then
+            echo "::error title=unit::could not read a unit test count"
+            exit 1
+          fi
+          if [ "$count" -lt 390 ]; then
+            echo "::error title=unit::too few unit cases ran ($count) — expected at least 390"
+            exit 1
+          fi
+          exit "$rc"
 
       # The V-1…V-5 harnesses contain the repo guard; running it proves this
       # change did not introduce a prohibited Prisma migration command.
@@ -305,15 +322,42 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PG_IMAGE: postgres:16
+          RUN_STARTED: ${{ github.event.pull_request.updated_at }}
         run: |
           [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
           # Strip ANSI before publishing: the raw colour codes made the comment
           # unreadable, and this comment is the only evidence channel that works
           # from environments where the job log cannot be downloaded.
           clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/v45app.log 2>/dev/null | tr -d '\r' || true)"
+          # ── Run identity ────────────────────────────────────────────────
+          # The comment previously named ${GITHUB_SHA}, which on a pull_request
+          # event is GitHub's SYNTHETIC merge commit, not the branch commit. A
+          # reviewer could not get from the comment back to the code that ran.
+          # Print the head SHA (what the branch actually contains) and label the
+          # merge SHA as such. Also carry the run id + URL so the exact run is
+          # identifiable, and the DB image so the environment is not a guess.
           {
             echo "<!-- v45-app-results -->"
-            echo "### V-4 / V-5 application verification (${GITHUB_SHA::7})"
+            echo "### V-4 / V-5 application verification"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Head commit (the code that ran) | \`${GITHUB_SHA}\` |"
+            if [ -n "${PR_HEAD_SHA:-}" ] && [ "${PR_HEAD_SHA}" != "${GITHUB_SHA}" ]; then
+              echo "| PR head commit | \`${PR_HEAD_SHA}\` |"
+              echo "| Synthetic merge commit (test-only) | \`${GITHUB_SHA}\` |"
+            fi
+            echo "| Workflow run | [\`${GITHUB_RUN_ID}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
+            echo "| Run attempt | ${GITHUB_RUN_ATTEMPT} |"
+            echo "| Event | ${GITHUB_EVENT_NAME} |"
+            echo "| Ref | \`${GITHUB_REF}\` |"
+            echo "| Started (UTC) | ${RUN_STARTED} |"
+            echo "| PostgreSQL | \`${PG_IMAGE:-postgres:16}\` |"
+            echo
+            echo "Every run posts a fresh comment. This one is authoritative only for the"
+            echo "run linked above; earlier comments supersede nothing and expire with this PR."
             echo
             echo "Integration suites against a real PostgreSQL 16 with migration 0001 applied."
             echo
@@ -338,4 +382,11 @@ jobs:
         with:
           name: v45-application-evidence
           path: /tmp/v45app.log
-          retention-days: 30
+          # 90 is the PLATFORM MAXIMUM for a public repository, not a round number.
+          # The owner-approved retention policy is 12 months (365 days); this repo
+          # is public, and GitHub allows 1-90 days for public repositories (1-400
+          # for private). 365 is therefore NOT CONFIGURABLE here, and requesting it
+          # would fail the upload. 90 days is the longest compliant value; the rest
+          # of the 12 months must come from the committed milestone record, which
+          # is why that record is required rather than optional.
+          retention-days: 90

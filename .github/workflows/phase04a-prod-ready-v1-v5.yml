@@ -210,7 +210,7 @@ jobs:
           path: |
             /tmp/v2/**
             /tmp/v3/**
-          retention-days: 30
+          retention-days: 90
 
   # ------------------------------------------------------------------
   # V-1 — the real second migration, through the approved workflow.
@@ -445,7 +445,7 @@ jobs:
         with:
           name: v1-evidence
           path: /tmp/v1/**
-          retention-days: 30
+          retention-days: 90
 
   # ------------------------------------------------------------------
   # V-4 and V-5 — database halves measured, application halves reported
@@ -532,4 +532,4 @@ jobs:
         with:
           name: v4-v5-evidence
           path: /tmp/v45/**
-          retention-days: 30
+          retention-days: 90
