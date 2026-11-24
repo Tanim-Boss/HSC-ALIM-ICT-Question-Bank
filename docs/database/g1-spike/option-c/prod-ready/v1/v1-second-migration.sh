@@ -113,12 +113,18 @@ prisma_run() {
   ( cd "$REPO_ROOT" && V1_DB="$URL" V1_SHADOW="$SHADOW" "$PRISMA_BIN" "$@" )
 }
 
-# Two config shapes on purpose:
-#   mk_config      -> with a datasource, for `migrate deploy` / `migrate status`
-#   mk_diff_config -> WITHOUT one, for `migrate diff --from-schema --to-schema`,
-#                     which compares two files and needs no database at all.
-# Declaring a datasource for the diff would make it depend on connectivity it
-# does not use, and would fail confusingly if the URL were wrong.
+# EVERY Prisma command here uses a config WITH a datasource, including the diff.
+#
+# This is not laziness. A schema-to-schema diff arguably needs no database, and
+# an earlier revision of this script therefore used a datasource-free config for
+# it. That returned an EMPTY SCRIPT and exit 0 -- indistinguishable from "there
+# is no difference" -- and cost several CI cycles to diagnose. With a datasource
+# present the identical command emits the correct CREATE INDEX (probe cases P1
+# and P3; see probe-diff.sh). Prisma 7 also forbids `url` inside the schema's
+# datasource block (error P1012), so the URL can only come from here.
+#
+# Rule: never infer "no changes" from an empty diff unless a control case proves
+# the diff machinery is working.
 mk_config() { # <schema> <config>
   cat > "$2" <<CFG
 import { defineConfig } from 'prisma/config';
@@ -133,14 +139,6 @@ export default defineConfig({
 CFG
 }
 
-mk_diff_config() { # <schema> <config>
-  cat > "$2" <<CFG
-import { defineConfig } from 'prisma/config';
-export default defineConfig({
-  schema: '$1',
-});
-CFG
-}
 
 # =====================================================================
 head2 "0. preconditions — the database must already be at 0001"
@@ -203,32 +201,53 @@ head2 "3. GENERATE the migration with a snapshot-to-snapshot diff"
 # =====================================================================
 # NOTE: the config file must be written BEFORE the command that consumes it.
 # The first draft wrote it after, which would have failed in CI.
-mk_diff_config "$SESS/next.prisma" "$SESS/diff.config.ts"
-# --from-schema is NOT "the datamodel named by this file". It is the legacy
-# shorthand whose source is the file's DATASOURCE, i.e. a live database named in
-# the schema — which is why the first real CI run produced an EMPTY migration
-# instead of reporting an error: it compared the live database against itself.
-# Two datamodel FILES need --from-schema-datamodel / --to-schema-datamodel.
-# (Both flags present in the pinned CLI 7.10.1; verified in its own help text.)
-info "command: prisma migrate diff --from-schema-datamodel prev.prisma --to-schema-datamodel next.prisma --script"
+mk_config "$SESS/next.prisma" "$SESS/diff.config.ts"
+# In Prisma 7, --from-schema/--to-schema ARE the datamodel forms:
+# `--from-schema-datamodel` was removed and says so when passed. The empty first
+# result was NOT a wrong flag; it was the missing datasource in the config (see
+# mk_config above). Recorded here because the reversed conclusion was reached
+# once already, from a stale help string grepped out of the bundled CLI.
+info "command: prisma migrate diff --from-schema prev.prisma --to-schema next.prisma --script"
 trap - ERR
 set +e
 prisma_run migrate diff \
-  --from-schema-datamodel "$SESS/prev.prisma" \
-  --to-schema-datamodel   "$SESS/next.prisma" \
+  --from-schema "$SESS/prev.prisma" \
+  --to-schema   "$SESS/next.prisma" \
   --script --config "$SESS/diff.config.ts" > "$OUT_DIR/03-generated.sql" 2> "$OUT_DIR/03-generated.err"
 rc=$?
 set -e
 if [ $rc -ne 0 ]; then cat "$OUT_DIR/03-generated.err"; fail "migrate diff failed (exit $rc)"; fi
 arm_err_trap
 # an empty diff must never be mistaken for success — this is the check that
-# caught the --from-schema defect, and it is worth naming explicitly
+# caught the empty-migration defect, and it is worth naming explicitly
 [ -s "$OUT_DIR/03-generated.sql" ] || {
   printf '  ....  stderr and stdout follow\n'
   sed -n '1,40p' "$OUT_DIR/03-generated.err" 2>/dev/null || true
 }
 cat "$OUT_DIR/03-generated.sql"
 [ -s "$OUT_DIR/03-generated.sql" ] || fail "the generated migration is EMPTY — the diff saw no change"
+
+# POSITIVE CONTROL. "The diff emitted nothing" has two possible meanings: the
+# datamodels really are identical, or the diff machinery silently did nothing.
+# The first empty result in this driver cost several CI cycles to diagnose
+# because those two are indistinguishable from the output alone. So prove the
+# machinery works: diffing prev.prisma against an EMPTY datamodel must emit the
+# whole 18-model schema. If it does not, an empty result above means nothing.
+trap - ERR
+set +e
+prisma_run migrate diff --from-empty --to-schema "$SESS/prev.prisma" \
+  --script --config "$SESS/diff.config.ts" > "$OUT_DIR/03b-control.sql" 2> "$OUT_DIR/03b-control.err"
+ctl_rc=$?
+set -e
+arm_err_trap
+ctl_lines="$(wc -l < "$OUT_DIR/03b-control.sql" 2>/dev/null || echo 0)"
+if [ "$ctl_rc" -eq 0 ] && [ "$ctl_lines" -gt 100 ] \
+   && grep -q 'CREATE TABLE' "$OUT_DIR/03b-control.sql"; then
+  pass "control: diffing against an empty datamodel emits the full schema ($ctl_lines lines), so the diff machinery works"
+else
+  sed -n '1,20p' "$OUT_DIR/03b-control.err" 2>/dev/null || true
+  fail "control diff failed or was empty ($ctl_lines lines, exit $ctl_rc) — an empty result above cannot be trusted"
+fi
 grep -qi "CREATE INDEX" "$OUT_DIR/03-generated.sql" \
   && pass "the generated migration creates an index (the change was seen, so the check is not vacuous)" \
   || fail "no CREATE INDEX in the generated migration"
