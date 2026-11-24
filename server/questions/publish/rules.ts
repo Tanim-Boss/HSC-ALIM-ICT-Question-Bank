@@ -40,6 +40,14 @@ import { isRestrictedAnswerName } from './restricted-names';
 // enforces §7.2/§7.4/§7.5/§7.12 through them rather than re-implementing
 // the rules by hand — see the note on `checkContentProfiles`.
 import { safeParseProfile } from '@/lib/validation/content-blocks';
+import {
+  cqRubricSchema,
+  RUBRIC_CRITERION_KINDS,
+  RUBRIC_MAX_CRITERIA_PER_PART,
+  RUBRIC_PARTS,
+  RUBRIC_VERSION,
+  type CqRubricDocument,
+} from '@/lib/validation/content-blocks/profiles';
 import { DomainError, ViolationCollector } from './errors';
 import {
   assetIdsIn,
@@ -342,39 +350,15 @@ export function checkAnswerKeyShape(
   }
 }
 
-/** ------------------------------------------------------------------ */
-/** I-7 — rubric parts mirror the stem's four subquestions               */
-/** ------------------------------------------------------------------ */
-
-/** §7.7 `kind` values for a rubric criterion. Closed list; see the note below. */
-export const RUBRIC_CRITERION_KINDS = [
-  'knowledge',
-  'comprehension',
-  'application',
-  'analysis',
-] as const;
+/** /**
+ * §7.7 `kind` values for a rubric criterion. Closed list.
+ *
+ * Defined in the authoritative schema module and re-exported here so existing
+ * callers keep one import path; there is no second copy to drift.
+ */
+export { RUBRIC_CRITERION_KINDS };
 
 export type RubricCriterionKind = (typeof RUBRIC_CRITERION_KINDS)[number];
-
-/**
- * §7.7 approved property names, per level. Anything not listed is REJECTED.
- *
- * These four lists are the whole of the approved rubric vocabulary. A property
- * that appears here but in no §7.7 table would be an invention, so there are
- * no others and none may be added without amending the specification.
- */
-const RUBRIC_ROOT_KEYS: readonly string[] = ['format', 'version', 'totalMaxMarks', 'parts'];
-const RUBRIC_PART_KEYS: readonly string[] = [
-  'part',
-  'maxMarks',
-  'criteria',
-  'expectedAnswer',
-  'notes',
-];
-const RUBRIC_CRITERION_KEYS: readonly string[] = ['description', 'marks', 'kind'];
-
-/** §7.12: "Rubric criteria per part — 6". */
-const RUBRIC_MAX_CRITERIA_PER_PART = 6;
 
 export interface RubricCriterion {
   readonly description: string;
@@ -409,194 +393,156 @@ export interface RubricIssue {
 }
 
 /**
- * Strict §7.7 parse.
+ * The subset of a Zod issue this adapter reads. Declared structurally so
+ * `rules.ts` does not have to re-export Zod's own types, and so a Zod upgrade
+ * that renames an internal type does not ripple through the gate.
+ */
+interface RubricSchemaIssue {
+  readonly code: string;
+  readonly path: readonly PropertyKey[];
+  readonly message: string;
+  readonly keys?: readonly string[];
+}
+
+/**
+ * Strict §7.7 parse — the PRODUCTION gate's rubric entry point.
  *
- * STRICT means: an unknown property is an ERROR, not something to discard. The
- * previous implementation kept only `{part, maxMarks, criteria:[{marks}]}` and
- * silently dropped `version`, `criteria[].description`, `criteria[].kind`,
- * `expectedAnswer` and `notes` — so a marking guide could be quietly reduced to
- * a different document while every check still passed. For a marking guide that
- * is unacceptable: dropping `expectedAnswer` changes what the marker is asked to
- * award, and dropping `criteria[].marks` can make a part unawardable.
+ * OD-18: there is exactly ONE validator. This function delegates the entire
+ * shape decision to `cqRubricSchema` in
+ * `lib/validation/content-blocks/profiles.ts` and does nothing but translate the
+ * result into `RubricIssue`. It contains no validation logic of its own, so it
+ * cannot disagree with the schema.
  *
- * Rejecting unknown fields is also what §7.11 rule 3 requires of every schema
- * ("Strict objects everywhere… Unknown keys are errors, so typos and injected
- * answer fields fail loudly").
+ * Why delegation rather than a second implementation: the hand-written parser
+ * used to enforce only part of §7.7's shape table (it did not check the `part`
+ * alphabet, the 1…4 `maxMarks` bounds, `marks >= 1`, or any of the string-length
+ * limits), while the Zod schema enforced all of them but was dead code. Two
+ * validators with only one of them on the production path is the defect OD-18
+ * names.
  *
- * Deliberately does NOT invent rules §7.7 does not state. The `part` alphabet
- * and the marks mapping are cross-document facts checked by I-7/I-15 against the
- * stem; duplicating them here would create a second source of truth that could
- * disagree with the first. See the gap note at `checkRubricShape`.
+ * STRICT still means: an unknown property is an ERROR, not something to discard.
+ * A previous generation of this function kept only `{part, maxMarks,
+ * criteria:[{marks}]}` and silently dropped `version`, `criteria[].description`,
+ * `criteria[].kind`, `expectedAnswer` and `notes` — a marking guide could be
+ * quietly reduced to a different document while every check still passed.
+ * `strictObject` at every level preserves the same guarantee.
+ *
+ * Deliberately NOT checked here, matching the schema's scope: the four-part
+ * count, part order, the ক=1 … ঘ=4 mapping, `Σ criteria.marks = maxMarks` and
+ * `totalMaxMarks = questions.marks`. Those are cross-document facts owned by I-7
+ * (`checkRubricMatchesStem`) and I-15 in this same gate. Enforcing them in two
+ * places is the second source of truth OD-18 removes.
  */
 export function parseRubricStrict(
   value: unknown,
 ):
   | { readonly ok: true; readonly rubric: ParsedRubric }
   | { readonly ok: false; readonly issue: RubricIssue } {
-  const fail = (path: string, message: string) => ({
-    ok: false as const,
-    issue: { path, message },
-  });
-
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return fail('$', 'The rubric must be a JSON object.');
+  const parsed = cqRubricSchema.safeParse(value);
+  if (parsed.success) {
+    const data: CqRubricDocument = parsed.data;
+    return {
+      ok: true,
+      rubric: {
+        version: data.version,
+        totalMaxMarks: data.totalMaxMarks,
+        parts: data.parts,
+      },
+    };
   }
-  const root = value as Record<string, unknown>;
 
-  if (root['format'] !== 'cq_rubric') {
-    return fail('$.format', 'The rubric format must be the literal "cq_rubric".');
+  const issue = parsed.error.issues[0] as unknown as RubricSchemaIssue | undefined;
+  if (issue === undefined) {
+    // Zod reports at least one issue on failure; this branch exists so a future
+    // refactor cannot turn "rejected with no detail" into "accepted".
+    return { ok: false, issue: { path: '$', message: 'The rubric is not a valid §7.7 document.' } };
   }
 
-  const unknownRoot = Object.keys(root).filter((k) => !RUBRIC_ROOT_KEYS.includes(k));
-  if (unknownRoot.length > 0) {
-    return fail(
-      `$.${unknownRoot[0]}`,
-      `The rubric has an unrecognised properties: ${unknownRoot.join(', ')}. ` +
+  return { ok: false, issue: toRubricIssue(issue) };
+}
+
+/** `['parts', 1, 'criteria', 0, 'kind']` → `$.parts[1].criteria[0].kind`. */
+function formatRubricPath(path: readonly PropertyKey[]): string {
+  let out = '$';
+  for (const segment of path) {
+    out += typeof segment === 'number' ? `[${String(segment)}]` : `.${String(segment)}`;
+  }
+  return out;
+}
+
+/**
+ * Turns a Zod issue into the gate's `{path, message}` form.
+ *
+ * Messages are written here, not taken from Zod, because they are user-facing
+ * (§7.11 rule 11: precise path, no echoing the rejected value) and because Zod's
+ * generic wording ("Invalid input: expected 10") would not tell an author what
+ * §7.7 requires. Unknown-key issues carry the parent path plus a `keys` list, so
+ * the offending level is reconstructed explicitly.
+ */
+function toRubricIssue(issue: RubricSchemaIssue): RubricIssue {
+  const path = formatRubricPath(issue.path);
+  const leaf = issue.path[issue.path.length - 1];
+
+  if (issue.code === 'unrecognized_keys') {
+    const keys = issue.keys ?? [];
+    const noun = keys.length === 1 ? 'property' : 'properties';
+    return {
+      path: `${path}.${keys[0] ?? '?'}`,
+      message:
+        `Unrecognised ${noun}: ${keys.join(', ') || '(none reported)'}. ` +
         'Unknown fields are rejected so a marking guide cannot be silently altered.',
-    );
+    };
   }
 
-  if (typeof root['version'] !== 'number' || !Number.isInteger(root['version'])) {
-    return fail('$.version', 'The rubric version must be an integer.');
+  switch (leaf) {
+    case 'format':
+      return { path, message: 'The rubric format must be the literal "cq_rubric".' };
+    case 'version':
+      return {
+        path,
+        message:
+          `The rubric version must be the integer ${String(RUBRIC_VERSION)}; ` +
+          'any other version is not supported.',
+      };
+    case 'totalMaxMarks':
+      // Type only: §7.7's value rule (`= Σ parts[].maxMarks = questions.marks`)
+      // is cross-document and is reported by I-7 / I-15, not by the shape layer.
+      return { path, message: 'totalMaxMarks must be an integer (§7.7).' };
+    case 'part':
+      return {
+        path,
+        message: `Each part label must be one of ${RUBRIC_PARTS.join(', ')} (§7.7).`,
+      };
+    case 'maxMarks':
+      return { path, message: 'maxMarks must be one of 1, 2, 3, 4 (§7.7).' };
+    case 'criteria':
+      return issue.code === 'too_big'
+        ? {
+            path,
+            message: `A part may have at most ${String(RUBRIC_MAX_CRITERIA_PER_PART)} criteria (§7.12).`,
+          }
+        : { path, message: 'A part needs at least one criterion (§7.7).' };
+    case 'description':
+      return {
+        path,
+        message: 'Each criterion needs a description of 1 to 500 characters.',
+      };
+    case 'marks':
+      return { path, message: 'Criterion marks must be an integer of at least 1.' };
+    case 'kind':
+      return {
+        path,
+        message: `Criterion kind must be one of ${RUBRIC_CRITERION_KINDS.join(', ')}.`,
+      };
+    case 'expectedAnswer':
+      return { path, message: 'expectedAnswer must be a string of 1 to 2000 characters.' };
+    case 'notes':
+      return { path, message: 'notes must be a string of 1 to 1000 characters.' };
+    case 'parts':
+      return { path, message: 'The rubric parts must be an array of part objects.' };
+    default:
+      return { path, message: issue.message };
   }
-  const version = root['version'];
-  if (version !== 1) {
-    // §7.8: an unknown version is a validation error, not a fallback.
-    return fail('$.version', `Rubric schema version ${version} is not supported.`);
-  }
-
-  if (typeof root['totalMaxMarks'] !== 'number' || !Number.isInteger(root['totalMaxMarks'])) {
-    return fail('$.totalMaxMarks', 'totalMaxMarks must be an integer.');
-  }
-
-  const rawParts = root['parts'];
-  if (!Array.isArray(rawParts)) {
-    return fail('$.parts', 'The rubric parts must be an array.');
-  }
-
-  const parts: RubricPart[] = [];
-  for (let pi = 0; pi < rawParts.length; pi += 1) {
-    const rawPart: unknown = rawParts[pi];
-    const partPath = `$.parts[${pi}]`;
-    if (typeof rawPart !== 'object' || rawPart === null || Array.isArray(rawPart)) {
-      return fail(partPath, 'Each rubric part must be a JSON object.');
-    }
-    const part = rawPart as Record<string, unknown>;
-
-    const unknownPart = Object.keys(part).filter((k) => !RUBRIC_PART_KEYS.includes(k));
-    if (unknownPart.length > 0) {
-      return fail(
-        `${partPath}.${unknownPart[0]}`,
-        `Part ${pi + 1} has an unrecognised properties: ${unknownPart.join(', ')}.`,
-      );
-    }
-
-    if (typeof part['part'] !== 'string') {
-      return fail(`${partPath}.part`, 'Each part needs a string "part" label.');
-    }
-    if (typeof part['maxMarks'] !== 'number' || !Number.isInteger(part['maxMarks'])) {
-      return fail(`${partPath}.maxMarks`, 'maxMarks must be an integer.');
-    }
-
-    const rawCriteria = part['criteria'];
-    if (!Array.isArray(rawCriteria)) {
-      return fail(`${partPath}.criteria`, 'criteria must be an array.');
-    }
-    if (rawCriteria.length === 0) {
-      return fail(`${partPath}.criteria`, 'A part needs at least one criterion.');
-    }
-    if (rawCriteria.length > RUBRIC_MAX_CRITERIA_PER_PART) {
-      return fail(
-        `${partPath}.criteria`,
-        `A part may have at most ${RUBRIC_MAX_CRITERIA_PER_PART} criteria, but has ${rawCriteria.length}.`,
-      );
-    }
-
-    const criteria: RubricCriterion[] = [];
-    for (let ci = 0; ci < rawCriteria.length; ci += 1) {
-      const rawCriterion: unknown = rawCriteria[ci];
-      const cPath = `${partPath}.criteria[${ci}]`;
-      if (
-        typeof rawCriterion !== 'object' ||
-        rawCriterion === null ||
-        Array.isArray(rawCriterion)
-      ) {
-        return fail(cPath, 'Each criterion must be a JSON object.');
-      }
-      const criterion = rawCriterion as Record<string, unknown>;
-
-      // NESTED unknown fields are checked here, which is the case the old
-      // implementation silently discarded.
-      const unknownCriterion = Object.keys(criterion).filter(
-        (k) => !RUBRIC_CRITERION_KEYS.includes(k),
-      );
-      if (unknownCriterion.length > 0) {
-        return fail(
-          `${cPath}.${unknownCriterion[0]}`,
-          `Criterion ${ci + 1} of part ${pi + 1} has an unrecognised properties: ` +
-            `${unknownCriterion.join(', ')}.`,
-        );
-      }
-
-      if (typeof criterion['description'] !== 'string') {
-        return fail(`${cPath}.description`, 'Each criterion needs a string description.');
-      }
-      if (typeof criterion['marks'] !== 'number' || !Number.isInteger(criterion['marks'])) {
-        return fail(`${cPath}.marks`, 'Criterion marks must be an integer.');
-      }
-
-      let kind: RubricCriterionKind | undefined;
-      if (criterion['kind'] !== undefined) {
-        const rawKind = criterion['kind'];
-        if (
-          typeof rawKind !== 'string' ||
-          !(RUBRIC_CRITERION_KINDS as readonly string[]).includes(rawKind)
-        ) {
-          return fail(
-            `${cPath}.kind`,
-            `Criterion kind must be one of ${RUBRIC_CRITERION_KINDS.join(', ')}.`,
-          );
-        }
-        kind = rawKind as RubricCriterionKind;
-      }
-
-      criteria.push({
-        description: criterion['description'],
-        marks: criterion['marks'],
-        ...(kind === undefined ? {} : { kind }),
-      });
-    }
-
-    // `expectedAnswer` and `notes` are optional in §7.7 but must be preserved
-    // when present — dropping them is the defect this function exists to fix.
-    let expectedAnswer: string | undefined;
-    if (part['expectedAnswer'] !== undefined) {
-      if (typeof part['expectedAnswer'] !== 'string') {
-        return fail(`${partPath}.expectedAnswer`, 'expectedAnswer must be a string.');
-      }
-      expectedAnswer = part['expectedAnswer'];
-    }
-    let notes: string | undefined;
-    if (part['notes'] !== undefined) {
-      if (typeof part['notes'] !== 'string') {
-        return fail(`${partPath}.notes`, 'notes must be a string.');
-      }
-      notes = part['notes'];
-    }
-
-    parts.push({
-      part: part['part'],
-      maxMarks: part['maxMarks'],
-      criteria,
-      ...(expectedAnswer === undefined ? {} : { expectedAnswer }),
-      ...(notes === undefined ? {} : { notes }),
-    });
-  }
-
-  return {
-    ok: true,
-    rubric: { version, totalMaxMarks: root['totalMaxMarks'], parts },
-  };
 }
 
 /**
@@ -1317,9 +1263,31 @@ export function assertVersionMutable(version: {
  *
  * It is a REVIEW GATE, not a record. It cannot tell whether an archived version
  * was ever published; it only refuses to let that unknown be resolved silently in
- * the caller's favour. The exception path is `allowLegacyArchivedTypeChange`,
- * a deliberate parameter a caller must pass — there is no global switch, because
- * a global switch is what "silently infer" looks like after a few refactors.
+ * the caller's favour.
+ *
+ * ── No exception parameter exists, deliberately ──────────────────────────
+ *
+ * An earlier revision took an optional per-call flag that skipped this gate
+ * entirely. It was removed rather than documented:
+ *
+ *   - No production caller ever passed it. Both entry points
+ *     (`changeQuestionType`, `assertQuestionTypeChangeAllowed`) invoke this
+ *     function with three arguments, and the only code that ever set the flag
+ *     was a test asserting the flag worked — circular evidence.
+ *   - A flag that resolves "publication status unknowable" in the caller's
+ *     favour IS the silent inference the owner decision forbids. Making it
+ *     per-call rather than global changes how visible the bypass is, not
+ *     whether it is one.
+ *   - The owner decision says an exception requires an explicit REVIEW. A
+ *     boolean in a domain function is not a review: it carries no reviewer, no
+ *     reason and no record.
+ *
+ * Consequence, stated plainly: this function cannot be disarmed. A fully
+ * archived question either gets a new question created instead, or the exception
+ * is implemented as a separately-approved, auditable mechanism. That decision is
+ * outstanding and is recorded in
+ * `docs/database/g1-spike/option-c/prod-ready/v45/AMB-5-LEGACY-ARCHIVE-DECISION.md`.
+ * This function must not be described as providing an exception path.
  *
  * Historical publication tracking is NOT implemented, and this function must not
  * be described as implementing it. See the AMB-5 note on
@@ -1330,11 +1298,9 @@ export function assertLegacyArchiveReviewRequired(
   nextType: QuestionType,
   currentType: QuestionType,
   versions: readonly VersionRecordSnapshot[],
-  options: { readonly allowLegacyArchivedTypeChange?: boolean } = {},
 ): void {
   if (nextType === currentType) return;
   if (versions.length === 0) return;
-  if (options.allowLegacyArchivedTypeChange === true) return;
   if (!versions.every((v) => v.status === 'ARCHIVED')) return;
 
   // A SPECIFIC code, not QUESTION_TYPE_IMMUTABLE. The distinction is the whole
@@ -1365,7 +1331,10 @@ export function assertLegacyArchiveReviewRequired(
  *     automatically. Its historical publication status cannot be reconstructed,
  *     so it must not be treated as never-published.
  *   - Such a question requires an explicit review/exception path before a type
- *     change is allowed.
+ *     change is allowed. (Owner decision of 2026-11-24, Option 1: that path is
+ *     deliberately CLOSED — the review happens outside the application, and no
+ *     flag or service method can grant it. See
+ *     `AMB-5-LEGACY-ARCHIVE-DECISION.md` §3.)
  *   - Missing history must never be read as proof of non-publication.
  *
  * WHAT THIS FUNCTION DOES, PRECISELY. It still refuses only when a version is

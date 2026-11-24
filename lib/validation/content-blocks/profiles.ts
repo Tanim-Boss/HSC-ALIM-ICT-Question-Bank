@@ -189,28 +189,103 @@ export const optionContentSchema = z.strictObject({
  * "It is a small, strict, part-indexed marking guide that mirrors the four
  * subquestions and adds criteria."
  *
- * This schema is the executable form of §7.7; `parseRubricStrict` in `rules.ts`
- * is being migrated to consume it (see the note in `lib/validation/content-blocks/
- * index.ts`). Both reject the same documents, and a test asserts that.
+ * ── THE AUTHORITATIVE SHAPE VALIDATOR (OD-18) ────────────────────────────
+ *
+ * This schema is the ONE implementation of §7.7's *shape* rules. Before OD-18
+ * there were two implementations, and only the weaker one was on the production
+ * path:
+ *
+ *   §7.7 / §7.12 shape rule            Zod schema        hand-written parser
+ *   -----------------------------------|-----------------|-------------------
+ *   `part` ∈ {ক, খ, গ, ঘ}               enforced          NOT enforced
+ *   `maxMarks` ∈ {1, 2, 3, 4}            enforced          NOT enforced
+ *   `criteria[].marks ≥ 1`               enforced          NOT enforced
+ *   `description` 1…500 chars            enforced          NOT enforced
+ *   `expectedAnswer` 1…2000              enforced          NOT enforced
+ *   `notes` 1…1000                       enforced          NOT enforced
+ *   `criteria` 1…6 items                 enforced          enforced
+ *   unknown keys rejected                enforced          enforced
+ *
+ * The schema was stricter almost everywhere and was dead code. A second,
+ * unused validator is worse than none: it looks authoritative in review while
+ * nothing depends on it, and it drifts until the two disagree — which is exactly
+ * what happened on `totalMaxMarks` (see below).
+ *
+ * `parseRubricStrict` now delegates here and only maps Zod issues onto the
+ * `{path, message}` shape the publish gate reports. Consistency between the two
+ * entry points is asserted in `tests/unit/questions/rubric-authority.test.ts`,
+ * and a mutation test proves the gate really depends on this schema.
+ *
+ * ── Why `totalMaxMarks` is NOT pinned to the literal 10 ──────────────────
+ *
+ * The dead schema pinned it with `z.literal(10)`; the hand-written parser
+ * accepted any integer. Both readings appear in the specification, so the
+ * tie-breaker is which document owns the rule:
+ *
+ *   · §7.7's *shape* table gives `totalMaxMarks` the type `integer` and lists
+ *     `10` under "allowed values", then adds: "Must equal the sum of
+ *     `parts[].maxMarks` and `questions.marks`".
+ *   · §7.7's "Cross-document validation (publish gate)" section puts the three
+ *     totals — the sum of the parts, the curriculum constant, and
+ *     `questions.marks` — in the PUBLISH GATE, not in the shape definition.
+ *   · E-10 rejected a database `CHECK (type <> 'CQ' OR marks = 10)` because
+ *     1+2+3+4 = 10 is a property of the current curriculum, not of the `CQ`
+ *     type. The guarantee moved to the `cq_stem` profile plus I-15.
+ *
+ * So the shape schema takes the type (`integer`) and leaves the value rule to
+ * the gate: I-7 compares `totalMaxMarks` with the sum of `parts[].maxMarks`, and
+ * I-15 compares it with `questions.marks` and the stem's subquestion marks.
+ * Pinning 10 here would have made the shape layer emit `CQ_RUBRIC_INVALID` for
+ * documents the gate is supposed to explain precisely — and it would have
+ * pre-empted I-7 and I-15, whose tests build internally consistent rubrics with
+ * totals of 6 or 12 to exercise those codes. Those tests are the evidence that
+ * this division is the approved one, not a convenience.
+ *
+ * The change is therefore NOT a loosening: production already accepted any
+ * integer here, and I-7/I-15 still reject a wrong total. What changed is that
+ * the unused schema no longer disagrees with production.
+ *
+ * NOT enforced here either, for the same reason: exactly four parts, their
+ * order, the ক=1 … ঘ=4 mapping and `Σ criteria.marks = maxMarks`. Those are
+ * cross-document facts owned by I-7 (`checkRubricMatchesStem`) and I-15 in the
+ * publish gate.
  */
+export const RUBRIC_CRITERION_KINDS = [
+  'knowledge',
+  'comprehension',
+  'application',
+  'analysis',
+] as const;
+
+/** §7.12: a marking guide with more criteria than this is a different document. */
+export const RUBRIC_MAX_CRITERIA_PER_PART = 6;
+
+/** §7.7: the four subquestion parts, in ক→ঘ order (a set rule, not an order rule). */
+export const RUBRIC_PARTS = ['ক', 'খ', 'গ', 'ঘ'] as const;
+
+/** §7.7/§7.8: the only rubric schema version. An unknown version is an error. */
+export const RUBRIC_VERSION = 1;
+
 export const rubricCriterionSchema = z.strictObject({
   description: z.string().min(1).max(500),
   marks: z.number().int().min(1),
-  kind: z.enum(['knowledge', 'comprehension', 'application', 'analysis']).optional(),
+  kind: z.enum(RUBRIC_CRITERION_KINDS).optional(),
 });
 
 export const rubricPartSchema = z.strictObject({
-  part: z.enum(['ক', 'খ', 'গ', 'ঘ']),
+  part: z.enum(RUBRIC_PARTS),
   maxMarks: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4)]),
-  criteria: z.array(rubricCriterionSchema).min(1).max(6),
+  criteria: z.array(rubricCriterionSchema).min(1).max(RUBRIC_MAX_CRITERIA_PER_PART),
   expectedAnswer: z.string().min(1).max(2000).optional(),
   notes: z.string().min(1).max(1000).optional(),
 });
 
 export const cqRubricSchema = z.strictObject({
   format: z.literal('cq_rubric'),
-  version: z.literal(1),
-  totalMaxMarks: z.literal(10),
+  version: z.literal(RUBRIC_VERSION),
+  // Type only. The value rule (`= Σ parts[].maxMarks = questions.marks`) is
+  // I-7/I-15's, per §7.7's cross-document section and E-10. See the note above.
+  totalMaxMarks: z.number().int(),
   parts: z.array(rubricPartSchema),
 });
 

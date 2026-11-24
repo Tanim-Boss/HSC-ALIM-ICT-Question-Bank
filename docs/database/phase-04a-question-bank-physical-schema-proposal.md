@@ -4972,6 +4972,24 @@ was contacted, no deployment command was run, and no configuration for one was a
 | G‑2 / OD‑21 / OD‑NM‑1 | Unchanged — deferred / open |
 | OD‑11/12/13, users/RLS, Phase 05 tables | Unchanged — deferred, absent |
 
+**Reading this table correctly — repository vs. production (clarified post-merge, `649c714`).**
+Four rows above share the words "not authorised" and one shares "present", and that
+has been read as if the composite FKs were missing from the repository artifact or
+unauthorised to exist in migration 0001. They are not. The distinctions are:
+
+| Statement | Accurate reading |
+|---|---|
+| **C‑1…C‑5 are approved design** | Approved under Request C, subject to the G‑1 condition (§11.3). The design itself has not been withdrawn and must not be dropped to unblock a deployment (B1c). |
+| **They are present in repository migration 0001** | The five composite FKs are committed as hand‑written SQL in `prisma/migrations/0001_phase04a_question_bank/migration.sql`, lines **674–706** (`fk_questions_level_subject`, `fk_chapters_subject`, `fk_topics_chapter`, `fk_subtopics_topic`, `fk_answer_keys_options_of_version`). Their presence in the repository is the approved, intended state. |
+| **G‑1 FAILED** | G‑1 failed because Prisma's ordinary no‑change drift workflow proposes **dropping** exactly those five constraints — not because the constraints are wrong. PostgreSQL creates and enforces all five, and the enforcement suite proves it. |
+| **G‑3 PASSED** | G‑3 verifies the **controlled Option C workflow**: the committed migration deploys, reproduces and is tamper‑evident, and the live catalog still carries C‑1…C‑5 after deployment. |
+| **B2 WITHHELD** | What is withheld is **production** creation/deployment of migration 0001 with C‑1…C‑5 (§11.12.3). Nothing in B2 withholds the repository artifact, and nothing in B1a authorises production use. |
+| **G‑3 does not override G‑1** | These verify different things and are not netted off. A workflow that faithfully deploys and preserves the constraints does not make Prisma's drift behaviour safe; G‑1 remains FAILED and is not re‑scored (§11.12.1 qualification 2). |
+
+Any future verification brief should state the C‑1…C‑5 row as *"approved design;
+present in repository migration 0001; **production** creation withheld under B2"* —
+rather than as an authorisation failure in the repository.
+
 #### 11.12.5 What would have to change for B1b/B2
 
 Stated so the path is unambiguous rather than implied: **V‑1 … V‑5 completed and

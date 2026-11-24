@@ -36,11 +36,28 @@ import 'server-only';
  *   3. Both I-6 gates run, in order, before any write:
  *        · `assertTypeChangeAllowed`            — published RIGHT NOW?
  *        · `assertLegacyArchiveReviewRequired`   — publication status UNKNOWABLE?
- *   4. There is NO global bypass. The review-exception parameter is absent by
- *      design: AMB-5 authorises no override mechanism, and the owner has not
- *      approved one. Until such a decision exists, exceptions are simply
- *      unavailable — see `docs/database/g1-spike/option-c/prod-ready/v45/
- *      AMB-5-LEGACY-ARCHIVE-DECISION.md`.
+ *   4. There is NO bypass, and this service exposes no exception parameter. Its
+ *      signature is exactly `{ questionId, nextType }` — one object, two fields.
+ *
+ *      This used to need a paragraph of qualification, because the rules helper
+ *      took an optional `allowLegacyArchivedTypeChange` flag that short-circuited
+ *      the archived case. The flag existed, was unreachable from this service,
+ *      and was guarded by a **source-text assertion** in the unit suite — a
+ *      substring check that constrained what this file could *say*, not what it
+ *      could *do*. Documenting the hazard was enough to trip it.
+ *
+ *      It has since been removed from the helper outright (no production caller
+ *      ever passed it), so the containment is now structural: there is no
+ *      parameter to pass and no method to call. The proof is behavioural, not
+ *      textual — `tests/unit/questions/amb5-service-enforcement.test.ts` drives
+ *      this service with a controlled transaction client and shows that an
+ *      all-archived question is refused even when a caller smuggles the old flag
+ *      into the input object.
+ *
+ *      What is NOT guaranteed: `questions.type` still has no database-level
+ *      guard, because AMB-5 authorises no migration (0002 is NOT authorised).
+ *      A future direct `prisma.question.update({ data: { type } })` would bypass
+ *      this service. None exists in `server/` today.
  */
 
 import { getPrisma } from '@/lib/db';
