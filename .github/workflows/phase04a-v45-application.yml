@@ -231,12 +231,23 @@ jobs:
 
       - name: Assert the suites actually ran a non-trivial number of cases
         run: |
-          count="$(grep -oE "Tests +[0-9]+ passed" /tmp/v45app.log | grep -oE '[0-9]+' | head -1)"
-          echo "passed=$count"
-          if [ -z "${count:-}" ] || [ "$count" -lt 8 ]; then
-            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 8"
+          # Strip ANSI first: vitest colourises its summary, and the earlier
+          # version of this step read an empty count from an all-passing run and
+          # failed it. A green run must not be reported as a failure any more
+          # than a failed one may be reported green.
+          clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/v45app.log | tr -d '\r')"
+          count="$(printf '%s' "$clean" | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
+          echo "passed=${count:-<none>}"
+          if [ -z "${count:-}" ]; then
+            echo "::error title=V-4/5::could not read a test count from the output"
+            printf '%s' "$clean" | tail -20
             exit 1
           fi
+          if [ "$count" -lt 18 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 18"
+            exit 1
+          fi
+          echo "OK: $count integration cases executed against PostgreSQL"
 
       - name: Publish results to the PR
         if: always()
