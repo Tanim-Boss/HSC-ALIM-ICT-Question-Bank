@@ -256,17 +256,27 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          # Strip ANSI before publishing: the raw colour codes made the comment
+          # unreadable, and this comment is the only evidence channel that works
+          # from environments where the job log cannot be downloaded.
+          clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/v45app.log 2>/dev/null | tr -d '\r' || true)"
           {
             echo "<!-- v45-app-results -->"
             echo "### V-4 / V-5 application verification (${GITHUB_SHA::7})"
             echo
+            echo "Integration suites against a real PostgreSQL 16 with migration 0001 applied."
+            echo
             echo '```'
-            grep -E "Tests +[0-9]+|✓|×|SKIPPED" /tmp/v45app.log 2>/dev/null | head -60 || echo "no log"
+            printf '%s\n' "$clean" | grep -E "✓|×|FAIL " | sed 's/^ *//' | head -60 || echo "no cases recorded"
+            echo '```'
+            echo
+            echo '```'
+            printf '%s\n' "$clean" | grep -E "Tests +[0-9]+|Test Files" | tail -4 || true
             echo '```'
             echo
             echo "Failing cases, if any:"
             echo '```'
-            grep -E "FAIL |AssertionError" /tmp/v45app.log 2>/dev/null | head -20 || echo "none"
+            printf '%s\n' "$clean" | grep -E "AssertionError|FAIL " | head -20 || echo "none"
             echo '```'
           } > /tmp/v45app-comment.md
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45app-comment.md \
