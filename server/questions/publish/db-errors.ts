@@ -96,6 +96,25 @@ export const UNIQUE_INDEX_MAP: Readonly<Record<string, Mapping>> = {
     message: 'An education level with this code already exists.',
     field: 'code',
   },
+  // ── Composite-FK support uniques ────────────────────────────────────────
+  // These three exist so the composite foreign keys on questions and their
+  // children have something to reference. They are NOT user-facing form
+  // conflicts: a collision here means the service tried to create a duplicate
+  // parent row, which is a bug rather than something to explain to a user. So
+  // they map to a code that says so rather than borrowing a form message, and
+  // the mapper still names the constraint for the log.
+  uq_chapters_id_subject: {
+    code: 'REFERENCE_TARGET_CONFLICT',
+    message: 'An internal reference could not be created because the record already exists.',
+  },
+  uq_topics_id_chapter: {
+    code: 'REFERENCE_TARGET_CONFLICT',
+    message: 'An internal reference could not be created because the record already exists.',
+  },
+  uq_subtopics_id_topic: {
+    code: 'REFERENCE_TARGET_CONFLICT',
+    message: 'An internal reference could not be created because the record already exists.',
+  },
   uq_chapters_subject_number: {
     code: 'CHAPTER_NUMBER_CONFLICT',
     message: 'This subject already has a chapter with that number.',

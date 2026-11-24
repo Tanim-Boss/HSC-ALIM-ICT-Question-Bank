@@ -97,45 +97,33 @@ const OPTION_CONTENT = {
   blocks: [{ type: 'paragraph', data: { text: 'উত্তর', lang: 'bn' } }],
 };
 
+/**
+ * The taxonomy rows every fixture shares.
+ *
+ * The database enforces `fk_questions_level_subject` — a question's
+ * (education_level_id, subject_id) must exist in `level_subjects` — so the two
+ * rows must be created ONCE and linked, not created per fixture. An earlier
+ * draft of this file created a fresh level and subject inside every fixture and
+ * linked them, which would have made the two fixtures share nothing; this shape
+ * is what the real write path looks like.
+ */
+let TAXONOMY: { levelId: string; subjectId: string; chapterId: string };
+
 /** Builds a complete MCQ question tree in one transaction and returns its ids. */
 async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
   questionId: string;
   versionId: string;
 }> {
   return prisma.$transaction(async (tx: PrismaTx) => {
-    const level = await tx.educationLevel.create({
-      data: { code: `V4IT${Date.now() % 100000}`, nameBn: 'স্তর', nameEn: 'Level' },
-      select: { id: true },
-    });
-    const subject = await tx.subject.create({
-      data: { code: `V4ITS${Date.now() % 100000}`, nameBn: 'বিষয়', nameEn: 'Subject' },
-      select: { id: true },
-    });
-    await tx.levelSubject.create({ data: { levelId: level.id, subjectId: subject.id } });
-    const chapter = await tx.chapter
-      .create({
-        data: { subjectId: subject.id, chapterNumber: 1, nameBn: 'অধ্যায়', nameEn: 'Chapter' },
-        select: { id: true },
-      })
-      .catch(async () => {
-        // chapter_number is unique per subject and the fixture reuses subject codes
-        const existing = await tx.chapter.findFirst({
-          where: { subjectId: subject.id },
-          select: { id: true },
-        });
-        if (existing === null) throw new Error('could not create or find a chapter');
-        return existing;
-      });
-
     const question = await tx.question.create({
       data: {
         type: 'MCQ',
         status: 'DRAFT',
         difficulty: 'MEDIUM',
         createdVia: 'MANUAL',
-        educationLevelId: level.id,
-        subjectId: subject.id,
-        chapterId: chapter.id,
+        educationLevelId: TAXONOMY.levelId,
+        subjectId: TAXONOMY.subjectId,
+        chapterId: TAXONOMY.chapterId,
         marks: 1,
       },
       select: { id: true },
@@ -242,20 +230,41 @@ describeDb('publish gate against real PostgreSQL', () => {
     prisma = new PrismaClient({ adapter });
   });
 
+  beforeAll(async () => {
+    // ONE shared taxonomy, created against the real constraints: the code
+    // format is uppercase-only and level_subjects must actually link them.
+    const level = await prisma.educationLevel.create({
+      data: { code: 'V4IT_LEVEL', nameBn: 'স্তর', nameEn: 'Level' },
+      select: { id: true },
+    });
+    const subject = await prisma.subject.create({
+      data: { code: 'V4IT_SUBJECT', nameBn: 'বিষয়', nameEn: 'Subject' },
+      select: { id: true },
+    });
+    await prisma.levelSubject.create({ data: { levelId: level.id, subjectId: subject.id } });
+    const chapter = await prisma.chapter.create({
+      data: { subjectId: subject.id, chapterNumber: 1, titleBn: 'অধ্যায়', titleEn: 'Chapter' },
+      select: { id: true },
+    });
+    TAXONOMY = { levelId: level.id, subjectId: subject.id, chapterId: chapter.id };
+  });
+
   afterAll(async () => {
     // Remove only this suite's rows. Deleting questions cascades to versions,
     // options, keys and asset links; the taxonomy rows are removed by code prefix.
+    // Remove this suite's rows in FK order (children first). The codes are
+    // fixed now, so the cleanup is exact rather than a prefix guess.
     await prisma.$executeRawUnsafe(
-      `DELETE FROM questions WHERE education_level_id IN (SELECT id FROM education_levels WHERE code LIKE 'V4IT%')`,
+      `DELETE FROM questions WHERE education_level_id IN (SELECT id FROM education_levels WHERE code = 'V4IT_LEVEL')`,
     );
     await prisma.$executeRawUnsafe(
-      `DELETE FROM level_subjects WHERE level_id IN (SELECT id FROM education_levels WHERE code LIKE 'V4IT%')`,
+      `DELETE FROM level_subjects WHERE level_id IN (SELECT id FROM education_levels WHERE code = 'V4IT_LEVEL')`,
     );
     await prisma.$executeRawUnsafe(
-      `DELETE FROM chapters WHERE subject_id IN (SELECT id FROM subjects WHERE code LIKE 'V4ITS%')`,
+      `DELETE FROM chapters WHERE subject_id IN (SELECT id FROM subjects WHERE code = 'V4IT_SUBJECT')`,
     );
-    await prisma.$executeRawUnsafe(`DELETE FROM subjects WHERE code LIKE 'V4ITS%'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM education_levels WHERE code LIKE 'V4IT%'`);
+    await prisma.$executeRawUnsafe(`DELETE FROM subjects WHERE code = 'V4IT_SUBJECT'`);
+    await prisma.$executeRawUnsafe(`DELETE FROM education_levels WHERE code = 'V4IT_LEVEL'`);
     await prisma.$disconnect();
   });
 

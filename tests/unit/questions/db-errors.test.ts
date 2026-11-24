@@ -190,6 +190,39 @@ describe('known violations map to their own code — never to each other', () =>
   });
 });
 
+describe('composite-FK support uniques', () => {
+  /**
+   * These three indexes exist only so the composite foreign keys have a target.
+   * A collision is an internal bug, not a form the user can correct, so it must
+   * NOT borrow a user-facing form message — mapping it to, say,
+   * CHAPTER_NUMBER_CONFLICT would tell a user to fix a field they never touched.
+   */
+  it.each(['uq_chapters_id_subject', 'uq_topics_id_chapter', 'uq_subtopics_id_topic'])(
+    '%s maps to REFERENCE_TARGET_CONFLICT, not to a form conflict',
+    (indexName) => {
+      const mapped = mapUniqueViolation({
+        code: 'P2002',
+        message: 'Unique constraint failed',
+        meta: { target: indexName },
+      });
+      expect(mapped?.code).toBe('REFERENCE_TARGET_CONFLICT');
+      expect(mapped?.constraintNames).toEqual([indexName]);
+      // The negative half: it must not impersonate a user-fixable conflict.
+      expect(mapped?.code).not.toBe('CHAPTER_NUMBER_CONFLICT');
+      expect(mapped?.field).toBeUndefined();
+    },
+  );
+
+  it('the message shown to a user names no index and no SQL', () => {
+    const mapped = mapUniqueViolation({
+      code: 'P2002',
+      meta: { target: 'uq_chapters_id_subject' },
+    });
+    expect(mapped?.message).not.toMatch(/uq_|23505|DETAIL|constraint/i);
+    expect((mapped?.message ?? '').length).toBeGreaterThan(10);
+  });
+});
+
 describe('unknown violations are handled generically, never guessed', () => {
   it('an unseen index name becomes UNIQUE_CONFLICT', () => {
     const mapped = mapUniqueViolation(p2002('x', 'uq_something_from_the_future'));

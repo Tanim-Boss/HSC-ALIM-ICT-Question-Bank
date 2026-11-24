@@ -190,26 +190,49 @@ describeDb('V-5 database half — real unique violations', () => {
 });
 
 describeDb('every unique index in migration 0001 is covered by the mapper', () => {
-  it('the registry covers every UNIQUE index the migration creates', () => {
+  it('the registry covers every unique index the migration creates', () => {
     const migration = readFileSync(
       join(process.cwd(), 'prisma/migrations/0001_phase04a_question_bank/migration.sql'),
       'utf8',
     );
-    const indexes = [...migration.matchAll(/CREATE UNIQUE INDEX "([a-z0-9_]+)"/g)]
+
+    // Both declaration styles, because "no P2002 mapping" is silent otherwise.
+    // The migration creates its uniques with CREATE UNIQUE INDEX, but a future
+    // revision could use a table constraint instead, and this check would then
+    // quietly see nothing to check.
+    const fromIndexes = [...migration.matchAll(/CREATE UNIQUE INDEX "([a-z0-9_]+)"/g)]
+      .map((match) => match[1])
+      .filter((name): name is string => name !== undefined);
+    const fromConstraints = [...migration.matchAll(/CONSTRAINT "([a-z0-9_]+)" UNIQUE/g)]
       .map((match) => match[1])
       .filter((name): name is string => name !== undefined);
 
-    expect(indexes.length).toBeGreaterThan(15);
+    const uniqueNames = [...new Set([...fromIndexes, ...fromConstraints])].sort();
 
-    // Primary keys are also unique constraints; the mapper handles them via the
-    // generic path, so they are excluded from the coverage requirement by name.
-    const PK_LIKE = new Set(['uq_question_version_assets_version_block_ref']);
-    const required = indexes.filter((name) => !PK_LIKE.has(name) || true);
+    // POSITIVE CONTROL: if this regex ever stops matching, the coverage claim
+    // below would pass vacuously. Fifteen is far below the real count (20), so
+    // it only catches a broken parser.
+    expect(uniqueNames.length).toBeGreaterThan(15);
 
-    const missing = required.filter((name) => UNIQUE_INDEX_MAP[name] === undefined);
+    const missing = uniqueNames.filter((name) => UNIQUE_INDEX_MAP[name] === undefined);
     expect(
       missing,
       `these unique indexes have no mapper entry and would report a generic conflict: ${missing.join(', ')}`,
+    ).toEqual([]);
+  });
+
+  it('the registry contains no entry for an index that does not exist', () => {
+    // The other direction: a stale entry is a guarantee nobody is testing, and
+    // it usually means a renamed constraint.
+    const migration = readFileSync(
+      join(process.cwd(), 'prisma/migrations/0001_phase04a_question_bank/migration.sql'),
+      'utf8',
+    );
+    const declared = new Set([...migration.matchAll(/"([a-z0-9_]+)"/g)].map((m) => m[1]));
+    const stale = Object.keys(UNIQUE_INDEX_MAP).filter((name) => !declared.has(name));
+    expect(
+      stale,
+      `registry entries with no matching constraint in 0001: ${stale.join(', ')}`,
     ).toEqual([]);
   });
 });

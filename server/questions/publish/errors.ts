@@ -49,6 +49,12 @@ export type DomainErrorCode =
   | 'ASSET_POINTER_CONFLICT' // uq_question_version_assets_version_block_ref
   | 'SOURCE_IDENTITY_CONFLICT' // uq_question_sources_identity
   | 'TAG_ALREADY_LINKED_CONFLICT' // question_tags primary key
+  // The composite-FK support uniques (uq_chapters_id_subject, uq_topics_id_chapter,
+  // uq_subtopics_id_topic). A collision means the service tried to create a row
+  // that already existed — an internal bug, not a form the user can fix — so it
+  // is kept distinct from the form-level conflicts above rather than reusing one
+  // of their messages.
+  | 'REFERENCE_TARGET_CONFLICT'
   // Generic, deliberately last: an unmapped unique violation is a conflict the
   // user can act on ("that value is already taken") without learning which
   // index it was. Never silently coerced into a specific field (V-5 requirement).
