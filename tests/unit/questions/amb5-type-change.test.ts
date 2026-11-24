@@ -14,8 +14,13 @@
  *     missing call site.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
+
+// `server-only` throws on import outside a server-render context. Mocking it is
+// what lets this file inspect the real service's exported shape.
+vi.mock('server-only', () => ({}));
+vi.mock('@/lib/db', () => ({ getPrisma: () => ({}) }));
 
 import {
   assertLegacyArchiveReviewRequired,
@@ -23,6 +28,11 @@ import {
   type VersionRecordSnapshot,
 } from '@/server/questions/publish/rules';
 import { DomainError } from '@/server/questions/publish/errors';
+
+// The real service module, imported only for its API shape (`length`). Its
+// behaviour is exercised in `amb5-service-enforcement.test.ts`, where the
+// transaction client is controlled.
+import { changeQuestionType } from '@/server/questions/change-type';
 
 const v = (status: VersionRecordSnapshot['status'], n = 1): VersionRecordSnapshot =>
   ({
@@ -165,8 +175,14 @@ describe('the gate is wired into every type-change entry point', () => {
     expect(callsUnconditionally(gate, 'assertLegacyArchiveReviewRequired')).toBe(true);
   });
 
-  it('the service takes no override parameter', () => {
-    expect(service).not.toContain('allowLegacyArchivedTypeChange');
+  it('the service exposes exactly one parameter — there is no options slot', () => {
+    // REPLACED (AMB-5 hardening). This used to be a substring check over the
+    // service's source text, which constrained what the file could SAY rather
+    // than what it could DO — and it punished documenting the hazard. The
+    // override flag has since been deleted from the rules helper entirely; the
+    // behavioural proof now lives in
+    // `tests/unit/questions/amb5-service-enforcement.test.ts`.
+    expect(changeQuestionType.length).toBe(1);
   });
 
   it('the service locks the row before reading it', () => {

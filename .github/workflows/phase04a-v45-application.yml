@@ -16,7 +16,7 @@ on:
   push:
     branches: [main, 'arena/**']
     paths:
-      - '.github/workflows/phase04a-v45-application.yml'
+      - '.github/workflows/**'
       - 'server/questions/**'
       - 'tests/unit/questions/**'
       - 'tests/integration/**'
@@ -26,15 +26,24 @@ on:
       - 'prisma/migrations/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'scripts/**'
+      - 'tests/unit/tooling/**'
+      # scripts/db/deploy-gate.sh delegates the checksum decision to this file.
+      # Without it here, a change to the authoritative checksum logic would not
+      # re-run the harness that exercises it.
+      - 'docs/database/g1-spike/option-c/guard.py'
   pull_request:
     paths:
-      - '.github/workflows/phase04a-v45-application.yml'
+      - '.github/workflows/**'
       - 'server/questions/**'
       - 'tests/unit/questions/**'
       - 'tests/integration/**'
       - 'tests/fixtures/questions/**'
       - 'vitest.integration.config.ts'
       - 'prisma/**'
+      - 'scripts/**'
+      - 'tests/unit/tooling/**'
+      - 'docs/database/g1-spike/option-c/guard.py'
   workflow_dispatch:
 
 permissions:
@@ -83,6 +92,7 @@ jobs:
           npx prettier --check \
             "server/questions/**/*.ts" \
             "tests/unit/questions/**/*.ts" \
+            "tests/unit/tooling/**/*.ts" \
             "tests/integration/questions/**/*.ts" \
             "tests/fixtures/questions/**/*.ts" || {
               echo "::error title=format::run 'npx prettier --write' on these files"
@@ -98,16 +108,18 @@ jobs:
           npx vitest run tests/unit/ --reporter=verbose 2>&1 | tee /tmp/unit.log
           rc=${PIPESTATUS[0]}
           # A floor, not an exact count: adding tests must not fail the build, but
-          # deleting them must. 390 is the count after the denylist, strict-rubric
-          # and §7.4-catalogue suites landed; 307 before them.
+          # deleting them must. 660 is a margin below the current 692 (19 files)
+          # after the AMB-5 structural suite, the OD-18 authority/mutation suites
+          # and the two deployment-guard suites landed; the earlier floor of 390
+          # pre-dated all of them.
           count="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/unit.log | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
           echo "unit tests passed=${count:-<none>}"
           if [ -z "${count:-}" ]; then
             echo "::error title=unit::could not read a unit test count"
             exit 1
           fi
-          if [ "$count" -lt 390 ]; then
-            echo "::error title=unit::too few unit cases ran ($count) — expected at least 390"
+          if [ "$count" -lt 660 ]; then
+            echo "::error title=unit::too few unit cases ran ($count) — expected at least 660"
             exit 1
           fi
           exit "$rc"
@@ -116,6 +128,12 @@ jobs:
       # change did not introduce a prohibited Prisma migration command.
       - name: Repository guard (no prohibited migration command)
         run: bash docs/database/g1-spike/option-c/repo-guard.sh
+
+      # The complementary control: `migrate deploy` is allowed, but only through
+      # the approved checksum gate. This fails the build if any npm script, file
+      # under scripts/, workflow step or harness deploys around it.
+      - name: Deployment-path guard (every deploy goes through the checksum gate)
+        run: python3 scripts/db/deploy-path-guard.py
 
       - name: Assert migration 0001 is unchanged
         run: |
@@ -178,6 +196,15 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq postgresql-client-16 >/dev/null
           psql --version
+
+      # The checksum gate against REAL PostgreSQL, on disposable databases this
+      # step creates and drops. No Prisma client is needed: the gate is psql +
+      # guard.py, and the deploy positive control uses a fake `npx`, so nothing
+      # is ever applied by the deploy step.
+      - name: Checksum gate vs real PostgreSQL 16 (disposable databases)
+        env:
+          PG_ADMIN_URL: postgresql://v45app:v45app@localhost:5432/v45app
+        run: bash scripts/ci/deploy-gate-pg-check.sh
 
       - name: Generate the Prisma client
         run: ./node_modules/.bin/prisma generate
@@ -311,8 +338,17 @@ jobs:
             printf '%s' "$clean" | tail -20
             exit 1
           fi
-          if [ "$count" -lt 29 ]; then
-            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 29"
+          # 47 is the number of cases in the five suites today:
+          #   change-type-service 18 (incl. the four concurrency tests),
+          #   publish-gate 9, publish-service 9, snapshot-transaction 2,
+          #   unique-conflicts 9.
+          # A floor, not an exact count: adding cases must not fail the build, but
+          # deleting them — or a broken include pattern — must. The skipped-suite
+          # guard in the step above catches "ran nothing because there was no
+          # database"; this catches "ran nothing because the tests went away".
+          # The earlier floor of 29 predated the AMB-5 concurrency suite.
+          if [ "$count" -lt 47 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 47"
             exit 1
           fi
           echo "OK: $count integration cases executed against PostgreSQL"

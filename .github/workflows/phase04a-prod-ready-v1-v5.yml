@@ -22,6 +22,9 @@ on:
       - 'prisma/migrations/**'
       - 'docs/database/g1-spike/option-c/guard.py'
       - 'docs/database/g1-spike/option-c/repo-guard.sh'
+      # The 0001 deploy step runs this gate, so a change to it must re-run the
+      # drill that proves the deploy path still works end to end.
+      - 'scripts/db/**'
       - 'package.json'
       - 'package-lock.json'
   pull_request:
@@ -30,6 +33,11 @@ on:
       - 'docs/database/g1-spike/option-c/prod-ready/**'
       - 'prisma/schema.prisma'
       - 'prisma/migrations/**'
+      - 'docs/database/g1-spike/option-c/guard.py'
+      - 'docs/database/g1-spike/option-c/repo-guard.sh'
+      - 'scripts/db/**'
+      - 'package.json'
+      - 'package-lock.json'
   workflow_dispatch:
 
 permissions:
@@ -298,12 +306,20 @@ jobs:
 
       # Bring the PRIMARY database to 0001 using Prisma, so that 0002 is
       # genuinely the second migration in a real Prisma history.
-      - name: Deploy migration 0001 with prisma migrate deploy
+      #
+      # The deploy goes THROUGH the mandatory checksum gate rather than calling
+      # prisma directly: `deploy` first verifies the applied history against the
+      # files on disk (via the same guard.py the V-3 drill uses) and only then
+      # execs prisma. A modified applied migration, a missing history record, a
+      # migration file that has vanished, or an unreadable database all refuse
+      # the deploy. Arguments after `--` are forwarded, so the need for
+      # `--config` is not a reason to deploy around the gate.
+      - name: Deploy migration 0001 through the mandatory checksum gate
         env:
           DATABASE_URL: postgresql://v1:v1pass@localhost:5432/v1_primary
         run: |
           set -euo pipefail
-          node_modules/.bin/prisma migrate deploy --config prisma.config.ts
+          bash scripts/db/deploy-gate.sh deploy -- --config prisma.config.ts
           node_modules/.bin/prisma migrate status --config prisma.config.ts
 
       # Kept as a regression check, not a diagnostic. The empty-diff defect was

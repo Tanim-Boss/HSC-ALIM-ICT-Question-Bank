@@ -420,23 +420,26 @@ describe('AMB-5 — fail closed for legacy archived records (owner-approved)', (
     expect(() => assertLegacyArchiveReviewRequired('CQ', 'MCQ', allArchived)).toThrow();
   });
 
-  it('does not silently infer: there is no global switch, only a per-call exception', () => {
-    // A global flag is what "silently infer" decays into. The exception is a
-    // deliberate argument, visible at every call site.
+  it('does not silently infer: there is no switch and no exception argument', () => {
+    // The per-call override flag was REMOVED (AMB-5 hardening): it was never
+    // passed by production code, and a boolean that resolves "publication
+    // status unknowable" in the caller's favour is exactly the silent inference
+    // the owner decision forbids. Forcing one through a cast must change nothing.
+    const forced = assertLegacyArchiveReviewRequired as unknown as (
+      a: string,
+      b: string,
+      c: unknown,
+      d: unknown,
+    ) => void;
     expect(() =>
-      assertLegacyArchiveReviewRequired('CQ', 'MCQ', [v('ARCHIVED', 1)], {
-        allowLegacyArchivedTypeChange: true,
-      }),
-    ).not.toThrow();
+      forced('CQ', 'MCQ', [v('ARCHIVED', 1)], { allowLegacyArchivedTypeChange: true }),
+    ).toThrow();
   });
 
-  it('permits the change only through the documented exception path', () => {
-    expect(() => assertLegacyArchiveReviewRequired('CQ', 'MCQ', [v('ARCHIVED', 1)])).toThrow();
-    expect(() =>
-      assertLegacyArchiveReviewRequired('CQ', 'MCQ', [v('ARCHIVED', 1)], {
-        allowLegacyArchivedTypeChange: true,
-      }),
-    ).not.toThrow();
+  it('cannot be disarmed by any caller-supplied argument', () => {
+    expect(() => assertLegacyArchiveReviewRequired('CQ', 'MCQ', [v('ARCHIVED', 1)])).toThrow(
+      /review/i,
+    );
   });
 
   it('allows a draft-only question — it was demonstrably not published', () => {

@@ -1,8 +1,29 @@
 # Final Cross-Boundary Verification — PR #10
 
+> ## ⚠ HISTORICAL / PRE-MERGE DOCUMENT — NOT POST-MERGE EVIDENCE
+>
+> **This report describes the PRE-MERGE state of PR #10 and is preserved unaltered
+> as the historical record of that audit. Its verdict, its evidence and its
+> "PR status" section are accurate only as of the `8df3db2` snapshot below.**
+>
+> - **PR #10 was subsequently merged** by the repository owner at merge commit
+>   **`649c714ae7fcef7b459e9208c8930711282229b2`** (2026-11-24T04:38:26Z), which is
+>   the current `main` HEAD.
+> - **The post-merge baseline verification supersedes this report's merge-status
+>   statement.** The claim in the "PR status" section that PR #10 is "OPEN.
+>   UNMERGED" is now false and is retained only because it was true when written.
+> - **Every CI run ID quoted in this report refers to commits at or before
+>   `8df3db2` and must NOT be treated as post-merge CI evidence.** This applies to
+>   §8 "CI evidence" in particular. The authoritative post-merge runs are the seven
+>   workflows triggered by the push of `649c714` (`45327791786`, `45327791862`,
+>   `45327791871`, `45327791897`, `45327791918`, `45327791922`, `45327791943`).
+>
+> Nothing else in this document has been rewritten: the findings, the table of
+> write paths, the test names and the verdict stand exactly as audited.
+
 **Branch:** `arena/1042a18a-hsc-alim-ict-question-bank`
 **HEAD at audit start:** `e19ee25` → **HEAD now:** `8df3db2` (one commit added by this audit)
-**PR #10:** OPEN, **UNMERGED**.
+**PR #10:** OPEN, **UNMERGED**. *(Historical — superseded; PR #10 merged as `649c714`.)*
 
 ---
 
@@ -33,11 +54,15 @@ Searched the whole repository, not just `server/`, for every operation capable o
 **Property verification against the actual code:**
 
 1. **All legitimate paths gated** — one production write exists; it is gated. ✅
-2. **Row lock** — `SELECT id FROM questions WHERE id = $1::uuid FOR UPDATE` at `change-type.ts:120`, before the read. ✅
+2. **Row lock** — `SELECT id FROM questions WHERE id = $1::uuid FOR UPDATE` at `change-type.ts:137`, before the read. ✅
 3. **Same transaction client** — `loadQuestionSnapshot(db, …)` where `db` is the `tx`; no `getPrisma()` read inside the callback. ✅
 4. **Unknown history fails closed** — `assertLegacyArchiveReviewRequired` throws when `versions.every(s => s === 'ARCHIVED')`. ✅
 5. **Codes distinct** — `QUESTION_TYPE_CHANGE_REVIEW_REQUIRED` ≠ `QUESTION_TYPE_IMMUTABLE`, both in `DomainErrorCode`. ✅
-6. **No override** — the service signature is `{ questionId, nextType }`. No global switch, no exception parameter. The helper's per-call `allowLegacyArchivedTypeChange` exists (Task 5) but is **not reachable from the service**. ✅
+6. **No override** — the service signature is `{ questionId, nextType }`. No global switch
+   and, since the post-merge hardening, **no exception parameter anywhere**: the helper's
+   per-call `allowLegacyArchivedTypeChange` was removed from the production API because no
+   production caller ever passed it. Enforcement is now structural
+   (`tests/unit/questions/amb5-service-enforcement.test.ts`), not a source-text assertion. ✅
 7. **No conditional gating** — both calls are unconditional statements executed before the write. ✅
 
 **One nuance worth stating:** the same-type no-op returns *before* the gates. That is correct, not a bypass — no type change occurs, so no gate applies. It is covered by a dedicated test in both suites.
@@ -247,5 +272,11 @@ This is why the integration suite exists and why the two layers are complementar
 ---
 
 ## PR status
+
+> **⚠ SUPERSEDED — see the notice at the top of this document.** The paragraph
+> below is the **pre-merge** state and is retained verbatim as the historical
+> record. **PR #10 has since been merged** at
+> `649c714ae7fcef7b459e9208c8930711282229b2`; the statement that it is "OPEN.
+> UNMERGED" with `mergedAt: null` is no longer true.
 
 **PR #10 — OPEN. UNMERGED.** `mergedAt: null`. Branch `arena/1042a18a-hsc-alim-ict-question-bank`, HEAD `8df3db2`. History preserved; no branch, PR or cherry-pick created. No production authorization implied or granted.

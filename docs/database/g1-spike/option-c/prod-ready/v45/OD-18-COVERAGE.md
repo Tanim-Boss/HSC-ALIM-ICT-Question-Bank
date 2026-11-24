@@ -94,6 +94,44 @@ done instead is what can be done without that duplication:
 
 **This is recorded as a gap, not presented as coverage.**
 
+### 3.1 Correction (post-merge hardening): ONE rubric validator
+
+The §7.7 rubric was the one place where a second representation was allowed
+("a hand-written parser is the Zod schema in waiting rather than a rival to it").
+That allowance did not hold up: the two implementations disagreed, and only the
+weaker one — the hand-written `parseRubricStrict` — was on the production path.
+
+- **Authoritative validator:** `cqRubricSchema` in
+  `lib/validation/content-blocks/profiles.ts`. It is the only implementation of
+  §7.7's shape rules.
+- **`parseRubricStrict`** (`server/questions/publish/rules.ts`) now contains no
+  validation logic. It calls `cqRubricSchema.safeParse` and translates the first
+  Zod issue into the gate's `{path, message}` form. There is no second path.
+- **What the hand-written parser had been missing** (all now enforced): the
+  `part` alphabet ক…ঘ, `maxMarks ∈ {1,2,3,4}`, `criteria[].marks ≥ 1`, and the
+  `description` / `expectedAnswer` / `notes` length limits. Rejecting a document
+  it used to accept is a tightening, not a format change — every accepted
+  document is unchanged.
+- **`totalMaxMarks`:** the dead schema pinned `z.literal(10)`; production
+  accepted any integer. The literal is **removed** — the field is now typed
+  `integer`, and the value rule stays with the publish gate. Reasoning: §7.7's
+  own "Cross-document validation (publish gate)" section owns the three totals,
+  and E‑10 rejected hard-coding 10 in the database because 1+2+3+4 is a
+  curriculum fact belonging to the `cq_stem` profile plus I‑15. Pinning 10 in
+  the shape layer would have pre-empted I‑7 and I‑15 with the vaguer
+  `CQ_RUBRIC_INVALID` — the existing `publish-rules.test.ts` cases (three parts,
+  total 6; total 12; stem/rubric totals disagree) are the evidence for that
+  division. Production behaviour is unchanged by the removal: it already
+  accepted these documents, and I‑7/I‑15 still reject them.
+- **I‑15 relationship, unchanged in substance:** `totalMaxMarks` must equal the
+  sum of `parts[].maxMarks` and equal `questions.marks`, which for the current
+  curriculum is 10. The shape validator checks none of that; the gate does.
+- **Evidence:** `tests/unit/questions/rubric-authority.test.ts` (agreement corpus
+  over 25+ documents, plus the shape rules now enforced) and
+  `tests/unit/questions/rubric-authority-mutation.test.ts` (replacing the schema
+  with a permissive mutant removes `CQ_RUBRIC_INVALID` from the gate's verdict —
+  the dependency is real, not incidental).
+
 ## 4. Files that implement §7
 
 | File | Role |

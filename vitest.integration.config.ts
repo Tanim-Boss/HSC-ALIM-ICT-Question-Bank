@@ -17,9 +17,19 @@ import { defineConfig } from 'vitest/config';
  *
  * Run with: DATABASE_URL=… npx vitest run --config vitest.integration.config.ts
  *
- * These tests FAIL rather than skip when DATABASE_URL is absent — see
- * tests/integration/setup.ts. A database suite that quietly skips reads as a
- * green light it has not earned.
+ * BEHAVIOUR WITHOUT A DATABASE — stated correctly, because an earlier version of
+ * this comment was wrong (it claimed the suites fail rather than skip, and cited
+ * a `tests/integration/setup.ts` that does not exist):
+ *
+ *   · each suite computes `hasDatabase` from DATABASE_URL and uses
+ *     `describe.skip` when it is absent, so a developer without a database can
+ *     still run the file without a false failure;
+ *   · the skip is LOUD (`console.warn(... SKIPPED ...)`), and the CI job greps
+ *     its log for `SKIPPED|Tests .*skipped` and fails on a match, then asserts a
+ *     floor of 47 executed cases;
+ *   · consequence: a skipped run can never be reported green by CI, which is the
+ *     property that matters. Locally it can be skipped, and that is a known and
+ *     documented limit rather than a silent pass.
  */
 export default defineConfig({
   test: {

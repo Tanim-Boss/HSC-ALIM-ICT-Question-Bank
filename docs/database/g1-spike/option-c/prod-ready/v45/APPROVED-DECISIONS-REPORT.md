@@ -10,6 +10,30 @@ Prepared 2026-11-23.
 
 ## 1. AMB-5 legacy fail-closed — implementation status
 
+> **RECONCILIATION NOTE — 2026-11-24.** This section is the report as written
+> when the decision was made. **It is preserved verbatim below and has not been
+> rewritten.** The implementation has since diverged from it in two ways, and the
+> divergence is recorded here so the rest of the document is not read as current
+> behaviour:
+>
+> | This report says (§1) | Actual behaviour since the implementation | Why |
+> | --- | --- | --- |
+> | The gate throws **`QUESTION_TYPE_IMMUTABLE`** — "the existing code, not a new one" | It throws **`QUESTION_TYPE_CHANGE_REVIEW_REQUIRED`** (invariant I‑6) | The two facts need different remediation: "a published version exists right now" vs "publication status is unknowable". Collapsing them tells a user something false about their own question. `QUESTION_TYPE_IMMUTABLE` is still thrown, by `assertTypeChangeAllowed`, for the published-now case. |
+> | An **exception path** exists: `{ allowLegacyArchivedTypeChange: true }`, a per-call argument | The parameter has been **REMOVED from the production API**. No per-call bypass flag exists. | No production caller ever passed it; the only code that set it was a test asserting it worked. A boolean that resolves "unknowable" in the caller's favour is the silent inference the decision forbids, and it carries no reviewer, reason or record — so it is not a review. |
+>
+> **Current policy, decided by the owner on 2026-11-24 (Option 1 — keep the
+> exception mechanism closed):** fully archived questions fail closed for
+> question-type changes; no production bypass of any kind is permitted; an
+> auditable exception workflow may be considered separately if a genuine
+> requirement arises, and does not exist today. See
+> `AMB-5-LEGACY-ARCHIVE-DECISION.md` §3 and §7 for the authoritative statement
+> and for the boundary that remains (no database-level guard, because 0002 is not
+> authorised).
+>
+> Nothing above changes the *decision* this report recorded. It records that the
+> implementation of that decision is stricter and differently coded than the
+> sketch below.
+
 **Status: IMPLEMENTED as a review gate. Historical tracking NOT implemented.**
 
 `assertLegacyArchiveReviewRequired(nextType, currentType, versions, options?)` —
