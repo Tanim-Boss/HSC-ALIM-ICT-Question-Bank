@@ -1,0 +1,29 @@
+psql:../sql/0001-schema.sql:24: NOTICE:  drop cascades to 10 other objects
+DETAIL:  drop cascades to table education_levels
+drop cascades to table subjects
+drop cascades to table level_subjects
+drop cascades to table chapters
+drop cascades to table topics
+drop cascades to table subtopics
+drop cascades to table questions
+drop cascades to table question_versions
+drop cascades to table question_options
+drop cascades to table answer_keys
+
+### composite FKs present (expect 5)
+              conname              |                                                             definition                                                             
+-----------------------------------+------------------------------------------------------------------------------------------------------------------------------------
+ fk_answer_keys_options_of_version | FOREIGN KEY (version_id, mcq_correct_option_key) REFERENCES question_options(version_id, key) ON UPDATE CASCADE ON DELETE RESTRICT
+ fk_questions_chapter_subject      | FOREIGN KEY (chapter_id, subject_id) REFERENCES chapters(id, subject_id) ON UPDATE CASCADE ON DELETE RESTRICT
+ fk_questions_level_subject        | FOREIGN KEY (education_level_id, subject_id) REFERENCES level_subjects(level_id, subject_id) ON UPDATE CASCADE ON DELETE RESTRICT
+ fk_questions_subtopic_topic       | FOREIGN KEY (subtopic_id, topic_id) REFERENCES subtopics(id, topic_id) ON UPDATE CASCADE ON DELETE RESTRICT
+ fk_questions_topic_chapter        | FOREIGN KEY (topic_id, chapter_id) REFERENCES topics(id, chapter_id) ON UPDATE CASCADE ON DELETE RESTRICT
+(5 rows)
+
+
+### composite FK count (expect 5)
+ composite_fk_count 
+--------------------
+                  5
+(1 row)
+

@@ -1,0 +1,35 @@
+# Recorded from the first G-1 attempt (sandbox, 2026-11-23)
+
+PostgreSQL: 16.2 (x86_64-pc-linux-gnu, from the PyPI 'pgserver' wheel)
+  psql (PostgreSQL) 16.2
+  server: postgres (PostgreSQL) 16.2, port 55432, schema g1
+
+Node: v22.22.3
+npm:  10.9.8
+prisma (devDependency, package.json): ^7.10.1  ->  7.10.1 installed in the spike sandbox
+@prisma/client: 7.10.1
+Prisma schema engine revision in 7.10.1: d1b3f377ca835d73fd50954a5e22128b9ebdd6b8
+
+# Prisma CLI outcome for EVERY engine-dependent command
+# (validate, format, generate, db pull, migrate diff, migrate dev, migrate status):
+Error: request to https://binaries.prisma.sh/all_commits/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8/debian-openssl-3.0.x/schema-engine.gz.sha256 failed, reason: Client network socket disconnected before secure TLS connection was established
+
+# Reachability of the hosts this environment allows
+binaries.prisma.sh        000 (TLS handshake refused - the engine cannot be fetched)
+registry.npmjs.org        200
+pypi.org                  200
+github.com                200
+api.github.com            200
+
+# Reproduced a second time from the PROJECT'S OWN pinned install
+# (npm ci in the repository, node_modules/prisma = 7.10.1):
+$ ./node_modules/.bin/prisma --version
+Loaded Prisma config from prisma.config.ts.
+Error: request to https://binaries.prisma.sh/all_commits/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8/debian-openssl-3.0.x/schema-engine.sha256 failed,
+reason: Client network socket disconnected before secure TLS connection was established
+
+$ ./node_modules/.bin/prisma validate       -> same error
+$ ./node_modules/.bin/prisma generate       -> same error
+$ ./node_modules/.bin/prisma migrate status -> same error
+
+# Conclusion: the blocker is environmental (egress), not a project misconfiguration.

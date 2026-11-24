@@ -1,0 +1,190 @@
+name: G-1 Prisma drift spike
+
+# =====================================================================
+# Pre-migration gate G-1 (approval request C, §11.3.1 of
+# docs/database/phase-04a-question-bank-physical-schema-proposal.md).
+#
+# Question this workflow answers: do the five hand-written composite
+# foreign keys survive Prisma introspection, diffing and migration
+# generation, or does Prisma propose dropping them?
+#
+# It is isolated on purpose:
+#   * its own disposable PostgreSQL service container,
+#   * its own two throwaway databases (`g1_main`, `g1_dev`),
+#   * no repository or environment secrets — the only URL is built from
+#     the service credentials defined in this file,
+#   * the project's pinned Prisma 7.10.1 installed with `npm ci`.
+#
+# A green run of the PostgreSQL-only steps is NOT evidence of Prisma
+# compatibility: the script stops at the first Prisma step that cannot
+# execute, so this workflow can only be green if the whole Prisma
+# workflow actually ran.
+# =====================================================================
+
+on:
+  # manual: run it whenever a reviewer wants the gate re-tested
+  workflow_dispatch:
+  # automatic: every change to the spike itself, and on a dependency bump
+  push:
+    paths:
+      - 'docs/database/g1-spike/**'
+      - '.github/workflows/g1-prisma-drift-spike.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - 'docs/database/g1-spike/**'
+      - '.github/workflows/g1-prisma-drift-spike.yml'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-spike-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned. Keep in step with package.json (prisma / @prisma/client 7.10.1)
+  # and with the PostgreSQL major the project targets.
+  NODE_VERSION: '22'
+  POSTGRES_MAJOR: '16'
+  PRISMA_VERSION: '7.10.1'
+  # Disposable service-container credentials. Not secrets, not reused
+  # anywhere: the databases die with the job.
+  PGUSER: g1spike
+  PGPASSWORD: g1spike
+  PGDATABASE: g1_main
+  PGHOST: 127.0.0.1
+  PGPORT: '5432'
+
+jobs:
+  g1-drift-spike:
+    name: G-1 composite-FK drift spike (PostgreSQL 16 + Prisma 7.10.1)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: g1spike
+          POSTGRES_PASSWORD: g1spike
+          POSTGRES_DB: g1_main
+        ports:
+          - 5432:5432
+        # wait until the server actually accepts connections
+        options: >-
+          --health-cmd "pg_isready -U g1spike -d g1_main"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install the pinned toolchain
+        run: npm ci --no-audit --no-fund
+
+      - name: Assert the pinned versions are the ones in use
+        run: |
+          set -euo pipefail
+          node -v
+          installed="$(node -p "require('./node_modules/prisma/package.json').version")"
+          client="$(node -p "require('./node_modules/@prisma/client/package.json').version")"
+          echo "prisma CLI:        $installed"
+          echo "@prisma/client:    $client"
+          echo "postgres service:  $POSTGRES_MAJOR"
+          [ "$installed" = "$PRISMA_VERSION" ] || {
+            echo "::error::prisma CLI is $installed but the workflow pins $PRISMA_VERSION"
+            exit 1
+          }
+          [ "$client" = "$PRISMA_VERSION" ] || {
+            echo "::error::@prisma/client is $client but the workflow pins $PRISMA_VERSION"
+            exit 1
+          }
+
+      - name: Report the PostgreSQL server version
+        run: |
+          set -euo pipefail
+          psql --version
+          psql -Atc "select 'server ' || current_setting('server_version');"
+
+      # Only g1_main is created here. The script creates and drops g1_dev
+      # itself, so the workflow never depends on the service image's own
+      # database template — on some images the default template is not
+      # usable, and a pre-created g1_dev would fail for reasons unrelated
+      # to G-1.
+      - name: Create the disposable database
+        run: |
+          set -euo pipefail
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'DROP DATABASE IF EXISTS g1_main;'
+          psql -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE g1_main;'
+          psql -Atc '\l' | cut -d'|' -f1 | sed 's/ *$//' | grep -E '^g1_main$'
+
+      - name: Run the G-1 spike (all seven steps)
+        env:
+          G1_DEV_DATABASE_URL: postgresql://g1spike:g1spike@127.0.0.1:5432/g1_dev
+        run: |
+          set -euo pipefail
+          ./docs/database/g1-spike/run.sh \
+            --url "postgresql://g1spike:g1spike@127.0.0.1:5432/g1_main"
+
+      # Independent of the script: re-read the catalog directly. Only g1_main
+      # is asserted here — g1_dev is created by the spike script itself, inside
+      # step 6, and is asserted there once its baseline has been applied.
+      - name: Assert the five composite FKs are still in the catalog
+        if: always()
+        run: |
+          set -euo pipefail
+          n="$(psql -d g1_main -Atc "
+            SELECT count(*) FROM pg_constraint
+            WHERE connamespace = 'public'::regnamespace
+              AND conname IN (
+                'fk_questions_level_subject','fk_questions_chapter_subject',
+                'fk_questions_topic_chapter','fk_questions_subtopic_topic',
+                'fk_answer_keys_options_of_version');" 2>/dev/null || echo 0)"
+          echo "g1_main: $n/5 composite FKs"
+          [ "$n" = "5" ] || {
+            echo "::error::g1_main has $n/5 composite FKs"
+            exit 1
+          }
+
+      - name: Publish the spike artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: g1-spike-artefacts
+          path: docs/database/g1-spike/out/
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Summarise the run
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo "## G-1 Prisma drift spike"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Prisma | \`$PRISMA_VERSION\` |"
+            echo "| PostgreSQL | \`$POSTGRES_MAJOR\` |"
+            echo "| Node.js | \`$(node -v)\` |"
+            echo "| Job status | \`${{ job.status }}\` |"
+            echo
+            if [ -f docs/database/g1-spike/out/02-enforce.log ]; then
+              echo '### Enforcement summary'
+              echo '```'
+              grep -E 'G1_(TOTAL|PASS|FAIL)=' docs/database/g1-spike/out/02-enforce.log || true
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,3 @@
+Loaded Prisma config from prisma.config.ts.
+
+Error: request to https://binaries.prisma.sh/all_commits/d1b3f377ca835d73fd50954a5e22128b9ebdd6b8/debian-openssl-3.0.x/schema-engine.sha256 failed, reason: Client network socket disconnected before secure TLS connection was established

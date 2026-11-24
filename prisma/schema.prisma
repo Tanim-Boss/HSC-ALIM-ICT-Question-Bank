@@ -1,18 +1,54 @@
-// ICT Atlas — Prisma schema
+// ICT Atlas — Phase 04A Question Bank physical schema
 //
-// IMPORTANT — no domain models are defined here yet, on purpose.
+// This is the REAL 18-table Phase 04A model, transcribed from the approved
+// physical schema proposal:
 //
-// The approved database documentation (docs/database/) deliberately does not
-// approve a physical schema: cardinalities, nullability, snapshot/versioning
-// strategy, source model, result lifecycle and retention are tracked as open
-// decisions (OD-08 – OD-13, OD-18–OD-21, OD-28–OD-29 in
-// docs/architecture/technology-decisions.md). Defining models now would mean
-// inventing those decisions.
+//   docs/database/phase-04a-question-bank-physical-schema-proposal.md
 //
-// The first migration may only be created once the relevant open decisions
-// are approved. Do not add models by hand to test this file.
+// §3 of that document is NORMATIVE. Where this file and §3 disagree, §3 wins and
+// this file is the bug. Every field below maps to a column in §3.3/§3.4; every
+// enum label is the one declared in §5; every `@map`/`@@map` is the snake_case
+// name §3.1.1 requires.
 //
-// See docs/development/database-migrations.md for the migration workflow.
+// WHAT PRISMA CANNOT EXPRESS — and therefore what lives in the migration SQL:
+//
+//   1. The five composite foreign keys of Request C (§3.11.6):
+//        fk_questions_level_subject
+//        fk_questions_chapter_subject
+//        fk_questions_topic_chapter
+//        fk_questions_subtopic_topic
+//        fk_answer_keys_options_of_version
+//      These exist ONLY as hand-written SQL appended to the baseline migration.
+//      Prisma will never manage, verify or warn about them. This is the whole
+//      reason Option C exists and why `prisma migrate dev` is PROHIBITED here.
+//   2. All 47 domain CHECK constraints (§3.9).
+//   3. The hand-written partial and expression unique indexes (§3.10):
+//        uq_question_versions_one_published_per_question  (WHERE status = 'PUBLISHED')
+//        uq_topics_chapter_order                          (WHERE is_active)
+//        uq_question_sources_identity                     (NULLS NOT DISTINCT)
+//        uq_tags_name_lower                               (lower(name))
+//        uq_colleges_name_lower                           (lower(name))
+//
+// MIGRATION WORKFLOW — read docs/development/database-migrations.md and §11.4.3:
+//
+//   PROHIBITED: prisma migrate dev, prisma migrate reset, prisma db push,
+//               prisma migrate diff --from-migrations
+//   ALLOWED:    prisma migrate diff --from-empty|--from-schema --to-schema
+//               prisma migrate deploy
+//               prisma migrate status
+//
+// DEFERRED — deliberately NOT in this file:
+//   * negative_marks / negativeMarks and any negative-marking configuration.
+//     Negative marking is a configurable examination/marking concern, default
+//     OFF, deferred to the examination model (Revision 13, §3.15.4). G-2 is
+//     DEFERRED, not passed. The Revision 12 numeric(4,2) research is historical.
+//   * All Phase 05 examination tables (Exam, ExamQuestion, ExamSession,
+//     ExamResult, student answers).
+//   * User linkage (created_by/updated_by/verified_by) — OD-15/OD-16.
+//   * Moderation states beyond DRAFT/PUBLISHED/ARCHIVED — OD-27.
+//   * A Group entity — OD-09 rejected it; levels come from level_subjects.
+//
+// The committed baseline is prisma/migrations/0001_phase04a_question_bank.
 
 generator client {
   provider = "prisma-client"
@@ -21,4 +57,429 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Enums (§3.2 — created before any table, labels used verbatim)
+// ─────────────────────────────────────────────────────────────────────────
+
+enum BoardType {
+  GENERAL
+  MADRASAH
+  TECHNICAL
+}
+
+enum QuestionType {
+  MCQ
+  CQ
+}
+
+enum QuestionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum QuestionDifficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum QuestionOrigin {
+  MANUAL
+  BULK_IMPORT
+  AI_PARSER
+}
+
+enum VersionStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum SourceType {
+  BOARD
+  COLLEGE
+  MODEL_TEST
+  TEST_EXAM
+  INSTITUTION
+  ORIGINAL
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// §3.3 Essential tables (14)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// §3.3.1 — curriculum level dimension.
+model EducationLevel {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String
+  nameBn    String   @map("name_bn")
+  nameEn    String   @map("name_en")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  levelSubjects LevelSubject[]
+  questions     Question[]
+
+  @@unique([code], map: "uq_education_levels_code")
+  @@map("education_levels")
+}
+
+/// §3.3.2 — subject dimension. Deliberately has NO education_level_id column:
+/// a subject's levels come from level_subjects (OD-09).
+model Subject {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      String
+  nameBn    String   @map("name_bn")
+  nameEn    String   @map("name_en")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  levelSubjects LevelSubject[]
+  chapters      Chapter[]
+  questions     Question[]
+
+  @@unique([code], map: "uq_subjects_code")
+  @@map("subjects")
+}
+
+/// §3.3.3 — level ↔ subject membership. The PRIMARY KEY (level_id, subject_id)
+/// is what composite FK C-1 references from questions.
+model LevelSubject {
+  levelId   String   @map("level_id") @db.Uuid
+  subjectId String   @map("subject_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  level   EducationLevel @relation(fields: [levelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subject Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([levelId, subjectId])
+  @@index([subjectId], map: "ix_level_subjects_subject_id")
+  @@map("level_subjects")
+}
+
+/// §3.3.4 — first-class chapter.
+model Chapter {
+  id            String   @id @default(uuid()) @db.Uuid
+  subjectId     String   @map("subject_id") @db.Uuid
+  chapterNumber Int      @default(1) @map("chapter_number")
+  titleBn       String   @map("title_bn")
+  titleEn       String   @map("title_en")
+  isActive      Boolean  @default(true) @map("is_active")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  subject   Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topics    Topic[]
+  questions Question[]
+
+  // E-7 (decided): chapter numbering is GLOBAL per subject — a retired chapter
+  // number is NOT reusable while no curriculum-revision entity exists.
+  @@unique([subjectId, chapterNumber], map: "uq_chapters_subject_number")
+  // C-2 support key: lets questions(chapter_id, subject_id) prove the chapter
+  // belongs to the question's subject. Prisma models a plain UNIQUE natively,
+  // so this one is NOT hand-written SQL — only the FK that uses it is.
+  @@unique([id, subjectId], map: "uq_chapters_id_subject")
+  @@map("chapters")
+}
+
+/// §3.3.5 — topic under a chapter.
+model Topic {
+  id         String   @id @default(uuid()) @db.Uuid
+  chapterId  String   @map("chapter_id") @db.Uuid
+  nameBn     String   @map("name_bn")
+  nameEn     String   @map("name_en")
+  orderIndex Int      @default(0) @map("order_index")
+  isActive   Boolean  @default(true) @map("is_active")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  chapter   Chapter    @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subtopics Subtopic[]
+  questions Question[]
+
+  // C-3 support key.
+  @@unique([id, chapterId], map: "uq_topics_id_chapter")
+  // NOTE: (chapter_id, order_index) uniqueness is ACTIVE-ONLY (Revision 5,
+  // §3.15.2) and is the hand-written partial unique index uq_topics_chapter_order
+  // in the migration SQL. Prisma cannot express a partial index, so there is
+  // deliberately NO @@unique here.
+  @@map("topics")
+}
+
+/// §3.3.6 — subtopic under a topic. No order column in 0001.
+model Subtopic {
+  id        String   @id @default(uuid()) @db.Uuid
+  topicId   String   @map("topic_id") @db.Uuid
+  nameBn    String   @map("name_bn")
+  nameEn    String   @map("name_en")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  topic     Topic      @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  questions Question[]
+
+  // C-4 support key.
+  @@unique([id, topicId], map: "uq_subtopics_id_topic")
+  @@index([topicId], map: "ix_subtopics_topic_id")
+  @@map("subtopics")
+}
+
+/// §3.3.7 — question identity and classification. No content, no options, no
+/// answers, no provenance, and (Revision 13) no negative_marks.
+model Question {
+  id               String             @id @default(uuid()) @db.Uuid
+  type             QuestionType
+  status           QuestionStatus     @default(DRAFT)
+  difficulty       QuestionDifficulty @default(MEDIUM)
+  createdVia       QuestionOrigin     @default(MANUAL) @map("created_via")
+  educationLevelId String             @map("education_level_id") @db.Uuid
+  subjectId        String             @map("subject_id") @db.Uuid
+  chapterId        String?            @map("chapter_id") @db.Uuid
+  topicId          String?            @map("topic_id") @db.Uuid
+  subtopicId       String?            @map("subtopic_id") @db.Uuid
+  marks            Int                @default(1)
+  createdAt        DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  educationLevel EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subject        Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chapter        Chapter?       @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topic          Topic?         @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subtopic       Subtopic?      @relation(fields: [subtopicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  versions QuestionVersion[]
+  sources  QuestionSource[]
+  tags     QuestionTag[]
+
+  // The five single-column FKs above are what Prisma models. C-1…C-4 are the
+  // hand-written composite FKs layered on top of the same columns in the
+  // migration SQL (§3.11.6) — they cannot be expressed here.
+  @@index([educationLevelId], map: "ix_questions_education_level_id")
+  @@index([subjectId], map: "ix_questions_subject_id")
+  @@index([chapterId], map: "ix_questions_chapter_id")
+  @@index([topicId], map: "ix_questions_topic_id")
+  @@index([subtopicId], map: "ix_questions_subtopic_id")
+  @@index([educationLevelId, subjectId], map: "ix_questions_education_level_id_subject_id")
+  @@index([subjectId, chapterId, topicId], map: "ix_questions_subject_id_chapter_id_topic_id")
+  @@index([type, status], map: "ix_questions_type_status")
+  @@index([status, type, difficulty], map: "ix_questions_status_type_difficulty")
+  @@map("questions")
+}
+
+/// §3.3.8 — immutable content revision.
+model QuestionVersion {
+  id            String        @id @default(uuid()) @db.Uuid
+  questionId    String        @map("question_id") @db.Uuid
+  versionNumber Int           @default(1) @map("version_number")
+  status        VersionStatus @default(DRAFT)
+  content       Json
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  question  Question              @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  options   QuestionOption[]
+  answerKey AnswerKey?
+  assets    QuestionVersionAsset[]
+
+  @@unique([questionId, versionNumber], map: "uq_question_versions_question_number")
+  // Listed by §3.3.8 although its prefix is covered by the unique above; kept
+  // because §3 is normative and the index list is explicit.
+  @@index([questionId], map: "ix_question_versions_question_id")
+  @@index([status], map: "ix_question_versions_status")
+  @@index([questionId, status], map: "ix_question_versions_question_id_status")
+  // "One published version per question" is the hand-written partial unique
+  // index uq_question_versions_one_published_per_question in the migration SQL.
+  @@map("question_versions")
+}
+
+/// §3.3.9 — MCQ choices for a version. There is NO is_correct column
+/// (Request D): correctness lives only in answer_keys.mcq_correct_option_key.
+model QuestionOption {
+  id        String   @id @default(uuid()) @db.Uuid
+  versionId String   @map("version_id") @db.Uuid
+  key       String
+  content   Json
+  order     Int      @default(0) @map("sort_order") // E-3: `order` is reserved in SQL
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  version QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // C-5's referenced key. This unique is what makes
+  // answer_keys(version_id, mcq_correct_option_key) → (version_id, key) legal.
+  @@unique([versionId, key], map: "uq_question_options_version_key")
+  @@index([versionId], map: "ix_question_options_version_id")
+  @@map("question_options")
+}
+
+/// §3.3.10 — authoritative correctness or CQ marking guide. The only home of
+/// MCQ correctness in the schema.
+model AnswerKey {
+  id                  String    @id @default(uuid()) @db.Uuid
+  versionId           String    @unique(map: "uq_answer_keys_version") @map("version_id") @db.Uuid
+  mcqCorrectOptionKey String?   @map("mcq_correct_option_key")
+  cqRubric            Json?     @map("cq_rubric")
+  isVerified          Boolean   @default(false) @map("is_verified")
+  verifiedAt          DateTime? @map("verified_at") @db.Timestamptz(3)
+  notes               String?
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  version QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // C-5 — FOREIGN KEY (version_id, mcq_correct_option_key)
+  //            REFERENCES question_options (version_id, key)
+  // ON UPDATE CASCADE ON DELETE RESTRICT — hand-written SQL only.
+  @@map("answer_keys")
+}
+
+/// §3.3.11 — asset metadata; bytes live in object storage.
+model QuestionAsset {
+  id              String   @id @default(uuid()) @db.Uuid
+  storageKey      String   @unique(map: "uq_question_assets_storage_key") @map("storage_key")
+  mimeType        String   @map("mime_type")
+  sizeBytes       Int      @map("size_bytes")
+  width           Int?
+  height          Int?
+  altText         String   @map("alt_text")
+  longDescription String?  @map("long_description")
+  checksum        String?
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  versions QuestionVersionAsset[]
+
+  @@map("question_assets")
+}
+
+/// §3.3.12 — version → asset pin. block_ref is NOT NULL and carries the rooted
+/// pointer grammar enforced by ck_question_version_assets_block_ref_pointer.
+model QuestionVersionAsset {
+  id        String   @id @default(uuid()) @db.Uuid
+  versionId String   @map("version_id") @db.Uuid
+  assetId   String   @map("asset_id") @db.Uuid
+  blockRef  String   @map("block_ref")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  version QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  asset   QuestionAsset   @relation(fields: [assetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([versionId, blockRef], map: "uq_question_version_assets_version_block_ref")
+  @@index([assetId], map: "ix_question_version_assets_asset_id")
+  @@map("question_version_assets")
+}
+
+/// §3.3.13 — tag dimension. Human-facing uniqueness ignores case, via the
+/// expression index uq_tags_name_lower (hand-written SQL); there is
+/// deliberately no plain unique on `name`.
+model Tag {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  questions QuestionTag[]
+
+  @@unique([slug], map: "uq_tags_slug")
+  @@map("tags")
+}
+
+/// §3.3.14 — question ↔ tag association.
+model QuestionTag {
+  questionId String   @map("question_id") @db.Uuid
+  tagId      String   @map("tag_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  question Question @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tag      Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([questionId, tagId])
+  @@index([tagId], map: "ix_question_tags_tag_id")
+  @@map("question_tags")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// §3.4 Supporting tables (4)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// §3.4.1 — education board dimension. Only reachable through question_sources.
+model Board {
+  id        String    @id @default(uuid()) @db.Uuid
+  code      String
+  nameBn    String?   @map("name_bn")
+  nameEn    String    @map("name_en")
+  type      BoardType @default(GENERAL)
+  isActive  Boolean   @default(true) @map("is_active")
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sources QuestionSource[]
+
+  @@unique([code], map: "uq_boards_code")
+  @@map("boards")
+}
+
+/// §3.4.2 — institution dimension. Case-insensitive uniqueness via the
+/// expression index uq_colleges_name_lower (hand-written SQL); no plain unique
+/// on `name`.
+model College {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  code      String?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sources QuestionSource[]
+
+  @@map("colleges")
+}
+
+/// §3.4.3 — examination year dimension.
+model AcademicYear {
+  id        String   @id @default(uuid()) @db.Uuid
+  label     String
+  year      Int?
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  sources QuestionSource[]
+
+  @@unique([label], map: "uq_academic_years_label")
+  @@unique([year], map: "uq_academic_years_year")
+  @@map("academic_years")
+}
+
+/// §3.4.4 — provenance attribution (OD-08). The ONLY place provenance exists.
+/// Append-only by convention: no updated_at, because provenance is evidence.
+model QuestionSource {
+  id             String     @id @default(uuid()) @db.Uuid
+  questionId     String     @map("question_id") @db.Uuid
+  sourceType     SourceType @map("source_type")
+  boardId        String?    @map("board_id") @db.Uuid
+  collegeId      String?    @map("college_id") @db.Uuid
+  academicYearId String?    @map("academic_year_id") @db.Uuid
+  sourceName     String?    @map("source_name")
+  createdAt      DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  question     Question      @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  board        Board?        @relation(fields: [boardId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  college      College?      @relation(fields: [collegeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  academicYear AcademicYear? @relation(fields: [academicYearId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([questionId], map: "ix_question_sources_question_id")
+  @@index([sourceType], map: "ix_question_sources_source_type")
+  @@index([boardId], map: "ix_question_sources_board_id")
+  @@index([collegeId], map: "ix_question_sources_college_id")
+  @@index([academicYearId], map: "ix_question_sources_academic_year_id")
+  @@index([boardId, academicYearId], map: "ix_question_sources_board_id_academic_year_id")
+  // De-duplication is uq_question_sources_identity with NULLS NOT DISTINCT
+  // (hand-written SQL, §3.10) — Prisma cannot express NULLS NOT DISTINCT.
+  @@map("question_sources")
 }

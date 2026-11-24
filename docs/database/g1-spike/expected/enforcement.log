@@ -1,0 +1,36 @@
+
+----- G1 RESULTS (machine-checked) -----
+ seq |             name              | result 
+-----+-------------------------------+--------
+   1 | S0-seed-accepted              | PASS
+   2 | C1-level-subject              | PASS
+   3 | C2-chapter-subject            | PASS
+   4 | C3-topic-chapter              | PASS
+   5 | C4-subtopic-topic             | PASS
+   6 | C5-key-of-version             | PASS
+   7 | C5b-null-key-skipped          | PASS
+   8 | P1-consistent-accepted        | PASS
+   9 | P2-optional-links-null        | PASS
+  10 | E7a-retired-position-reusable | PASS
+  11 | E7b-active-position-unique    | PASS
+  12 | E7c-retired-not-indexed       | PASS
+  13 | R1-restrict-blocks-delete     | PASS
+  14 | S9-all-five-present           | PASS
+(14 rows)
+
+
+    total    
+-------------
+ G1_TOTAL=14
+(1 row)
+
+   passed   
+------------
+ G1_PASS=14
+(1 row)
+
+  failed   
+-----------
+ G1_FAIL=0
+(1 row)
+

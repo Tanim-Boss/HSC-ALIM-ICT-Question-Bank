@@ -1,0 +1,535 @@
+name: Phase 04A — production-readiness verification V-1 … V-5
+
+# Executes the five verification requirements recorded in §11.12.3 of the
+# Phase 04A physical schema proposal, on disposable PostgreSQL 16 services
+# with the project's pinned Prisma 7.10.1.
+#
+# V-1 needs the Prisma schema engine (migrate diff / deploy / status), which
+# is unavailable in a sandbox with no access to binaries.prisma.sh. That is
+# why V-1 lives here and not only in a local script.
+#
+# NONE of this authorises production. B2 is withheld: production creation of
+# C-1..C-5 is not approved, and passing these checks does not change that.
+# Disposable databases only. No production credentials or URLs.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - '.github/workflows/phase04a-prod-ready-v1-v5.yml'
+      - 'docs/database/g1-spike/option-c/prod-ready/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+      - 'docs/database/g1-spike/option-c/guard.py'
+      - 'docs/database/g1-spike/option-c/repo-guard.sh'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/phase04a-prod-ready-v1-v5.yml'
+      - 'docs/database/g1-spike/option-c/prod-ready/**'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # Needed only by the V-1 diagnostic step, which posts driver output to the PR.
+  # Raw run logs, job summaries and artifacts are all intermittently unreachable
+  # from an external client (EOF from *.blob.core.windows.net), which left two
+  # V-1 failures diagnosable only as "exit code 1". A PR comment is reachable, so
+  # the driver's own output is posted there when it fails.
+  pull-requests: write
+
+jobs:
+  # ------------------------------------------------------------------
+  # V-2 and V-3 need no Prisma: they are pure PostgreSQL verification.
+  # Run them first because V-3's drill needs a database that V-2 seeded.
+  # ------------------------------------------------------------------
+  v2-v3-seed-and-restore:
+    name: V-2 realistic seed + V-3 backup/restore drill (postgres 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres-seed:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v2
+          POSTGRES_PASSWORD: v2pass
+          POSTGRES_DB: v2_seed
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres-restore:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v2
+          POSTGRES_PASSWORD: v2pass
+          POSTGRES_DB: v3_restore
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U v2"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGPASSWORD: v2pass
+      SEED_URL: postgresql://v2:v2pass@localhost:5432/v2_seed
+      RESTORE_URL: postgresql://v2:v2pass@localhost:5433/v3_restore
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure a PostgreSQL client (16) and report versions
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          psql --version
+          pg_dump --version
+          pg_restore --version
+
+      # Deploy migration 0001 by executing the committed SQL directly. This
+      # job is about seed data and backup/restore, not about Prisma, and
+      # keeping Prisma out of it means a Prisma failure cannot mask a V-2/V-3
+      # failure. (V-1 deploys the same file WITH Prisma.)
+      - name: Deploy migration 0001 to the seed database
+        run: |
+          set -euo pipefail
+          psql "$SEED_URL" -v ON_ERROR_STOP=1 -q \
+            -f prisma/migrations/0001_phase04a_question_bank/migration.sql
+          psql "$SEED_URL" -Atc \
+            "SELECT 'tables=' || count(*) FROM pg_tables WHERE schemaname='public';"
+
+      # V-2 needs a realistic _prisma_migrations row so that V-3 can prove the
+      # history survives a dump/restore. Prisma itself creates this table; when
+      # 0001 is applied with psql we must create it with the same shape and the
+      # correct checksum, or we would be testing a fiction.
+      - name: Create a faithful _prisma_migrations row for the drill
+        run: |
+          set -euo pipefail
+          sha="$(sha256sum prisma/migrations/0001_phase04a_question_bank/migration.sql | cut -d' ' -f1)"
+          echo "migration 0001 sha256: $sha"
+          psql "$SEED_URL" -v ON_ERROR_STOP=1 -q <<SQL
+          CREATE TABLE IF NOT EXISTS _prisma_migrations (
+            id                  varchar(36) PRIMARY KEY,
+            checksum            varchar(64) NOT NULL,
+            finished_at         timestamptz,
+            migration_name      varchar(255) NOT NULL,
+            logs                text,
+            rolled_back_at      timestamptz,
+            started_at          timestamptz NOT NULL DEFAULT now(),
+            applied_steps_count integer NOT NULL DEFAULT 0
+          );
+          INSERT INTO _prisma_migrations
+            (id, checksum, finished_at, migration_name, started_at, applied_steps_count)
+          VALUES
+            (gen_random_uuid()::text, '$sha', now(), '0001_phase04a_question_bank', now(), 1);
+          SQL
+
+      - name: "V-2 — realistic seed data verification"
+        run: |
+          set -euo pipefail
+          bash docs/database/g1-spike/option-c/prod-ready/v2/seed-verify.sh \
+            --url "$SEED_URL" --out /tmp/v2 2>&1 | tee /tmp/v2.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -E "FAIL" /tmp/v2.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-2 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
+
+      - name: "V-3 — backup and restore drill"
+        run: |
+          set -euo pipefail
+          bash docs/database/g1-spike/option-c/prod-ready/v3/backup-restore-drill.sh \
+            --source "$SEED_URL" --target "$RESTORE_URL" --out /tmp/v3 2>&1 | tee /tmp/v3.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -E "FAIL|REFUSED" /tmp/v3.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-3 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
+
+      - name: "V-3b — the restore is REPEATABLE (second restore, fresh database)"
+        run: |
+          set -euo pipefail
+          # Drop and recreate the target, then restore the SAME dump again.
+          # A drill that works only once proves little; sandbox resets make
+          # re-running the ordinary path, so it is asserted here.
+          psql "postgresql://v2:v2pass@localhost:5433/postgres" -v ON_ERROR_STOP=1 -q \
+            -c "DROP DATABASE IF EXISTS v3_restore_2;" -c "CREATE DATABASE v3_restore_2;"
+          pg_restore --no-owner --no-privileges --exit-on-error \
+            --dbname "postgresql://v2:v2pass@localhost:5433/v3_restore_2" \
+            /tmp/v3/phase04a-drill.dump
+          a="$(psql "postgresql://v2:v2pass@localhost:5433/v3_restore_2" -Atc \
+            "SELECT md5(string_agg(t, chr(10) ORDER BY t)) FROM (SELECT row_to_json(x)::text AS t FROM questions x) s;")"
+          b="$(psql "$SEED_URL" -Atc \
+            "SELECT md5(string_agg(t, chr(10) ORDER BY t)) FROM (SELECT row_to_json(x)::text AS t FROM questions x) s;")"
+          echo "second restore questions checksum: $a"
+          echo "source            questions checksum: $b"
+          [ "$a" = "$b" ] || { echo "::error::the second restore does not match the source"; exit 1; }
+          echo "::notice::V-3b the same dump restores identically a second time"
+
+      - name: Post the V-2 / V-3 results to the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          {
+            echo "<!-- v23-results -->"
+            echo "### V-2 / V-3 results (${GITHUB_SHA::7})"
+            echo
+            echo '```'
+            cat /tmp/v2/RESULT.txt 2>/dev/null || echo "no V-2 RESULT.txt"
+            echo
+            cat /tmp/v3/RESULT.txt 2>/dev/null || echo "no V-3 RESULT.txt"
+            echo '```'
+            echo
+            echo "Failing checks, if any:"
+            echo '```'
+            grep -hE "FAIL" /tmp/v2.log /tmp/v3.log 2>/dev/null | head -30 || echo "none"
+            echo '```'
+          } > /tmp/v23-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v23-comment.md \
+            || echo "::warning title=V-2/3 diagnostics::could not post the comment"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v2-v3-evidence
+          path: |
+            /tmp/v2/**
+            /tmp/v3/**
+          retention-days: 90
+
+  # ------------------------------------------------------------------
+  # V-1 — the real second migration, through the approved workflow.
+  # Needs three databases: primary (at 0001), shadow, replay.
+  # ------------------------------------------------------------------
+  v1-second-migration:
+    name: V-1 real second migration through Option C (node 22, postgres 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v1
+          POSTGRES_PASSWORD: v1pass
+          POSTGRES_DB: v1_primary
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U v1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres-shadow:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v1
+          POSTGRES_PASSWORD: v1pass
+          POSTGRES_DB: v1_shadow
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U v1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+      postgres-replay:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v1
+          POSTGRES_PASSWORD: v1pass
+          POSTGRES_DB: v1_replay
+        ports: ['5434:5432']
+        options: >-
+          --health-cmd "pg_isready -U v1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PRISMA_VERSION: '7.10.1'
+      PGPASSWORD: v1pass
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Assert the pinned Prisma CLI
+        run: |
+          set -euo pipefail
+          cli="$(node -p "require('./node_modules/prisma/package.json').version")"
+          echo "prisma CLI: $cli"
+          [ "$cli" = "$PRISMA_VERSION" ] || { echo "::error::prisma CLI is $cli"; exit 1; }
+          test -x node_modules/.bin/prisma || { echo "::error::prisma binary missing"; exit 1; }
+
+      - name: Validate the real Prisma datamodel
+        run: node_modules/.bin/prisma validate --schema prisma/schema.prisma
+
+      - name: Ensure a PostgreSQL client and report versions
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          psql --version
+          for t in "5432 v1_primary" "5433 v1_shadow" "5434 v1_replay"; do
+            set -- $t
+            echo "port $1 ($2): $(psql -h localhost -p "$1" -U v1 -d "$2" -Atc 'SHOW server_version;')"
+          done
+
+      # Bring the PRIMARY database to 0001 using Prisma, so that 0002 is
+      # genuinely the second migration in a real Prisma history.
+      - name: Deploy migration 0001 with prisma migrate deploy
+        env:
+          DATABASE_URL: postgresql://v1:v1pass@localhost:5432/v1_primary
+        run: |
+          set -euo pipefail
+          node_modules/.bin/prisma migrate deploy --config prisma.config.ts
+          node_modules/.bin/prisma migrate status --config prisma.config.ts
+
+      # Kept as a regression check, not a diagnostic. The empty-diff defect was
+      # caused by a datasource-free config; probe-diff.sh's P1 case is the one
+      # that proved it, and it is cheap insurance against the same regression
+      # making a future diff silently produce nothing. Its full output is only
+      # attached when V-1 fails.
+      - name: "V-1 regression check — a datasource-ful diff must not be empty"
+        run: |
+          set -uo pipefail
+          bash docs/database/g1-spike/option-c/prod-ready/v1/probe-diff.sh > /tmp/v1-probe.txt 2>&1
+          rc=$?
+          echo "probe exit=$rc (a nonzero exit alone is not a failure; see the grep below)"
+          if grep -q 'CREATE INDEX "ix_questions_created_at_desc"' /tmp/v1-probe.txt; then
+            echo "PASS: the datasource-ful diff emits the expected CREATE INDEX"
+          else
+            echo "::error title=V-1 regression::the diff emitted no CREATE INDEX — the empty-diff defect is back"
+            sed -n '1,80p' /tmp/v1-probe.txt
+            exit 1
+          fi
+
+      - name: "V-1 — generate, deploy and verify the second migration"
+        run: |
+          set -uo pipefail
+          bash docs/database/g1-spike/option-c/prod-ready/v1/v1-second-migration.sh \
+            --url        "postgresql://v1:v1pass@localhost:5432/v1_primary" \
+            --shadow-url "postgresql://v1:v1pass@localhost:5433/v1_shadow" \
+            --replay-url "postgresql://v1:v1pass@localhost:5434/v1_replay" \
+            --out /tmp/v1 2>&1 | tee /tmp/v1.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            # GitHub annotations are capped and raw logs are sometimes
+            # unreachable, so the failing lines are emitted as annotations.
+            echo "::error title=V-1 failure::see the driver output above"
+            grep -E "FAIL|ABORT|ERROR|error:|not found|No such file" /tmp/v1.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-1 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
+
+      # Diagnostics: raw run logs have been intermittently unreachable
+      # (EOF from results-receiver.actions.githubusercontent.com), and
+      # annotations are capped. The job summary is retrievable via the API,
+      # so the driver log is written there on failure.
+      - name: Post the V-1 driver output to the PR (diagnostics)
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          # Only on a PR, only on failure, and never for fork PRs (no write token).
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          # Post on failure AND on success. On success only the RESULT lines and
+          # the control cases are posted, because the evidence artifacts cannot
+          # be downloaded from outside GitHub and this comment is the only
+          # channel that reliably carries the numbers.
+          {
+            echo "<!-- v1-driver-diagnostics -->"
+            echo "### V-1 driver output (${GITHUB_SHA::7})"
+            echo
+            if grep -q "^\[V-1\] ALL CHECKS PASSED" /tmp/v1.log 2>/dev/null; then
+              echo "**V-1 PASSED.** Summary and the checks that could have failed:"
+              echo
+              echo '```'
+              sed -n '/=== SUMMARY ===/,$p' /tmp/v1.log
+              echo '```'
+              echo
+              echo "Key steps:"
+              echo '```'
+              grep -E "control:|the generated migration creates|descending index|five composite FKs present|C-5 still rejects|replayed 0001|inventory unchanged|two applied migrations|checksum control" /tmp/v1.log || true
+              echo '```'
+            else
+              echo "**V-1 FAILED.** Driver log follows."
+              echo
+              echo '```'
+              if [ -f /tmp/v1.log ]; then
+                head -120 /tmp/v1.log
+                echo '...'
+                grep -nE "FAIL|ABORT|ERROR|error:|not found|No such file" /tmp/v1.log | head -40 || true
+              else
+                echo "no /tmp/v1.log was produced"
+              fi
+              echo '```'
+              if [ -f /tmp/v1-probe.txt ]; then
+                echo "<details><summary>diff-invocation probe</summary>"
+                echo
+                echo '```'
+                sed -n '1,700p' /tmp/v1-probe.txt
+                echo '```'
+                echo "</details>"
+              fi
+            fi
+          } > /tmp/v1-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v1-comment.md \
+            || echo "::warning title=V-1 diagnostics::could not post the comment"
+
+      - name: Publish the V-1 driver log to the job summary
+        if: always()
+        run: |
+          {
+            echo '## V-1 driver log'
+            echo '```'
+            if [ -f /tmp/v1.log ]; then
+              # keep it bounded: the first failure is what matters
+              head -200 /tmp/v1.log
+              echo '...'
+              grep -nE "FAIL|ERROR|error:" /tmp/v1.log | head -40 || true
+            else
+              echo "no /tmp/v1.log was produced"
+            fi
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Independent re-read after 0002 (raw SQL, not the driver)
+        if: always()
+        run: |
+          set -uo pipefail
+          rc=0
+          for t in "5432 v1_primary" "5434 v1_replay"; do
+            set -- $t
+            echo "=== $2"
+            psql -h localhost -p "$1" -U v1 -d "$2" -Atc \
+              "SELECT 'tables=' || (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations')
+                    || ' enums=' || (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace)
+                    || ' fks='   || (SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace)
+                    || ' checks='|| (SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%')
+                    || ' desc_index=' || (SELECT count(*) FROM pg_indexes WHERE indexname='ix_questions_created_at_desc');" || rc=1
+            psql -h localhost -p "$1" -U v1 -d "$2" -Atc \
+              "SELECT conname FROM pg_constraint
+                WHERE conname = ANY (ARRAY['fk_questions_level_subject','fk_questions_chapter_subject',
+                                           'fk_questions_topic_chapter','fk_questions_subtopic_topic',
+                                           'fk_answer_keys_options_of_version'])
+                ORDER BY conname;" || rc=1
+          done
+          exit $rc
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v1-evidence
+          path: /tmp/v1/**
+          retention-days: 90
+
+  # ------------------------------------------------------------------
+  # V-4 and V-5 — database halves measured, application halves reported
+  # BLOCKED with the exact missing implementation named.
+  # ------------------------------------------------------------------
+  v4-v5-invariants-and-mapping:
+    name: V-4 publish-gate invariants + V-5 P2002 mapping (postgres 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v45
+          POSTGRES_PASSWORD: v45pass
+          POSTGRES_DB: v45
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U v45"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGPASSWORD: v45pass
+      V45_URL: postgresql://v45:v45pass@localhost:5432/v45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Ensure a PostgreSQL client (16)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          psql --version
+
+      - name: Deploy migration 0001 and the V-2 seed
+        run: |
+          set -euo pipefail
+          psql "$V45_URL" -v ON_ERROR_STOP=1 -q \
+            -f prisma/migrations/0001_phase04a_question_bank/migration.sql
+          psql "$V45_URL" -v ON_ERROR_STOP=1 -q \
+            -f docs/database/g1-spike/option-c/prod-ready/v2/seed-data.sql
+
+      - name: "V-4 / V-5 — measure the database halves, report the application halves"
+        run: |
+          set -euo pipefail
+          bash docs/database/g1-spike/option-c/prod-ready/v45/publish-gate-verify.sh \
+            --url "$V45_URL" --out /tmp/v45 2>&1 | tee /tmp/v45.log
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            grep -E "FAIL" /tmp/v45.log | head -20 | while IFS= read -r l; do
+              echo "::error title=V-4/5 detail::$(printf '%s' "$l" | tr '\n' ' ' | cut -c1-500)"
+            done
+          fi
+          exit "$rc"
+
+      - name: Post the V-4 / V-5 results to the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          {
+            echo "<!-- v45-results -->"
+            echo "### V-4 / V-5 results (${GITHUB_SHA::7})"
+            echo
+            echo '```'
+            cat /tmp/v45/RESULT.txt 2>/dev/null || echo "no V-4/5 RESULT.txt"
+            echo '```'
+            echo
+            echo "Failing checks, if any:"
+            echo '```'
+            grep -E "FAIL" /tmp/v45.log 2>/dev/null | head -30 || echo "none"
+            echo '```'
+          } > /tmp/v45-comment.md
+          gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45-comment.md \
+            || echo "::warning title=V-4/5 diagnostics::could not post the comment"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v4-v5-evidence
+          path: /tmp/v45/**
+          retention-days: 90

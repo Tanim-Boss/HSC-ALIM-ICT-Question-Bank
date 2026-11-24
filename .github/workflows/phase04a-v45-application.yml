@@ -1,0 +1,441 @@
+name: Phase 04A — V-4 / V-5 application verification
+
+# Runs the V-4 publish-gate and V-5 error-mapping suits against a REAL
+# PostgreSQL 16 with migration 0001 applied.
+#
+# Why this workflow exists as its own file
+#   The authoring sandbox cannot reach binaries.prisma.sh, so `prisma generate`
+#   fails there and the generated client — which is git-ignored — never exists.
+#   The unit suites run anywhere (they import nothing from the generated client);
+#   the integration suites need it, so they run here.
+#
+# This workflow does NOT deploy anything and does NOT approve anything.
+# B2 remains withheld: no production database is contacted.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - '.github/workflows/phase04a-v45-application.yml'
+      - 'server/questions/**'
+      - 'tests/unit/questions/**'
+      - 'tests/integration/**'
+      - 'tests/fixtures/questions/**'
+      - 'vitest.integration.config.ts'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/phase04a-v45-application.yml'
+      - 'server/questions/**'
+      - 'tests/unit/questions/**'
+      - 'tests/integration/**'
+      - 'tests/fixtures/questions/**'
+      - 'vitest.integration.config.ts'
+      - 'prisma/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  unit-and-static:
+    name: Unit suites, typecheck, lint, repo guard
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Assert the pinned Prisma CLI
+        run: |
+          version="$(./node_modules/.bin/prisma --version 2>/dev/null | head -1)"
+          echo "$version"
+          case "$version" in
+            *7.10.1*) echo "OK: pinned Prisma 7.10.1" ;;
+            *) echo "::error title=V-4/5::Prisma is not pinned at 7.10.1"; exit 1 ;;
+          esac
+
+      # The client is git-ignored. Generate it so `tsc` can resolve it; a fresh
+      # clone otherwise reports TS2307 on lib/db.ts, which is not a real defect.
+      - name: Generate the Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check (changed application files only)
+        run: |
+          npx prettier --check \
+            "server/questions/**/*.ts" \
+            "tests/unit/questions/**/*.ts" \
+            "tests/integration/questions/**/*.ts" \
+            "tests/fixtures/questions/**/*.ts" || {
+              echo "::error title=format::run 'npx prettier --write' on these files"
+              exit 1
+            }
+
+      - name: Unit suites — publish rules, error mapping, DTOs, orchestration
+        run: npx vitest run tests/unit/questions/ --reporter=verbose
+
+      - name: Regression — the pre-existing unit suites still pass
+        run: |
+          set -uo pipefail
+          npx vitest run tests/unit/ --reporter=verbose 2>&1 | tee /tmp/unit.log
+          rc=${PIPESTATUS[0]}
+          # A floor, not an exact count: adding tests must not fail the build, but
+          # deleting them must. 390 is the count after the denylist, strict-rubric
+          # and §7.4-catalogue suites landed; 307 before them.
+          count="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/unit.log | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
+          echo "unit tests passed=${count:-<none>}"
+          if [ -z "${count:-}" ]; then
+            echo "::error title=unit::could not read a unit test count"
+            exit 1
+          fi
+          if [ "$count" -lt 390 ]; then
+            echo "::error title=unit::too few unit cases ran ($count) — expected at least 390"
+            exit 1
+          fi
+          exit "$rc"
+
+      # The V-1…V-5 harnesses contain the repo guard; running it proves this
+      # change did not introduce a prohibited Prisma migration command.
+      - name: Repository guard (no prohibited migration command)
+        run: bash docs/database/g1-spike/option-c/repo-guard.sh
+
+      - name: Assert migration 0001 is unchanged
+        run: |
+          # Structural assertions, not a hardcoded digest: a digest would break
+          # on a legitimate future migration and prove nothing here. What this
+          # task must not do is EDIT 0001, so the checks are the facts the task
+          # promised to preserve.
+          sha="$(sha256sum prisma/migrations/0001_phase04a_question_bank/migration.sql | cut -d' ' -f1)"
+          echo "0001 sha256=$sha"
+          tables="$(grep -c '^CREATE TABLE' prisma/migrations/0001_phase04a_question_bank/migration.sql)"
+          [ "$tables" = "18" ] || { echo "::error title=V-4/5::0001 no longer creates 18 tables ($tables)"; exit 1; }
+          grep -q 'fk_questions_level_subject' prisma/migrations/0001_phase04a_question_bank/migration.sql \
+            || { echo "::error title=V-4/5::a protected composite FK is missing from 0001"; exit 1; }
+          echo "OK: 0001 unchanged in shape — 18 tables, protected FKs present"
+
+      - name: Assert candidate migration 0002 is not committed
+        run: |
+          if [ -d prisma/migrations/0002_v1_recently_added_index ]; then
+            echo "::error title=V-4/5::candidate migration 0002 was committed — it must not be"
+            exit 1
+          fi
+          ls prisma/migrations/
+          echo "OK: only the 0001 baseline is present"
+
+  integration:
+    name: Integration suites against real PostgreSQL 16
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: v45app
+          POSTGRES_PASSWORD: v45app
+          POSTGRES_DB: v45app
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U v45app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://v45app:v45app@localhost:5432/v45app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Ensure a PostgreSQL 16 client
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          psql --version
+
+      - name: Generate the Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      # apply migration 0001 EXACTLY as the committed file specifies — no
+      # `migrate dev`, no `db push`, no `migrate reset` (all prohibited).
+      - name: Apply migration 0001
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q \
+            -f prisma/migrations/0001_phase04a_question_bank/migration.sql
+          psql "$DATABASE_URL" -tAc "
+            SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public')
+              ||'/'||(SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace)
+              ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace)
+              ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%')"
+
+      # Records what Prisma actually reports for an expression-index violation,
+      # so the report can quote reality instead of a guess.
+      - name: Measure the real error metadata for uq_tags_name_lower
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -c \
+            "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Probe Tag','probe-tag',now())"
+          echo "--- direct SQLSTATE (verbosity=verbose):"
+          PGOPTIONS='-c verbosity=verbose' psql "$DATABASE_URL" -v ON_ERROR_STOP=0 -c \
+            "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Probe Tag','probe-tag-2',now())" 2>&1 | head -5 || true
+          psql "$DATABASE_URL" -q -c "DELETE FROM tags WHERE slug LIKE 'probe-tag%'"
+
+      - name: Integration suites — V-4 publish gate and V-5 error mapping
+        run: |
+          set -uo pipefail
+          npx vitest run --config vitest.integration.config.ts --reporter=verbose 2>&1 | tee /tmp/v45app.log
+          rc=${PIPESTATUS[0]}
+          # A skipped integration suite is NOT a pass. Fail loudly if the
+          # database was not actually exercised — this is the false-pass guard
+          # the whole V-1…V-5 effort kept needing.
+          if grep -qE "SKIPPED|Tests .*skipped" /tmp/v45app.log; then
+            echo "::error title=V-4/5::integration tests were SKIPPED — DATABASE_URL was not usable"
+            exit 1
+          fi
+          echo "integration tests executed against: ${DATABASE_URL%%@*}@…"
+          exit "$rc"
+
+      - name: Mutation proof — the D2 regression test must FAIL on the old behaviour
+        run: |
+          set -uo pipefail
+          # A regression test that passes only proves it agrees with the fix. This
+          # step re-introduces the pre-fix behaviour (snapshot read through the
+          # global pool instead of the locking transaction) and requires the D2
+          # test to FAIL. Without this, nobody would know the test can detect the
+          # defect at all.
+          echo "::group::D2 mutation — snapshot read through the pool"
+          # Only the assertion under question is run. A whole-file run would
+          # leave "which test failed?" as an inference from log text — and the
+          # first version of this step got that inference wrong and failed a
+          # correct run. Selecting the test makes the exit code unambiguous.
+          # `set -e` is implicitly active on these runners (bash -e), so a
+          # non-zero from the mutant run would kill the step BEFORE any
+          # assertion below could look at it — and a failing mutant is exactly
+          # what this step wants. `|| mutant_rc=$?` takes the status into a
+          # variable and keeps the shell alive. Two CI runs were spent learning
+          # that the hard way; hence the comment.
+          mutant_rc=0
+          V45_MUTATE_D2_SNAPSHOT_CLIENT=pool \
+            npx vitest run --config vitest.integration.config.ts \
+              tests/integration/questions/snapshot-transaction.test.ts \
+              -t 'sees an uncommitted write made inside the same transaction' \
+              > /tmp/d2-mutant.log 2>&1 || mutant_rc=$?
+          tail -40 /tmp/d2-mutant.log
+          echo "::endgroup::"
+          clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/d2-mutant.log | tr -d '\r')"
+          if [ "$mutant_rc" -eq 0 ]; then
+            echo "::error title=D2 MUTATION::the regression test PASSED against the old behaviour — it cannot detect the defect"
+            printf '%s\n' "$clean" | grep -E "Tests +[0-9]+" | while IFS= read -r l; do
+              echo "::error title=D2 mutation::$l"
+            done
+            exit 1
+          fi
+          # Failing is necessary but not sufficient: it must fail as an
+          # ASSERTION, not as a crash, a missing DATABASE_URL, or a timeout.
+          if ! printf '%s\n' "$clean" | grep -qiE "AssertionError|expected .* to (be|not)"; then
+            echo "::error title=D2 MUTATION::the suite failed, but not on an assertion — a crash proves nothing about D2"
+            printf '%s\n' "$clean" | tail -15 | while IFS= read -r l; do
+              echo "::error title=D2 mutation::$l"
+            done
+            exit 1
+          fi
+          # And it must be the view mismatch: the pool sees the pre-write status.
+          if ! printf '%s\n' "$clean" | grep -qiE "DRAFT|ARCHIVED"; then
+            echo "::error title=D2 MUTATION::assertion failed but not on the version status — reason unclear"
+            exit 1
+          fi
+          echo "OK: the D2 regression test fails when the snapshot is read through the pool"
+
+      - name: Emit failing cases as annotations
+        if: always()
+        run: |
+          # GitHub's job log download is not reachable from every environment.
+          # Annotations ARE reachable through the API, so this step turns the
+          # failure into something diagnosable. It only reports; it never
+          # changes the outcome.
+          if [ ! -f /tmp/v45app.log ]; then echo "no log to annotate"; exit 0; fi
+          strip() { sed 's/\x1b\[[0-9;]*m//g' "$1" | tr -d '\r'; }
+
+          # 1. the summary block: every failing test name and its assertion
+          strip /tmp/v45app.log | awk '/Failed Tests/{f=1} f' | head -60 | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=FAILED::$line"
+          done
+
+          # 2. the assertion lines themselves, which carry the expectation
+          strip /tmp/v45app.log | grep -E "AssertionError|expected .* to " | head -15 | while IFS= read -r line; do
+            echo "::error title=assertion::$line"
+          done
+
+          # 3. the counts, so a partial run is visible
+          strip /tmp/v45app.log | grep -E "Tests +[0-9]+|Test Files" | tail -5 | while IFS= read -r line; do
+            echo "::error title=counts::$line"
+          done
+          exit 0
+
+      - name: Assert the suites actually ran a non-trivial number of cases
+        run: |
+          # Strip ANSI first: vitest colourises its summary, and the earlier
+          # version of this step read an empty count from an all-passing run and
+          # failed it. A green run must not be reported as a failure any more
+          # than a failed one may be reported green.
+          clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/v45app.log | tr -d '\r')"
+          count="$(printf '%s' "$clean" | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
+          echo "passed=${count:-<none>}"
+          if [ -z "${count:-}" ]; then
+            echo "::error title=V-4/5::could not read a test count from the output"
+            printf '%s' "$clean" | tail -20
+            exit 1
+          fi
+          if [ "$count" -lt 29 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 29"
+            exit 1
+          fi
+          echo "OK: $count integration cases executed against PostgreSQL"
+
+      - name: Publish results to the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PG_IMAGE: postgres:16
+          RUN_STARTED: ${{ github.event.pull_request.updated_at }}
+        run: |
+          [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
+          # Strip ANSI before publishing: the raw colour codes made the comment
+          # unreadable, and this comment is the only evidence channel that works
+          # from environments where the job log cannot be downloaded.
+          clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/v45app.log 2>/dev/null | tr -d '\r' || true)"
+          # ── Run identity ────────────────────────────────────────────────
+          # The comment previously named ${GITHUB_SHA}, which on a pull_request
+          # event is GitHub's SYNTHETIC merge commit, not the branch commit. A
+          # reviewer could not get from the comment back to the code that ran.
+          # Print the head SHA (what the branch actually contains) and label the
+          # merge SHA as such. Also carry the run id + URL so the exact run is
+          # identifiable, and the DB image so the environment is not a guess.
+          {
+            echo "<!-- v45-app-results -->"
+            echo "### V-4 / V-5 application verification"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Head commit (the code that ran) | \`${GITHUB_SHA}\` |"
+            if [ -n "${PR_HEAD_SHA:-}" ] && [ "${PR_HEAD_SHA}" != "${GITHUB_SHA}" ]; then
+              echo "| PR head commit | \`${PR_HEAD_SHA}\` |"
+              echo "| Synthetic merge commit (test-only) | \`${GITHUB_SHA}\` |"
+            fi
+            echo "| Workflow run | [\`${GITHUB_RUN_ID}\`](${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}) |"
+            echo "| Run attempt | ${GITHUB_RUN_ATTEMPT} |"
+            echo "| Event | ${GITHUB_EVENT_NAME} |"
+            echo "| Ref | \`${GITHUB_REF}\` |"
+            echo "| Started (UTC) | ${RUN_STARTED} |"
+            echo "| PostgreSQL | \`${PG_IMAGE:-postgres:16}\` |"
+            echo
+            echo "Every run posts a fresh comment. This one is authoritative only for the"
+            echo "run linked above; earlier comments supersede nothing and expire with this PR."
+            echo
+            echo "Integration suites against a real PostgreSQL 16 with migration 0001 applied."
+            echo
+            echo '```'
+            printf '%s\n' "$clean" | grep -E "✓|×|FAIL " | sed 's/^ *//' | head -60 || echo "no cases recorded"
+            echo '```'
+            echo
+            echo '```'
+            printf '%s\n' "$clean" | grep -E "Tests +[0-9]+|Test Files" | tail -4 || true
+            echo '```'
+            echo
+            echo "Failing cases, if any:"
+            echo '```'
+            printf '%s\n' "$clean" | grep -E "AssertionError|FAIL " | head -20 || echo "none"
+            echo '```'
+          } > /tmp/v45app-comment.md
+          # OD-26-5: ONE canonical comment per PR, UPDATED in place.
+          #
+          # Posting a fresh comment every run accumulated dozens of near-identical
+          # comments, each authoritative only for its own run, with no way to tell
+          # which was current. The marker below identifies the canonical comment;
+          # it is edited rather than duplicated, and it always points at the exact
+          # run it describes. Previous runs remain reachable through the run URL
+          # and the committed milestone records — evidence is not deleted, only
+          # superseded in place.
+          MARKER="<!-- v45-app-results -->"
+          existing="$(gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq ".[] | select(.body | startswith(\"${MARKER}\")) | .id" 2>/dev/null | tail -1 || true)"
+          if [ -n "${existing:-}" ]; then
+            gh api -X PATCH \
+              "repos/${GITHUB_REPOSITORY}/issues/comments/${existing}" \
+              -F body=@/tmp/v45app-comment.md >/dev/null \
+              && echo "updated canonical evidence comment ${existing}" \
+              || echo "::warning title=V-4/5::could not update the canonical comment"
+          else
+            gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v45app-comment.md \
+              || echo "::warning title=V-4/5::could not post the comment"
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: v45-application-evidence
+          path: /tmp/v45app.log
+          # 90 is the PLATFORM MAXIMUM for a public repository, not a round number.
+          # The owner-approved retention policy is 12 months (365 days); this repo
+          # is public, and GitHub allows 1-90 days for public repositories (1-400
+          # for private). 365 is therefore NOT CONFIGURABLE here, and requesting it
+          # would fail the upload. 90 days is the longest compliant value; the rest
+          # of the 12 months must come from the committed milestone record, which
+          # is why that record is required rather than optional.
+          retention-days: 90
+
+      - name: Build the durable milestone record (OD-26-5)
+        if: always()
+        env:
+          PG_IMAGE: postgres:16
+        run: |
+          # The artifact above lasts 90 days — the platform maximum for a public
+          # repository. The owner-approved audit window is 12 months. The gap is
+          # closed by a COMMITTED record, generated here and uploaded alongside
+          # the artifact so it can be committed at the milestone without inventing
+          # push credentials for the workflow.
+          #
+          # This step does NOT commit anything itself: a workflow that pushed to
+          # the branch would rewrite the very commit it is reporting on.
+          mkdir -p /tmp/evidence
+          ./scripts/ci/build-milestone-record.sh \
+            /tmp/evidence/milestone-record-run-${GITHUB_RUN_ID}.md \
+            /tmp/v45app.log
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: od-26-5-milestone-record
+          path: /tmp/evidence/milestone-record-run-*.md
+          # Same 90-day cap. The record's durability comes from being committed,
+          # not from this retention setting — stated so the artifact is never
+          # mistaken for the 12-month mechanism.
+          retention-days: 90

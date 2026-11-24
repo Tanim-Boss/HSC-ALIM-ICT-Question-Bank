@@ -1,0 +1,150 @@
+// =====================================================================
+// Phase 04A — Option C prototype (SPIKE ONLY, disposable database only)
+//
+// Tests the central claim of Option C:
+//
+//   schema-to-schema diffs (--from-schema / --to-schema) never propose
+//   dropping the five composite FKs, because they compare two data models
+//   and never read the live database catalog.
+//
+// If that holds, then after a one-time baseline, every later change can be
+// generated without the diff engine ever "seeing" C-1..C-5 and therefore
+// without ever proposing to remove them.
+//
+// This file is deliberately a REDUCED reproduction: it carries the tables
+// and columns the five composite FKs actually touch, plus enough ordinary
+// relations to check that ordinary work still behaves. It is NOT the
+// production schema and is never generated into the application.
+// =====================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "./generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model EducationLevel {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String         @unique
+  levelSubjects LevelSubject[]
+  questions     Question[]
+
+  @@map("education_levels")
+}
+
+model Subject {
+  id            String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code          String         @unique
+  levelSubjects LevelSubject[]
+  chapters      Chapter[]
+  questions     Question[]
+
+  @@map("subjects")
+}
+
+// C-1's referenced key: natively expressible composite PRIMARY KEY.
+model LevelSubject {
+  levelId   String         @map("level_id") @db.Uuid
+  subjectId String         @map("subject_id") @db.Uuid
+  level     EducationLevel @relation(fields: [levelId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([levelId, subjectId])
+  @@map("level_subjects")
+}
+
+model Chapter {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  subjectId     String     @map("subject_id") @db.Uuid
+  chapterNumber Int        @map("chapter_number")
+  titleEn       String     @default("") @map("title_en")
+  isActive      Boolean    @default(true) @map("is_active")
+  subject       Subject    @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topics        Topic[]
+  questions     Question[]
+
+  @@unique([subjectId, chapterNumber], map: "uq_chapters_subject_number")
+  // C-2 support key: expressible natively, so Prisma owns it.
+  @@unique([id, subjectId], map: "uq_chapters_id_subject")
+  @@map("chapters")
+}
+
+model Topic {
+  id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chapterId  String     @map("chapter_id") @db.Uuid
+  nameEn     String     @default("") @map("name_en")
+  orderIndex Int        @default(0) @map("order_index")
+  isActive   Boolean    @default(true) @map("is_active")
+  chapter    Chapter    @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subtopics  Subtopic[]
+  questions  Question[]
+
+  // C-3 support key.
+  @@unique([id, chapterId], map: "uq_topics_id_chapter")
+  // E-7 partial unique index uq_topics_chapter_order is NOT expressible here;
+  // it lives in the hand-written baseline section.
+  @@map("topics")
+}
+
+model Subtopic {
+  id      String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  topicId String    @map("topic_id") @db.Uuid
+  nameEn  String    @default("") @map("name_en")
+  topic   Topic     @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  questions Question[]
+
+  // C-4 support key.
+  @@unique([id, topicId], map: "uq_subtopics_id_topic")
+  @@map("subtopics")
+}
+
+model Question {
+  id               String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  educationLevelId String         @map("education_level_id") @db.Uuid
+  subjectId        String         @map("subject_id") @db.Uuid
+  chapterId        String?        @map("chapter_id") @db.Uuid
+  topicId          String?        @map("topic_id") @db.Uuid
+  subtopicId       String?        @map("subtopic_id") @db.Uuid
+  educationLevel   EducationLevel @relation(fields: [educationLevelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subject          Subject        @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chapter          Chapter?       @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topic            Topic?         @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subtopic         Subtopic?      @relation(fields: [subtopicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  versions         QuestionVersion[]
+
+  @@map("questions")
+}
+
+model QuestionVersion {
+  id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  questionId String           @map("question_id") @db.Uuid
+  question   Question         @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  options    QuestionOption[]
+  answerKeys AnswerKey[]
+
+  @@map("question_versions")
+}
+
+model QuestionOption {
+  id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId String          @map("version_id") @db.Uuid
+  key       String
+  version   QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // C-5's referenced key.
+  @@unique([versionId, key], map: "uq_question_options_version_key")
+  @@map("question_options")
+}
+
+model AnswerKey {
+  id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  versionId           String          @map("version_id") @db.Uuid
+  mcqCorrectOptionKey String?         @map("mcq_correct_option_key")
+  version             QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([versionId], map: "uq_answer_keys_version")
+  @@map("answer_keys")
+}
