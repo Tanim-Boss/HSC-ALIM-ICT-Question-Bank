@@ -114,8 +114,9 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
   questionId: string;
   versionId: string;
 }> {
-  return prisma.$transaction(async (tx: PrismaTx) => {
-    const question = await tx.question.create({
+  return prisma.$transaction(async (tx) => {
+    const db = tx as unknown as PrismaTx;
+    const question = await db.question.create({
       data: {
         type: 'MCQ',
         status: 'DRAFT',
@@ -129,7 +130,7 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
       select: { id: true },
     });
 
-    const version = await tx.questionVersion.create({
+    const version = await db.questionVersion.create({
       data: {
         questionId: question.id,
         versionNumber: 1,
@@ -140,11 +141,11 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
     });
 
     for (const [index, key] of ['A', 'B', 'C', 'D'].entries()) {
-      await tx.questionOption.create({
+      await db.questionOption.create({
         data: { versionId: version.id, key, content: OPTION_CONTENT, order: index },
       });
     }
-    await tx.answerKey.create({
+    await db.answerKey.create({
       data: {
         versionId: version.id,
         mcqCorrectOptionKey: 'A',
@@ -233,27 +234,38 @@ describeDb('publish gate against real PostgreSQL', () => {
   beforeAll(async () => {
     // ONE shared taxonomy, created against the real constraints: the code
     // format is uppercase-only and level_subjects must actually link them.
-    const level = await prisma.educationLevel.create({
-      data: { code: 'V4IT_LEVEL', nameBn: 'স্তর', nameEn: 'Level' },
+    // upsert, not create: a run that crashed before its afterAll would
+    // otherwise leave rows that make the NEXT run fail on a duplicate code.
+    const level = await prisma.educationLevel.upsert({
+      where: { code: 'V4IT_LEVEL' },
+      create: { code: 'V4IT_LEVEL', nameBn: 'স্তর', nameEn: 'Level' },
+      update: {},
       select: { id: true },
     });
-    const subject = await prisma.subject.create({
-      data: { code: 'V4IT_SUBJECT', nameBn: 'বিষয়', nameEn: 'Subject' },
+    const subject = await prisma.subject.upsert({
+      where: { code: 'V4IT_SUBJECT' },
+      create: { code: 'V4IT_SUBJECT', nameBn: 'বিষয়', nameEn: 'Subject' },
+      update: {},
       select: { id: true },
     });
-    await prisma.levelSubject.create({ data: { levelId: level.id, subjectId: subject.id } });
-    const chapter = await prisma.chapter.create({
-      data: { subjectId: subject.id, chapterNumber: 1, titleBn: 'অধ্যায়', titleEn: 'Chapter' },
+    await prisma.levelSubject.upsert({
+      where: { levelId_subjectId: { levelId: level.id, subjectId: subject.id } },
+      create: { levelId: level.id, subjectId: subject.id },
+      update: {},
+    });
+    const chapter = await prisma.chapter.upsert({
+      where: { subjectId_chapterNumber: { subjectId: subject.id, chapterNumber: 1 } },
+      create: { subjectId: subject.id, chapterNumber: 1, titleBn: 'অধ্যায়', titleEn: 'Chapter' },
+      update: {},
       select: { id: true },
     });
     TAXONOMY = { levelId: level.id, subjectId: subject.id, chapterId: chapter.id };
   });
 
   afterAll(async () => {
-    // Remove only this suite's rows. Deleting questions cascades to versions,
-    // options, keys and asset links; the taxonomy rows are removed by code prefix.
-    // Remove this suite's rows in FK order (children first). The codes are
-    // fixed now, so the cleanup is exact rather than a prefix guess.
+    // Remove this suite's rows in FK order (children first). Deleting a question
+    // cascades to its versions, options, keys and asset links. The codes are
+    // fixed, so cleanup is exact rather than a prefix guess.
     await prisma.$executeRawUnsafe(
       `DELETE FROM questions WHERE education_level_id IN (SELECT id FROM education_levels WHERE code = 'V4IT_LEVEL')`,
     );
@@ -284,12 +296,16 @@ describeDb('publish gate against real PostgreSQL', () => {
 
   it('publishing writes the version status and the I-3 rollup in one transaction', async () => {
     const fixture = await createMcqFixture();
-    await prisma.$transaction(async (tx: PrismaTx) => {
-      await tx.questionVersion.update({
+    await prisma.$transaction(async (tx) => {
+      // Narrowed once, explicitly: annotating the parameter with the narrower
+      // PrismaTx is rejected under strictFunctionTypes, and leaving it
+      // uninferred would make the callback implicitly any.
+      const db = tx as unknown as PrismaTx;
+      await db.questionVersion.update({
         where: { id: fixture.versionId },
         data: { status: 'PUBLISHED' },
       });
-      await tx.question.update({
+      await db.question.update({
         where: { id: fixture.questionId },
         data: { status: 'PUBLISHED' },
       });
@@ -363,12 +379,16 @@ describeDb('publish gate against real PostgreSQL', () => {
 
     // Simulate the gate refusing inside a transaction.
     await expect(
-      prisma.$transaction(async (tx: PrismaTx) => {
-        await tx.questionVersion.update({
+      prisma.$transaction(async (tx) => {
+        // Narrowed once, explicitly: annotating the parameter with the narrower
+        // PrismaTx is rejected under strictFunctionTypes, and leaving it
+        // uninferred would make the callback implicitly any.
+        const db = tx as unknown as PrismaTx;
+        await db.questionVersion.update({
           where: { id: fixture.versionId },
           data: { status: 'PUBLISHED' },
         });
-        await tx.question.update({
+        await db.question.update({
           where: { id: fixture.questionId },
           data: { status: 'PUBLISHED' },
         });

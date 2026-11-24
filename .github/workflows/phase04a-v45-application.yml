@@ -19,8 +19,9 @@ on:
       - '.github/workflows/phase04a-v45-application.yml'
       - 'server/questions/**'
       - 'tests/unit/questions/**'
-      - 'tests/integration/questions/**'
+      - 'tests/integration/**'
       - 'tests/fixtures/questions/**'
+      - 'vitest.integration.config.ts'
       - 'prisma/schema.prisma'
       - 'prisma/migrations/**'
       - 'package.json'
@@ -30,8 +31,9 @@ on:
       - '.github/workflows/phase04a-v45-application.yml'
       - 'server/questions/**'
       - 'tests/unit/questions/**'
-      - 'tests/integration/questions/**'
+      - 'tests/integration/**'
       - 'tests/fixtures/questions/**'
+      - 'vitest.integration.config.ts'
       - 'prisma/**'
   workflow_dispatch:
 
@@ -189,7 +191,7 @@ jobs:
       - name: Integration suites — V-4 publish gate and V-5 error mapping
         run: |
           set -uo pipefail
-          npx vitest run tests/integration/questions/ --reporter=verbose 2>&1 | tee /tmp/v45app.log
+          npx vitest run --config vitest.integration.config.ts --reporter=verbose 2>&1 | tee /tmp/v45app.log
           rc=${PIPESTATUS[0]}
           # A skipped integration suite is NOT a pass. Fail loudly if the
           # database was not actually exercised — this is the false-pass guard
@@ -200,6 +202,24 @@ jobs:
           fi
           echo "integration tests executed against: ${DATABASE_URL%%@*}@…"
           exit "$rc"
+
+      - name: Emit failing cases as annotations
+        if: always()
+        run: |
+          # GitHub's job log download is not reachable from every environment
+          # (it 403s / EOFs from some networks). Annotations ARE reachable through
+          # the API, so every failure is surfaced as one. This step exists purely
+          # so a failure can be diagnosed without the log.
+          if [ ! -f /tmp/v45app.log ]; then echo "no log to annotate"; exit 0; fi
+          grep -E "^ *(×|FAIL) |AssertionError|expected .* to " /tmp/v45app.log | head -20 | while IFS= read -r line; do
+            clean="$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r' | head -c 400)"
+            echo "::error title=integration case failed::$clean"
+          done
+          # Also surface the tail of the log, which usually carries the cause.
+          tail -25 /tmp/v45app.log | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r' | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=log tail::$line"
+          done
+          exit 0
 
       - name: Assert the suites actually ran a non-trivial number of cases
         run: |
