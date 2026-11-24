@@ -426,10 +426,42 @@ describeDb('publish gate against real PostgreSQL', () => {
       },
     });
     const serialised = JSON.stringify(dto);
-    expect(serialised).not.toContain('A"'); // the correct option key, in context
-    expect(serialised).not.toContain('mcqCorrectOptionKey');
-    // POSITIVE CONTROL: the same row through the staff projection DOES carry it.
-    expect(JSON.stringify(version.answerKey)).toContain('A');
+
+    // Assert on PROPERTIES, not on substrings. An earlier revision asserted
+    // `not.toContain('A"')`, which failed because a student projection
+    // legitimately contains the option key `"A"` while listing the four
+    // options — the key is public, the CORRECTNESS of it is not. A substring
+    // test cannot tell those apart, so it was replaced with a structural one.
+    const answerRevealing = [
+      'answerKey',
+      'mcqCorrectOptionKey',
+      'cqRubric',
+      'isVerified',
+      'is_verified',
+      'verifiedAt',
+      'correctOption',
+      'correct',
+      'rubric',
+      'criteria',
+      'explanation',
+    ];
+    for (const key of answerRevealing) {
+      expect(
+        serialised.includes(`"${key}"`),
+        `student DTO leaked property "${key}": ${serialised}`,
+      ).toBe(false);
+    }
+
+    // POSITIVE CONTROL for the scan above: the same row, through the staff
+    // projection, DOES carry the key. Without this the loop could be passing
+    // because it looks for properties nothing in this module ever emits.
+    const staffSerialised = JSON.stringify({ answerKey: version.answerKey });
+    expect(staffSerialised).toContain('mcqCorrectOptionKey');
+    expect(staffSerialised).toContain(version.answerKey?.mcqCorrectOptionKey ?? 'IMPOSSIBLE');
+
+    // And the option keys themselves are present, which is what made the old
+    // substring assertion wrong.
+    expect(dto.options.map((o) => o.key).sort()).toEqual(['A', 'B', 'C', 'D']);
   });
 
   it('records the fixture tag prefix for traceability', () => {

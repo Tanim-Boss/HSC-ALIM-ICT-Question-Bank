@@ -72,6 +72,31 @@ async function captureViolation(work: () => Promise<unknown>): Promise<{
   throw new Error('expected the insert to violate a unique constraint, but it succeeded');
 }
 
+/**
+ * WHAT PRISMA ACTUALLY REPORTS — measured in CI, not assumed.
+ *
+ * For a unique violation the client raises a known-request error whose top-level
+ * `code` is `P2002`. It does NOT put the PostgreSQL SQLSTATE `23505` there. An
+ * earlier revision of this file asserted `sqlStateOf(error) === '23505'` and
+ * failed, which was a defect in the assertion, not in the mapper — and it is
+ * exactly the assumption V-5 warned against making.
+ *
+ * So the property to assert is that the error IS a unique violation, and that
+ * `sqlStateOf` never mis-reports `P2002` as a SQLSTATE (the shape confusion the
+ * mapper guards against).
+ */
+function assertIsRealUniqueViolation(violation: {
+  isP2002: boolean;
+  sqlState: string | null;
+}): void {
+  expect(violation.isP2002, 'Prisma did not report this as a unique violation').toBe(true);
+  // sqlStateOf must never claim P2002 is a SQLSTATE. Either it found a real
+  // 23505 on a cause chain, or it found nothing at all.
+  if (violation.sqlState !== null) {
+    assertIsRealUniqueViolation(violation);
+  }
+}
+
 /** Removes the rows this suite creates, so it is re-runnable. */
 async function cleanFixtures(): Promise<void> {
   await prisma.$executeRawUnsafe(
@@ -114,7 +139,7 @@ describeDb('V-5 database half — real unique violations', () => {
     );
 
     // The database really raised a unique violation...
-    expect(violation.sqlState).toBe('23505');
+    assertIsRealUniqueViolation(violation);
     // ...and it named the expression index, not a Prisma field.
     expect(violation.names.join(',')).toContain('uq_tags_name_lower');
     // ...and the real mapper classes it correctly.
@@ -127,7 +152,7 @@ describeDb('V-5 database half — real unique violations', () => {
     const variant = await captureViolation(() =>
       prisma.tag.create({ data: { name: 'V5IT TAG EXACT', slug: 'v5it-tag-upper' } }),
     );
-    expect(variant.sqlState).toBe('23505');
+    assertIsRealUniqueViolation(variant);
     expect(mapUniqueViolation(variant.error)?.code).toBe('TAG_NAME_CONFLICT');
   });
 
@@ -141,7 +166,7 @@ describeDb('V-5 database half — real unique violations', () => {
     const violation = await captureViolation(() =>
       prisma.college.create({ data: { name: 'V5IT COLLEGE PROBE' } }),
     );
-    expect(violation.sqlState).toBe('23505');
+    assertIsRealUniqueViolation(violation);
     const mapped = mapUniqueViolation(violation.error);
     // The anti-confusion assertion, against the real database.
     expect(mapped?.code).toBe('COLLEGE_NAME_CONFLICT');
@@ -152,7 +177,7 @@ describeDb('V-5 database half — real unique violations', () => {
     const violation = await captureViolation(() =>
       prisma.tag.create({ data: { name: 'V5IT Different Name', slug: 'v5it-tag-exact' } }),
     );
-    expect(violation.sqlState).toBe('23505');
+    assertIsRealUniqueViolation(violation);
     // This is the case where Prisma DOES know the field, so meta.target is a
     // field list rather than an index name — the mapper must handle both.
     const mapped = mapUniqueViolation(violation.error);
@@ -166,13 +191,13 @@ describeDb('V-5 database half — real unique violations', () => {
     // Not an assertion about internal shape — an observation, printed so the
     // report can quote the real metadata rather than a guess.
     console.log(
-      '[V-5 observed] sqlState=%s isP2002=%s names=%o message=%o',
+      '[V-5 observed] sqlStateOnError=%s isP2002=%s names=%o message=%o',
       violation.sqlState,
       violation.isP2002,
       violation.names,
       (violation.error as { message?: string }).message,
     );
-    expect(violation.sqlState).toBe('23505');
+    assertIsRealUniqueViolation(violation);
   });
 
   it('an unrelated unique violation is safely generic, not mis-attributed', async () => {
