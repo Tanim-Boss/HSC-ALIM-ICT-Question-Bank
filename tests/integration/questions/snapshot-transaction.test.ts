@@ -148,7 +148,15 @@ describeDb('D2 — the gate reads through the transaction that holds the lock', 
           'ARCHIVED',
         );
         expect(viaPool.versions.find((v) => v.id === fixture.draftVersionId)?.status).toBe('DRAFT');
-        expect(viaTx.status).not.toBe(viaPool.status);
+        // Compare the VERSION status, not `viaTx.status`. `QuestionSnapshot.status`
+        // is `questions.status`, which publishing a version does not touch — so
+        // comparing that field asserted nothing and both sides were 'DRAFT'.
+        // That was a defect in this test, not in the code under test.
+        const txVersionStatus = viaTx.versions.find((v) => v.id === fixture.draftVersionId)?.status;
+        const poolVersionStatus = viaPool.versions.find(
+          (v) => v.id === fixture.draftVersionId,
+        )?.status;
+        expect(txVersionStatus).not.toBe(poolVersionStatus);
 
         throw new Error('rollback-by-design');
       })

@@ -66,6 +66,12 @@ interface TransactionClient extends QuestionReader {
   };
   readonly questionVersion: {
     update(args: unknown): Promise<unknown>;
+    // Used by assertContentWriteAllowed (I-5). Declared here because the guard
+    // accepts this client type, so the interface must cover every member the
+    // guard can reach.
+    findUnique<T = { readonly status: string; readonly versionNumber: number }>(
+      args: unknown,
+    ): Promise<T | null>;
   };
 }
 
