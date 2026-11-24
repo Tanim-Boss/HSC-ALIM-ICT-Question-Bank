@@ -206,18 +206,26 @@ jobs:
       - name: Emit failing cases as annotations
         if: always()
         run: |
-          # GitHub's job log download is not reachable from every environment
-          # (it 403s / EOFs from some networks). Annotations ARE reachable through
-          # the API, so every failure is surfaced as one. This step exists purely
-          # so a failure can be diagnosed without the log.
+          # GitHub's job log download is not reachable from every environment.
+          # Annotations ARE reachable through the API, so this step turns the
+          # failure into something diagnosable. It only reports; it never
+          # changes the outcome.
           if [ ! -f /tmp/v45app.log ]; then echo "no log to annotate"; exit 0; fi
-          grep -E "^ *(×|FAIL) |AssertionError|expected .* to " /tmp/v45app.log | head -20 | while IFS= read -r line; do
-            clean="$(printf '%s' "$line" | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r' | head -c 400)"
-            echo "::error title=integration case failed::$clean"
+          strip() { sed 's/\x1b\[[0-9;]*m//g' "$1" | tr -d '\r'; }
+
+          # 1. the summary block: every failing test name and its assertion
+          strip /tmp/v45app.log | awk '/Failed Tests/{f=1} f' | head -60 | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=FAILED::$line"
           done
-          # Also surface the tail of the log, which usually carries the cause.
-          tail -25 /tmp/v45app.log | sed 's/\x1b\[[0-9;]*m//g' | tr -d '\r' | while IFS= read -r line; do
-            [ -n "$line" ] && echo "::error title=log tail::$line"
+
+          # 2. the assertion lines themselves, which carry the expectation
+          strip /tmp/v45app.log | grep -E "AssertionError|expected .* to " | head -15 | while IFS= read -r line; do
+            echo "::error title=assertion::$line"
+          done
+
+          # 3. the counts, so a partial run is visible
+          strip /tmp/v45app.log | grep -E "Tests +[0-9]+|Test Files" | tail -5 | while IFS= read -r line; do
+            echo "::error title=counts::$line"
           done
           exit 0
 
