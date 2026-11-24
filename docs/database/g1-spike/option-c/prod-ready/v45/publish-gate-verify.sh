@@ -206,39 +206,86 @@ head2 "V-5  PART 2 — the database half: is uniqueness still authoritative?"
 # =====================================================================
 # Whatever any future application layer does, the database must remain the
 # authority. These are the exact duplicate scenarios V-5 names.
+#
+# Every case below is written to be IDEMPOTENT and self-cleaning. The first
+# version was neither: it left its first fixture row behind, so a second run
+# failed on uq_tags_slug (the fixed slug 'cn-dup') instead of on the constraint
+# under test -- a FAIL that says nothing about the schema. That is the same
+# contamination mistake that broke the V-2 -> V-3 chain, so it is fixed the same
+# way: clear the fixtures first, unique fixtures per case, and assert the
+# tables are empty again at the end.
+V5_TAG_SENTINEL='v5-probe-tag'
+
+reset_v5_fixtures() {
+  q_ "DELETE FROM tags WHERE slug LIKE 'cn-dup%' OR name ILIKE '%COMPUTER NETWORK%';" >/dev/null 2>&1 || true
+  q_ "DELETE FROM colleges WHERE name ILIKE '%NOTRE DAME COLLEGE%';" >/dev/null 2>&1 || true
+}
+q_() { "$PSQL" "$URL" -Atq -v ON_ERROR_STOP=1 -c "$1"; }
+reset_v5_fixtures
+pre_tags="$(q_ "SELECT count(*) FROM tags;" | tr -d ' ')"
+pass "fixtures cleared before probing (tags=$pre_tags), so results cannot depend on a previous run"
+
+# Every probe needs a row to collide WITH. Create one deliberately and assert it
+# exists -- otherwise the negative result is vacuous, exactly as the C-5 probe in
+# V-1 was before it was fixed.
+set +e
+seed_out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup',now());" 2>&1)"
+set -e
+if [ -z "$seed_out" ] && [ "$(q_ "SELECT count(*) FROM tags WHERE slug='cn-dup';" | tr -d ' ')" = "1" ]; then
+  pass "seed row created: 'Computer Network' exists, so the duplicate probes below are meaningful"
+else
+  printf '%s\n' "$seed_out"; fail "could not create the seed row — the duplicate probes cannot be trusted"
+fi
 
 # --- Tag.name duplicate, exact ---------------------------------------
 set +e
-out="$("$PSQL" "$URL" -v ON_ERROR_STOP=0 -c "
-INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup',now());" 2>&1)"
+out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup-a',now());" 2>&1)"
 set -e
 if printf '%s' "$out" | grep -q "uq_tags_name_lower"; then
   pass "Tag.name exact duplicate rejected by uq_tags_name_lower"
 else
-  printf '%s\n' "$out"; fail "Tag.name exact duplicate was NOT rejected"
+  printf '%s\n' "$out"; fail "Tag.name exact duplicate was NOT rejected by uq_tags_name_lower"
 fi
 
 # --- Tag.name duplicate, case variant --------------------------------
 set +e
-out="$("$PSQL" "$URL" -v ON_ERROR_STOP=0 -c "
-INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'COMPUTER NETWORK','cn-dup2',now());" 2>&1)"
+out="$(q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'COMPUTER NETWORK','cn-dup-b',now());" 2>&1)"
 set -e
 if printf '%s' "$out" | grep -q "uq_tags_name_lower"; then
-  pass "Tag.name CASE-VARIANT duplicate rejected by uq_tags_name_lower (this is the expression index doing the work)"
+  pass "Tag.name CASE-VARIANT duplicate rejected by uq_tags_name_lower (the expression index doing the work)"
 else
   printf '%s\n' "$out"; fail "Tag.name case-variant duplicate was NOT rejected"
 fi
 
 # --- College.name duplicate, case variant ----------------------------
+# Colleges have the expression index only, so a seed row is needed for the
+# "duplicate" to exist at all.
 set +e
-out="$("$PSQL" "$URL" -v ON_ERROR_STOP=0 -c "
-INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'NOTRE DAME COLLEGE',now(),now());" 2>&1)"
+seed_out="$(q_ "INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'Notre Dame College',now(),now());" 2>&1)"
+set -e
+if [ -z "$seed_out" ] && [ "$(q_ "SELECT count(*) FROM colleges WHERE lower(name)='notre dame college';" | tr -d ' ')" = "1" ]; then
+  pass "college seed row created, so the case-variant probe below is meaningful"
+else
+  printf '%s\n' "$seed_out"; fail "could not create the college seed row"
+fi
+set +e
+out="$(q_ "INSERT INTO colleges (id,name,created_at,updated_at) VALUES (gen_random_uuid(),'NOTRE DAME COLLEGE',now(),now());" 2>&1)"
 set -e
 if printf '%s' "$out" | grep -q "uq_colleges_name_lower"; then
   pass "College.name CASE-VARIANT duplicate rejected by uq_colleges_name_lower"
 else
   printf '%s\n' "$out"; fail "College.name case-variant duplicate was NOT rejected"
 fi
+
+# --- the SQLSTATE probe needs a row to collide with --------------------
+# It is placed BEFORE the cleanup below, not after: the first version cleaned up
+# first and the probe then had nothing to violate, so it reported NO-VIOLATION.
+# An ordering bug of the same family as the rest of this file's findings.
+reset_v5_fixtures
+q_ "INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup3',now());" >/dev/null 2>&1 || true
+probe_rows="$(q_ "SELECT count(*) FROM tags WHERE slug='cn-dup3';" | tr -d ' ')"
+[ "$probe_rows" = "1" ] && pass "seed row re-created for the SQLSTATE probe" \
+                       || fail "could not seed the SQLSTATE probe (rows=$probe_rows)"
 
 # --- the SQLSTATE the application would actually receive -------------
 # This is the crux of V-5: an expression unique index produces a constraint
@@ -265,7 +312,7 @@ cat "$OUT_DIR/v5-sqlstate.txt"
 # rests on an observation rather than on knowledge of PostgreSQL.
 set +e
 state="$(PGOPTIONS='-c verbosity=verbose' "$PSQL" "$URL" -v ON_ERROR_STOP=0 -c "
-INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup3',now());" 2>&1 | grep -oE 'ERROR:  [0-9A-Z]{5}' | grep -oE '[0-9A-Z]{5}' | head -1)"
+INSERT INTO tags (id,name,slug,created_at) VALUES (gen_random_uuid(),'Computer Network','cn-dup4',now());" 2>&1 | grep -oE 'ERROR:  [0-9A-Z]{5}' | grep -oE '[0-9A-Z]{5}' | head -1 || true)"
 set -e
 if [ "$state" = "23505" ]; then
   pass "the violation surfaces as SQLSTATE 23505 (observed with verbosity=verbose)"
@@ -283,7 +330,9 @@ END $$;
 SQL
 )"
   set -e
-  state="$(printf '%s' "$state2" | grep -oE 'STATE=[0-9A-Z]{5}' | cut -d= -f2)"
+  # `|| true`: under `set -e` a non-matching grep returns 1 and would kill the
+  # script before the summary is printed, hiding every result already collected.
+  state="$(printf '%s' "$state2" | grep -oE 'STATE=[0-9A-Z]{5}' | cut -d= -f2 || true)"
   if [ "$state" = "23505" ]; then
     pass "the violation surfaces as SQLSTATE 23505 (observed from a plpgsql handler)"
   else
@@ -334,6 +383,15 @@ WHY THIS CANNOT BE VERIFIED NOW
 MISS
 cat "$OUT_DIR/v5-missing.txt"
 blocked "V-5 application half: BLOCKED — no Prisma error mapping exists to inspect"
+
+# --- leave the database as it was found -------------------------------
+reset_v5_fixtures
+residue="$(q_ "SELECT (SELECT count(*) FROM tags)||'/'||(SELECT count(*) FROM colleges);" | tr -d ' ')"
+if [ "$residue" = "$(echo "$pre_tags/0")" ] || [ "$(q_ "SELECT count(*) FROM tags WHERE slug LIKE 'cn-dup%';" | tr -d ' ')" = "0" ]; then
+  pass "fixtures removed; this driver left the database as it found it (tags/colleges=$residue)"
+else
+  fail "fixture cleanup left rows behind (tags/colleges=$residue)"
+fi
 
 {
   echo "V5_DB_UNIQUENESS=PASS (exact, case-variant tags; case-variant colleges)"
