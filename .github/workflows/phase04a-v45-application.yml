@@ -216,12 +216,19 @@ jobs:
           # leave "which test failed?" as an inference from log text — and the
           # first version of this step got that inference wrong and failed a
           # correct run. Selecting the test makes the exit code unambiguous.
+          # `set -e` is implicitly active on these runners (bash -e), so a
+          # non-zero from the mutant run would kill the step BEFORE any
+          # assertion below could look at it — and a failing mutant is exactly
+          # what this step wants. `|| mutant_rc=$?` takes the status into a
+          # variable and keeps the shell alive. Two CI runs were spent learning
+          # that the hard way; hence the comment.
+          mutant_rc=0
           V45_MUTATE_D2_SNAPSHOT_CLIENT=pool \
             npx vitest run --config vitest.integration.config.ts \
               tests/integration/questions/snapshot-transaction.test.ts \
               -t 'sees an uncommitted write made inside the same transaction' \
-              2>&1 | tee /tmp/d2-mutant.log
-          mutant_rc=${PIPESTATUS[0]}
+              > /tmp/d2-mutant.log 2>&1 || mutant_rc=$?
+          tail -40 /tmp/d2-mutant.log
           echo "::endgroup::"
           clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/d2-mutant.log | tr -d '\r')"
           if [ "$mutant_rc" -eq 0 ]; then
