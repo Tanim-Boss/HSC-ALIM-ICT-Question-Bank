@@ -212,9 +212,15 @@ jobs:
           # test to FAIL. Without this, nobody would know the test can detect the
           # defect at all.
           echo "::group::D2 mutation — snapshot read through the pool"
+          # Only the assertion under question is run. A whole-file run would
+          # leave "which test failed?" as an inference from log text — and the
+          # first version of this step got that inference wrong and failed a
+          # correct run. Selecting the test makes the exit code unambiguous.
           V45_MUTATE_D2_SNAPSHOT_CLIENT=pool \
             npx vitest run --config vitest.integration.config.ts \
-              tests/integration/questions/snapshot-transaction.test.ts 2>&1 | tee /tmp/d2-mutant.log
+              tests/integration/questions/snapshot-transaction.test.ts \
+              -t 'sees an uncommitted write made inside the same transaction' \
+              2>&1 | tee /tmp/d2-mutant.log
           mutant_rc=${PIPESTATUS[0]}
           echo "::endgroup::"
           clean="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/d2-mutant.log | tr -d '\r')"
@@ -225,13 +231,18 @@ jobs:
             done
             exit 1
           fi
-          # Failing is necessary but not sufficient: it must fail for the right
-          # reason, on the assertion about the transaction's view.
-          if ! printf '%s\n' "$clean" | grep -qE "sees an uncommitted write made inside the same transaction"; then
-            echo "::error title=D2 MUTATION::the suite failed, but not on the transaction-view assertion"
-            printf '%s\n' "$clean" | grep -E "FAIL |AssertionError" | head -10 | while IFS= read -r l; do
+          # Failing is necessary but not sufficient: it must fail as an
+          # ASSERTION, not as a crash, a missing DATABASE_URL, or a timeout.
+          if ! printf '%s\n' "$clean" | grep -qiE "AssertionError|expected .* to (be|not)"; then
+            echo "::error title=D2 MUTATION::the suite failed, but not on an assertion — a crash proves nothing about D2"
+            printf '%s\n' "$clean" | tail -15 | while IFS= read -r l; do
               echo "::error title=D2 mutation::$l"
             done
+            exit 1
+          fi
+          # And it must be the view mismatch: the pool sees the pre-write status.
+          if ! printf '%s\n' "$clean" | grep -qiE "DRAFT|ARCHIVED"; then
+            echo "::error title=D2 MUTATION::assertion failed but not on the version status — reason unclear"
             exit 1
           fi
           echo "OK: the D2 regression test fails when the snapshot is read through the pool"
