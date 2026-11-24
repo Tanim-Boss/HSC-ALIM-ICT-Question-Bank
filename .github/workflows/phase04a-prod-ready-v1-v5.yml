@@ -281,16 +281,24 @@ jobs:
           node_modules/.bin/prisma migrate deploy --config prisma.config.ts
           node_modules/.bin/prisma migrate status --config prisma.config.ts
 
-      # The driver's snapshot-to-snapshot diff produced an EMPTY script on the
-      # first real run: exit 0, no error, no SQL. Empty means "no difference",
-      # yet the two datamodels differ by one @@index. probe-diff.sh records what
-      # each plausible invocation actually does, so the fix is chosen from
-      # evidence instead of guessed. Output is posted to the PR.
-      - name: "V-1 probe — which diff invocation sees a datamodel delta"
+      # Kept as a regression check, not a diagnostic. The empty-diff defect was
+      # caused by a datasource-free config; probe-diff.sh's P1 case is the one
+      # that proved it, and it is cheap insurance against the same regression
+      # making a future diff silently produce nothing. Its full output is only
+      # attached when V-1 fails.
+      - name: "V-1 regression check — a datasource-ful diff must not be empty"
         run: |
           set -uo pipefail
-          bash docs/database/g1-spike/option-c/prod-ready/v1/probe-diff.sh 2>&1 | tee /tmp/v1-probe.txt || true
-        continue-on-error: true
+          bash docs/database/g1-spike/option-c/prod-ready/v1/probe-diff.sh > /tmp/v1-probe.txt 2>&1
+          rc=$?
+          echo "probe exit=$rc (a nonzero exit alone is not a failure; see the grep below)"
+          if grep -q 'CREATE INDEX "ix_questions_created_at_desc"' /tmp/v1-probe.txt; then
+            echo "PASS: the datasource-ful diff emits the expected CREATE INDEX"
+          else
+            echo "::error title=V-1 regression::the diff emitted no CREATE INDEX — the empty-diff defect is back"
+            sed -n '1,80p' /tmp/v1-probe.txt
+            exit 1
+          fi
 
       - name: "V-1 — generate, deploy and verify the second migration"
         run: |
