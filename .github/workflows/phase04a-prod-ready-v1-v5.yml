@@ -323,30 +323,46 @@ jobs:
         run: |
           # Only on a PR, only on failure, and never for fork PRs (no write token).
           [ -n "${PR_NUMBER:-}" ] || { echo "not a pull_request event; skipping"; exit 0; }
-          if grep -q "^\[V-1\] ALL CHECKS PASSED" /tmp/v1.log 2>/dev/null; then
-            echo "V-1 passed; no diagnostic comment needed"; exit 0
-          fi
+          # Post on failure AND on success. On success only the RESULT lines and
+          # the control cases are posted, because the evidence artifacts cannot
+          # be downloaded from outside GitHub and this comment is the only
+          # channel that reliably carries the numbers.
           {
             echo "<!-- v1-driver-diagnostics -->"
             echo "### V-1 driver output (${GITHUB_SHA::7})"
             echo
-            echo "Raw logs and artifacts were intermittent, so the driver output is posted here."
-            echo
-            echo '```'
-            if [ -f /tmp/v1-probe.txt ]; then
-              echo "#### diff-invocation probe"
+            if grep -q "^\[V-1\] ALL CHECKS PASSED" /tmp/v1.log 2>/dev/null; then
+              echo "**V-1 PASSED.** Summary and the checks that could have failed:"
+              echo
               echo '```'
-              sed -n '1,700p' /tmp/v1-probe.txt
+              sed -n '/=== SUMMARY ===/,$p' /tmp/v1.log
               echo '```'
-            fi
-            if [ -f /tmp/v1.log ]; then
-              head -120 /tmp/v1.log
-              echo '...'
-              grep -nE "FAIL|ABORT|ERROR|error:|not found|No such file" /tmp/v1.log | head -40 || true
+              echo
+              echo "Key steps:"
+              echo '```'
+              grep -E "control:|the generated migration creates|descending index|five composite FKs present|C-5 still rejects|replayed 0001|inventory unchanged|two applied migrations|checksum control" /tmp/v1.log || true
+              echo '```'
             else
-              echo "no /tmp/v1.log was produced"
+              echo "**V-1 FAILED.** Driver log follows."
+              echo
+              echo '```'
+              if [ -f /tmp/v1.log ]; then
+                head -120 /tmp/v1.log
+                echo '...'
+                grep -nE "FAIL|ABORT|ERROR|error:|not found|No such file" /tmp/v1.log | head -40 || true
+              else
+                echo "no /tmp/v1.log was produced"
+              fi
+              echo '```'
+              if [ -f /tmp/v1-probe.txt ]; then
+                echo "<details><summary>diff-invocation probe</summary>"
+                echo
+                echo '```'
+                sed -n '1,700p' /tmp/v1-probe.txt
+                echo '```'
+                echo "</details>"
+              fi
             fi
-            echo '```'
           } > /tmp/v1-comment.md
           gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file /tmp/v1-comment.md \
             || echo "::warning title=V-1 diagnostics::could not post the comment"
