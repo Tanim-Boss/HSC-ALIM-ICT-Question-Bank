@@ -94,6 +94,22 @@ export const AMBIGUITIES = [
       'satisfy distinctness while being unusable in the four-column renderer.',
     needs: 'Owner confirmation that the key alphabet is fixed per language.',
   },
+  {
+    id: 'AMB-5',
+    invariant: 'I-6',
+    text:
+      'I-6 says `questions.type` cannot change "after a published version exists". It does ' +
+      'not say whether that means one exists NOW or that one has EVER existed. The two ' +
+      'readings differ exactly when every version of a question has been archived: under ' +
+      '"ever existed" the type stays frozen forever, under "exists now" the freeze lifts. ' +
+      'The schema stores only a current status per version, so "ever existed" is not ' +
+      'recoverable once nothing is PUBLISHED.',
+    needs:
+      'Owner decision: which reading governs? NOTE the current code implements "exists now" ' +
+      '(it permits a type change once all versions are ARCHIVED), while the doc-comment above ' +
+      'assertTypeChangeAllowed describes "ever existed". The comment is the bug until the rule ' +
+      'is decided — see the acceptance audit, section 5.',
+  },
 ] as const;
 
 /** ------------------------------------------------------------------ */
@@ -227,8 +243,11 @@ export function checkOptionCardinality(
     const isEn = MCQ_KEYS_EN.every((k) => keys.includes(k));
     const isBn = MCQ_KEYS_BN.every((k) => keys.includes(k));
     if (!isEn && !isBn) {
+      // D1: the keys here ARE distinct (A, B, C, E, for instance), so reporting
+      // them as "not distinct" told the client the opposite of the truth. The
+      // actual failure is the alphabet, and it has its own code.
       violations.fail({
-        code: 'OPTION_KEYS_NOT_DISTINCT',
+        code: 'OPTION_KEY_ALPHABET_INVALID',
         invariant: 'I-4',
         message:
           `An MCQ ${where} must use the keys A, B, C, D or the keys ক, খ, গ, ঘ ` +
@@ -1053,11 +1072,22 @@ export function assertVersionMutable(version: {
 /**
  * I-6: `questions.type` cannot change once a published version exists.
  *
- * AMB-5: the documents do not say whether the freeze applies once ANY version
- * has been published, including after every version is archived. The stricter
- * reading — a published version ever having existed — is applied. Because the
- * application cannot delete a published version (I-5), "ever existed" and
- * "exists now" coincide for anything reachable through this service.
+ * AMB-5 — WHICH READING FIRST, THEN WHAT THE CODE DOES.
+ *
+ * The documents do not say whether the freeze applies once ANY version has been
+ * published (including after every version is archived) or only while one is
+ * published right now.
+ *
+ * The code below implements the SECOND reading — "a published version exists
+ * now" — because `versions.some(v => v.status === 'PUBLISHED')` is false once
+ * everything is archived. That is not a preference: the schema stores a current
+ * status per version and nothing else, so "was ever published" is not
+ * recoverable once nothing is PUBLISHED. The stricter reading would need a new
+ * column, which is a schema change this work is not authorised to make.
+ *
+ * An earlier revision of this comment claimed the stricter reading was applied.
+ * It was not, and the comment was the defect: a reader would have believed a
+ * guarantee the code does not provide.
  */
 export function assertTypeChangeAllowed(
   nextType: QuestionType,

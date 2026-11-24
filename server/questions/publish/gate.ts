@@ -32,73 +32,41 @@ import 'server-only';
 import { getPrisma } from '@/lib/db';
 import { DomainError, ViolationCollector } from './errors';
 import { mapUniqueViolation } from './db-errors';
+import { loadQuestionSnapshot, type QuestionReader } from './snapshot';
 import {
   assertTypeChangeAllowed,
   assertVersionMutable,
   checkStatusRollup,
   deriveQuestionStatus,
   evaluatePublishGate,
-  type AnswerKeyRow,
-  type AssetLinkRow,
-  type OptionRow,
   type QuestionSnapshot,
   type QuestionStatus,
   type QuestionType,
-  type TaxonomySnapshot,
-  type VersionRecordSnapshot,
   type VersionStatus,
 } from './rules';
 
+// Re-exported so existing importers keep one entry point for the gate.
+export { loadQuestionSnapshot, type SnapshotRow } from './snapshot';
+
 /**
- * The exact shape `loadQuestionSnapshot` selects.
+ * The subset of the interactive transaction client the publish path uses.
  *
- * Declared by hand rather than inferred: it keeps the select clause and the
- * mapping in one file that can be reviewed together, and it means this module
- * typechecks even before `prisma generate` has run (the generated client is
- * git-ignored, so a fresh clone has no types until generate runs).
+ * It `extends QuestionReader`, so a `tx` cannot be passed to
+ * `loadQuestionSnapshot` unless it is genuinely capable of performing the read
+ * — the compiler enforces that the same object that takes the lock is the one
+ * that reads.
+ *
+ * Declared structurally because the generated client is git-ignored; an
+ * untyped `tx` would make every callback parameter an implicit `any`.
  */
-interface SnapshotRow {
-  readonly id: string;
-  readonly type: string;
-  readonly status: string;
-  readonly marks: number;
-  readonly educationLevelId: string;
-  readonly subjectId: string;
-  readonly educationLevel: { readonly id: string; readonly isActive: boolean };
-  readonly subject: { readonly id: string; readonly isActive: boolean };
-  readonly chapter: {
-    readonly id: string;
-    readonly subjectId: string;
-    readonly isActive: boolean;
-  } | null;
-  readonly topic: {
-    readonly id: string;
-    readonly chapterId: string;
-    readonly isActive: boolean;
-  } | null;
-  readonly subtopic: {
-    readonly id: string;
-    readonly topicId: string;
-    readonly isActive: boolean;
-  } | null;
-  readonly versions: readonly {
-    readonly id: string;
-    readonly versionNumber: number;
-    readonly status: string;
-    readonly content: unknown;
-    readonly options: readonly {
-      readonly id: string;
-      readonly key: string;
-      readonly order: number;
-      readonly content: unknown;
-    }[];
-    readonly answerKey: {
-      readonly mcqCorrectOptionKey: string | null;
-      readonly cqRubric: unknown;
-      readonly isVerified: boolean;
-    } | null;
-    readonly assets: readonly { readonly assetId: string; readonly blockRef: string }[];
-  }[];
+interface TransactionClient extends QuestionReader {
+  $queryRaw(query: TemplateStringsArray, ...values: readonly unknown[]): Promise<unknown>;
+  readonly question: QuestionReader['question'] & {
+    update(args: unknown): Promise<unknown>;
+  };
+  readonly questionVersion: {
+    update(args: unknown): Promise<unknown>;
+  };
 }
 
 /** Raised when a publish is refused. Carries every violation, not just the first. */
@@ -119,163 +87,6 @@ export class PublishRejectedError extends DomainError {
     this.name = 'PublishRejectedError';
     this.violations = violations;
   }
-}
-
-/**
- * The subset of the generated client the transaction uses.
- *
- * Declared structurally for the same reason as `SnapshotRow`: the repository
- * ships no generated client, and an untyped `tx` would make every callback
- * parameter an implicit `any`.
- */
-interface TransactionClient {
-  $queryRaw(query: TemplateStringsArray, ...values: readonly unknown[]): Promise<unknown>;
-  questionVersion: {
-    update(args: { where: { id: string }; data: { status: string } }): Promise<unknown>;
-  };
-  question: {
-    update(args: { where: { id: string }; data: { status: string } }): Promise<unknown>;
-  };
-}
-
-/** Loads the snapshot the rules need. Exported for tests and for read-only previews. */
-export async function loadQuestionSnapshot(questionId: string): Promise<QuestionSnapshot> {
-  const prisma = getPrisma();
-
-  const row = await prisma.question.findUnique({
-    where: { id: questionId },
-    select: {
-      id: true,
-      type: true,
-      status: true,
-      marks: true,
-      educationLevelId: true,
-      subjectId: true,
-      chapterId: true,
-      topicId: true,
-      subtopicId: true,
-      educationLevel: { select: { id: true, isActive: true } },
-      subject: { select: { id: true, isActive: true } },
-      chapter: { select: { id: true, subjectId: true, isActive: true } },
-      topic: { select: { id: true, chapterId: true, isActive: true } },
-      subtopic: { select: { id: true, topicId: true, isActive: true } },
-      versions: {
-        orderBy: { versionNumber: 'asc' },
-        select: {
-          id: true,
-          versionNumber: true,
-          status: true,
-          content: true,
-          options: {
-            orderBy: { order: 'asc' },
-            select: { id: true, key: true, order: true, content: true },
-          },
-          answerKey: {
-            select: { mcqCorrectOptionKey: true, cqRubric: true, isVerified: true },
-          },
-          assets: { select: { assetId: true, blockRef: true } },
-        },
-      },
-    },
-  });
-
-  const snapshotRow = row as unknown as SnapshotRow;
-
-  if (row === null) {
-    throw new DomainError({
-      code: 'INACTIVE_ROW_REFERENCED',
-      message: 'That question does not exist.',
-    });
-  }
-
-  // I-1's level/subject membership is a join table, not a column; one extra
-  // read is cheaper than a wrong invariant.
-  const levelSubject = await prisma.levelSubject.findUnique({
-    where: {
-      levelId_subjectId: {
-        levelId: snapshotRow.educationLevelId,
-        subjectId: snapshotRow.subjectId,
-      },
-    },
-    select: { levelId: true },
-  });
-
-  const taxonomy: TaxonomySnapshot = {
-    educationLevelId: snapshotRow.educationLevelId,
-    subjectId: snapshotRow.subjectId,
-    subjectOfferedAtLevel: levelSubject !== null,
-    educationLevelActive: snapshotRow.educationLevel.isActive,
-    subjectActive: snapshotRow.subject.isActive,
-    chapter:
-      snapshotRow.chapter === null
-        ? null
-        : {
-            id: snapshotRow.chapter.id,
-            subjectId: snapshotRow.chapter.subjectId,
-            isActive: snapshotRow.chapter.isActive,
-          },
-    topic:
-      snapshotRow.topic === null
-        ? null
-        : {
-            id: snapshotRow.topic.id,
-            chapterId: snapshotRow.topic.chapterId,
-            isActive: snapshotRow.topic.isActive,
-          },
-    subtopic:
-      snapshotRow.subtopic === null
-        ? null
-        : {
-            id: snapshotRow.subtopic.id,
-            topicId: snapshotRow.subtopic.topicId,
-            isActive: snapshotRow.subtopic.isActive,
-          },
-  };
-
-  const versions: VersionRecordSnapshot[] = snapshotRow.versions.map(
-    (version: SnapshotRow['versions'][number]) => {
-      const options: OptionRow[] = version.options.map(
-        (option: SnapshotRow['versions'][number]['options'][number]) => ({
-          id: option.id,
-          key: option.key,
-          sortOrder: option.order,
-          content: option.content,
-        }),
-      );
-      const answerKey: AnswerKeyRow | null =
-        version.answerKey === null
-          ? null
-          : {
-              mcqCorrectOptionKey: version.answerKey.mcqCorrectOptionKey,
-              cqRubric: version.answerKey.cqRubric,
-              isVerified: version.answerKey.isVerified,
-            };
-      const assetLinks: AssetLinkRow[] = version.assets.map(
-        (asset: SnapshotRow['versions'][number]['assets'][number]) => ({
-          assetId: asset.assetId,
-          blockRef: asset.blockRef,
-        }),
-      );
-      return {
-        id: version.id,
-        versionNumber: version.versionNumber,
-        status: version.status as VersionStatus,
-        content: version.content,
-        options,
-        answerKey,
-        assetLinks,
-      };
-    },
-  );
-
-  return {
-    id: snapshotRow.id,
-    type: snapshotRow.type as QuestionType,
-    status: snapshotRow.status as QuestionStatus,
-    marks: snapshotRow.marks,
-    taxonomy,
-    versions,
-  };
 }
 
 export interface PublishResult {
@@ -311,8 +122,13 @@ export async function publishVersion(input: {
       // 1. serialise concurrent publishes of the same question
       await db.$queryRaw`SELECT id FROM questions WHERE id = ${input.questionId}::uuid FOR UPDATE`;
 
-      // 2. read inside the transaction
-      const snapshot = await loadQuestionSnapshot(input.questionId);
+      // 2. read through the SAME client that holds the lock (D2).
+      //
+      // `db`, not `getPrisma()`. Reading through the pool would open a second
+      // connection, which sees only the pre-transaction committed state and
+      // would make step 1's lock meaningless. Every read whose consistency
+      // depends on the lock goes through `db` for the rest of this callback.
+      const snapshot = await loadQuestionSnapshot(db, input.questionId);
 
       const target = snapshot.versions.find((v) => v.id === input.versionId);
       if (target === undefined) {
@@ -395,8 +211,14 @@ export async function publishVersion(input: {
  * caller's; this function exists to put the I-5 guard on the one path every
  * content write must take.
  */
-export async function assertContentWriteAllowed(versionId: string): Promise<void> {
-  const prisma = getPrisma();
+export async function assertContentWriteAllowed(
+  versionId: string,
+  client?: TransactionClient,
+): Promise<void> {
+  // `client` is optional here (and only here) because this guard is a
+  // pre-condition a caller can run inside its own transaction. `publishVersion`
+  // deliberately takes no client: it owns its transaction.
+  const prisma = client ?? getPrisma();
   const version = await prisma.questionVersion.findUnique({
     where: { id: versionId },
     select: { status: true, versionNumber: true },
@@ -417,8 +239,9 @@ export async function assertContentWriteAllowed(versionId: string): Promise<void
 export async function assertQuestionTypeChangeAllowed(
   questionId: string,
   nextType: QuestionType,
+  client?: TransactionClient,
 ): Promise<void> {
-  const prisma = getPrisma();
+  const prisma = client ?? getPrisma();
   const question = await prisma.question.findUnique({
     where: { id: questionId },
     select: { type: true, versions: { select: { status: true } } },

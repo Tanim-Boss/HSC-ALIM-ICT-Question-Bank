@@ -18,7 +18,8 @@ export type DomainErrorCode =
   | 'QUESTION_STATUS_ROLLUP_MISMATCH' // I-3
   | 'MCQ_OPTION_COUNT_INVALID' // I-4
   | 'CQ_OPTION_COUNT_INVALID' // I-4
-  | 'OPTION_KEYS_NOT_DISTINCT' // I-4
+  | 'OPTION_KEYS_NOT_DISTINCT' // I-4 — the SAME key appears twice
+  | 'OPTION_KEY_ALPHABET_INVALID' // I-4 — keys are distinct but not one complete alphabet
   | 'PUBLISHED_VERSION_IMMUTABLE' // I-5
   | 'QUESTION_TYPE_IMMUTABLE' // I-6
   | 'CQ_RUBRIC_PARTS_MISMATCH' // I-7

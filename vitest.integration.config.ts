@@ -22,15 +22,22 @@ import { defineConfig } from 'vitest/config';
  * green light it has not earned.
  */
 export default defineConfig({
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./', import.meta.url)),
-    },
-  },
   test: {
     environment: 'node',
     globals: false,
     include: ['tests/integration/**/*.test.ts'],
+    // `server/questions/publish/gate.ts` begins with `import 'server-only'`,
+    // which throws by default and is only a no-op when resolved under the
+    // `react-server` condition. Without this alias the integration suite could
+    // not import the real publish service at all — which is precisely how the
+    // service went untested (defect D3). The marker still does its job in the
+    // Next.js build, where the real condition applies.
+    alias: {
+      '@': fileURLToPath(new URL('./', import.meta.url)),
+      'server-only': fileURLToPath(
+        new URL('./tests/integration/server-only-stub.ts', import.meta.url),
+      ),
+    },
     exclude: ['node_modules', 'lib/generated', '.next'],
     // Each file owns its own schema objects and cleans up after itself, so
     // running them in parallel would create cross-talk on shared taxonomy rows.

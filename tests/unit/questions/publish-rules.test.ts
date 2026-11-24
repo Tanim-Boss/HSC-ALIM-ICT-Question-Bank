@@ -175,13 +175,57 @@ describe('I-4 — option cardinality and key alphabet', () => {
     );
   });
 
-  it('rejects a mixed key alphabet (A, B, C, ঘ)', () => {
+  it('rejects a mixed key alphabet (A, B, C, ঘ) as an ALPHABET failure', () => {
+    // D1: these keys are distinct, so the failure is the alphabet, not
+    // distinctness. Asserting the accurate code is the whole point — an
+    // "OPTION_KEYS_NOT_DISTINCT" here would tell a client the opposite of the
+    // truth, and the client would go looking for a duplicate that does not exist.
     expectRejected(
       mcqQuestion(),
       (q) => {
         const [v] = q.versions;
         if (v === undefined) throw new Error('fixture has no version');
         const options = v.options.map((o, index) => (index === 3 ? { ...o, key: 'ঘ' } : o));
+        return { ...q, versions: [{ ...v, options }] };
+      },
+      ['OPTION_KEY_ALPHABET_INVALID'],
+    );
+  });
+
+  it('rejects A, B, C, E as an ALPHABET failure and NOT as a duplicate', () => {
+    // The exact case from the audit. Every key is distinct; the set is wrong.
+    expectRejected(
+      mcqQuestion(),
+      (q) => {
+        const [v] = q.versions;
+        if (v === undefined) throw new Error('fixture has no version');
+        const options = v.options.map((o, index) => (index === 3 ? { ...o, key: 'E' } : o));
+        return { ...q, versions: [{ ...v, options }] };
+      },
+      ['OPTION_KEY_ALPHABET_INVALID'],
+    );
+    // And the negative half: it must not claim a duplicate exists.
+    const [v] = mcqQuestion().versions;
+    if (v === undefined) throw new Error('fixture has no version');
+    const mutated = {
+      ...mcqQuestion(),
+      versions: [{ ...v, options: v.options.map((o, i) => (i === 3 ? { ...o, key: 'E' } : o)) }],
+    };
+    const codes = evaluatePublishGate(mutated).violations.map((x) => x.code);
+    expect(codes, `A,B,C,E must not report a duplicate: ${codes.join(', ')}`).not.toContain(
+      'OPTION_KEYS_NOT_DISTINCT',
+    );
+  });
+
+  it('still reports genuinely duplicated keys as OPTION_KEYS_NOT_DISTINCT', () => {
+    // The replacement assertion for the code D1 moved: a real duplicate (A twice)
+    // must keep the duplicate code, so fixing D1 does not simply rename it away.
+    expectRejected(
+      mcqQuestion(),
+      (q) => {
+        const [v] = q.versions;
+        if (v === undefined) throw new Error('fixture has no version');
+        const options = v.options.map((o, index) => (index === 3 ? { ...o, key: 'A' } : o));
         return { ...q, versions: [{ ...v, options }] };
       },
       ['OPTION_KEYS_NOT_DISTINCT'],
@@ -1130,11 +1174,48 @@ describe('I-15 — a CQ whose rubric is present but whose draft state is not yet
 describe('recorded ambiguities', () => {
   it('every ambiguity names the invariant and the decision it needs', () => {
     // Guards against someone quietly deleting an ambiguity instead of resolving it.
-    expect(AMBIGUITIES.length).toBeGreaterThanOrEqual(4);
+    expect(AMBIGUITIES.length).toBeGreaterThanOrEqual(5);
     for (const ambiguity of AMBIGUITIES) {
       expect(ambiguity.invariant).toMatch(/^I-\d+$/);
       expect(ambiguity.needs.length).toBeGreaterThan(10);
     }
-    expect(AMBIGUITIES.map((a) => a.id)).toEqual(['AMB-1', 'AMB-2', 'AMB-3', 'AMB-4']);
+    // AMB-5 was added to the registry by the corrective pass: it had existed
+    // only as a doc-comment, which meant a reader of the registry could never
+    // see that I-6's freeze has two readings. Recording it is not resolving it.
+    expect(AMBIGUITIES.map((a) => a.id)).toEqual(['AMB-1', 'AMB-2', 'AMB-3', 'AMB-4', 'AMB-5']);
+  });
+});
+
+describe('AMB-5 — the I-6 freeze is "currently published", recorded not decided', () => {
+  /**
+   * This suite PINS the behaviour that exists so a future change is deliberate.
+   * It does not approve the interpretation: AMB-5 is an open owner decision and
+   * the acceptance audit records both readings. If the owner picks "ever
+   * published", these two tests change with the rule, in one visible place.
+   */
+  const v = (status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED', n: number) => ({
+    id: `v${n}`,
+    versionNumber: n,
+    status,
+    content: null,
+    options: [],
+    answerKey: null,
+    assetLinks: [],
+  });
+
+  it('blocks a type change while a version is PUBLISHED', () => {
+    expect(() => assertTypeChangeAllowed('CQ', 'MCQ', [v('PUBLISHED', 1)])).toThrow(/type/i);
+  });
+
+  it('CURRENT BEHAVIOUR: allows a type change once every version is ARCHIVED', () => {
+    // The "currently published" reading. Under "ever published" this must throw,
+    // so this assertion is exactly what the owner decision would flip.
+    expect(() =>
+      assertTypeChangeAllowed('CQ', 'MCQ', [v('ARCHIVED', 1), v('ARCHIVED', 2)]),
+    ).not.toThrow();
+  });
+
+  it('allows a type change when nothing was ever published', () => {
+    expect(() => assertTypeChangeAllowed('CQ', 'MCQ', [v('DRAFT', 1)])).not.toThrow();
   });
 });

@@ -243,8 +243,8 @@ jobs:
             printf '%s' "$clean" | tail -20
             exit 1
           fi
-          if [ "$count" -lt 18 ]; then
-            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 18"
+          if [ "$count" -lt 29 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 29"
             exit 1
           fi
           echo "OK: $count integration cases executed against PostgreSQL"
