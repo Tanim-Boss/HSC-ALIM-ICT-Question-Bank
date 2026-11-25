@@ -54,6 +54,28 @@
 #   error. Absence is then reported as UNSUPPORTED_CATALOG_FIELD rather than
 #   being silently treated as a NULL value.
 #
+# ANNOTATIONS
+#   Exactly one GitHub `notice` annotation is emitted per database that passed
+#   every check above, so the measured value is readable through the checks API
+#   even when the job log and the artifact archive are not reachable:
+#
+#     ::notice title=collation profile <db>::observed CI measurement
+#       (read-only, not an approval) database=<db> server=<version>
+#       fingerprint=collation-fingerprint/v1;...
+#
+#   The message is escaped per the GitHub Actions workflow-command rules:
+#   `%`->`%25`, CR->`%0D`, LF->`%0A` in the message, and additionally
+#   `:`->`%3A`, `,`->`%2C` in the `title` property (properties are the part
+#   before the second `::`). A value that does not look like this script's own
+#   output — empty, not prefixed `collation-fingerprint/v1;`, or containing any
+#   control character — is NOT annotated: the run fails closed with
+#   MALFORMED_RESULT instead, so an unsafe value can never be published as if
+#   it were a clean measurement, and no newline can turn into a new workflow
+#   command.
+#
+#   The annotation is evidence, not an approval. It records what this run
+#   observed; it does not compare it with anything and does not decide a locale.
+#
 # FINGERPRINT
 #   The canonical string is the Session 15 §8.3 form, built exactly as
 #   validated in Session 16 §6.3. The only clarification applied is the
@@ -200,6 +222,45 @@ SQL
 
 # --- helpers --------------------------------------------------------------
 fail_state() { printf '::error::state=%s db=%s %s\n' "$1" "$2" "$3" >&2; }
+
+# GitHub Actions workflow-command escaping.
+#   Message: `%`, CR, LF.  Property values additionally: `:`, `,`.
+# `%` is escaped first, otherwise the escapes introduced below would be
+# re-escaped and GitHub would decode the wrong text.
+gha_escape_data() {
+  local s="$1"
+  s="${s//'%'/'%25'}"
+  s="${s//$'\r'/'%0D'}"
+  s="${s//$'\n'/'%0A'}"
+  printf '%s' "$s"
+}
+
+gha_escape_property() {
+  local s
+  s="$(gha_escape_data "$1")"
+  s="${s//':'/'%3A'}"
+  s="${s//','/'%2C'}"
+  printf '%s' "$s"
+}
+
+# Emit exactly one notice annotation for a database whose measurement passed
+# every check. $1 db, $2 fingerprint text, $3 server version.
+# Returns 1 — emitting nothing — if any value is not what this script itself
+# produced, so an unsafe or ambiguous value can never be published.
+emit_notice() {
+  local db="$1" fp_text="$2" server="$3" msg
+  [ -n "$fp_text" ] || return 1
+  [ -n "$server" ]  || return 1
+  [[ "$fp_text" == collation-fingerprint/v1\;* ]] || return 1
+  [[ "$db" =~ ^[A-Za-z0-9_]+$ ]] || return 1
+  # No control characters anywhere: a CR or LF would let the message spawn a
+  # second workflow command, and nothing this script produces contains one.
+  if [[ "$fp_text$server$db" == *[[:cntrl:]]* ]]; then return 1; fi
+  msg="observed CI measurement (read-only, not an approval) database=${db} server=${server} fingerprint=${fp_text}"
+  printf '::notice title=%s::%s\n' \
+    "$(gha_escape_property "collation profile ${db}")" \
+    "$(gha_escape_data "$msg")"
+}
 
 # Validate a JSON document produced above. $1 file, $2 db, $3 kind, $4 python expr
 json_check() {
@@ -366,7 +427,18 @@ PY
     rc=1; continue
   fi
 
-  # 7. readable report ----------------------------------------------------
+  # 7. publish the measured value as a check-run annotation ---------------
+  # Only reached after identity, row-count, profile-JSON, catalog-field,
+  # fingerprint and six-index checks have all passed for this database.
+  server_version="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["server_version"])' "$prof")"
+  if ! emit_notice "$db" "$(cat "$fp")" "$server_version"; then
+    fail_state MALFORMED_RESULT "$db" \
+      "refusing to annotate: fingerprint or server version is not this script's own output"
+    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    rc=1; continue
+  fi
+
+  # 8. readable report ----------------------------------------------------
   echo "--- fingerprint: $(cat "$fp")"
   python3 - "$prof" "$idx" <<'PY'
 import json, sys
