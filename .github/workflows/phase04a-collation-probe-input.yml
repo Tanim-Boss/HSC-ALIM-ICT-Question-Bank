@@ -1,0 +1,72 @@
+name: Phase 04A — collation probe input-handling regression (offline)
+
+# Session 41 / F-2: no workflow executed the committed regression suite, so a
+# green check-run could not prove that the probe's input handling was tested.
+#
+# This workflow is deliberately narrow. It runs ONLY when one of its own three
+# inputs changes: the workflow file, the probe, or the test script. It does not
+# run on schema, migration, guard or documentation changes; those are covered
+# by the separate G-1/G-3 workflows. One job, no duplicates.
+#
+# Offline and credential-free: collation-probe-input.test.sh replaces psql with
+# a stub in a temp directory. No production, staging or service database is
+# contacted, and no secrets are read. Every assertion failure fails this job.
+
+on:
+  push:
+    # Only the base branch: PR branches already produce a `pull_request` run,
+    # so also matching 'arena/**' here would create two runs for one commit.
+    branches: [main]
+    paths:
+      - '.github/workflows/phase04a-collation-probe-input.yml'
+      - 'docs/database/g1-spike/option-c/g3-full/collation-probe.sh'
+      - 'docs/database/g1-spike/option-c/g3-full/collation-probe-input.test.sh'
+  pull_request:
+    paths:
+      - '.github/workflows/phase04a-collation-probe-input.yml'
+      - 'docs/database/g1-spike/option-c/g3-full/collation-probe.sh'
+      - 'docs/database/g1-spike/option-c/g3-full/collation-probe-input.test.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  input-regression:
+    name: Collation probe input-handling regression (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Run the exact PR head / pushed commit, not the generated merge ref,
+          # so the suite tests the reviewed source. The same-repo fallback also
+          # covers fork pull requests without broadening permissions.
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+
+      # The suite is validated locally against Python 3.11. Pin the same minor
+      # version so `python3 -X utf8` argv decoding behaves identically in CI.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Record the exact source under test
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "commit: $(git rev-parse HEAD)"
+          echo "bash: ${BASH_VERSION}"
+          python3 --version
+          sha256sum \
+            docs/database/g1-spike/option-c/g3-full/collation-probe.sh \
+            docs/database/g1-spike/option-c/g3-full/collation-probe-input.test.sh
+
+      - name: Run the committed offline regression suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n docs/database/g1-spike/option-c/g3-full/collation-probe.sh
+          bash -n docs/database/g1-spike/option-c/g3-full/collation-probe-input.test.sh
+          bash docs/database/g1-spike/option-c/g3-full/collation-probe-input.test.sh

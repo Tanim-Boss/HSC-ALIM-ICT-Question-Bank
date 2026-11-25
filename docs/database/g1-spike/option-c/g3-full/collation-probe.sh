@@ -42,6 +42,9 @@
 #   MISSING_INDEX             an approved index does not exist
 #   MALFORMED_RESULT          SQL succeeded but the output is not what this
 #                             script promises (unparseable or inconsistent)
+#   INVALID_TARGET_ENCODING   a --target contains bytes that are not valid
+#                             UTF-8; rejected before the value can reach a
+#                             log line, annotation, JSON document or psql
 #   REFUSED_DEFAULT_DATABASE  the target is `postgres`, `template0` or
 #                             `template1`; those are never the application
 #                             database and measuring one would answer a
@@ -272,11 +275,35 @@ emit_notice() {
     "$(gha_escape_data "$msg")"
 }
 
+# Reject byte sequences that are not well-formed UTF-8 BEFORE a raw --target
+# reaches a log line, a ::error:: annotation, a JSON encoder, an artifact path
+# or psql argv. Under -X utf8 Python decodes argv with surrogateescape, so an
+# ill-formed byte becomes a lone surrogate (U+DC80..U+DCFF) that a strict
+# UTF-8 re-encode refuses. This is a validation, not a repair: nothing is
+# normalised, replaced or truncated.
+validate_target_encoding() {
+  python3 -X utf8 -c 'import sys; sys.argv[1].encode("utf-8")' "$1" >/dev/null 2>&1
+}
+
 # JSON-encode an untrusted string with the standard library. Used for the
 # summary so a database name containing quotes, backslashes or Unicode cannot
 # forge or corrupt the JSON document.
+#
+# ensure_ascii=False is deliberate and preserved: the documented summary and
+# artifact format carries a human-readable UTF-8 identity. Escaping every
+# non-ASCII byte to \uXXXX would change that output AND would not be a safe
+# boundary anyway -- a lone surrogate is emitted as "\udcff", which parses as
+# JSON text but is not a valid Unicode scalar value. Input validation in
+# main() is the boundary; the check below is defence in depth so no caller can
+# silently publish invalid bytes even if a future path bypasses it.
 json_string() {
-  python3 -X utf8 -c 'import json, sys; print(json.dumps(sys.argv[1], ensure_ascii=False))' "$1"
+  python3 -X utf8 -c 'import json, sys
+s = sys.argv[1]
+try:
+    s.encode("utf-8")
+except UnicodeEncodeError:
+    sys.exit("state=MALFORMED_RESULT refusing to JSON-encode ill-formed UTF-8")
+print(json.dumps(s, ensure_ascii=False))' "$1"
 }
 
 # Validate a database name before it is used in a filesystem path or passed
@@ -293,7 +320,10 @@ validate_db_name() {
   esac
   # Reject byte sequences that are not valid UTF-8, so both the JSON encoder
   # and the hex round-trip stay well defined instead of producing bad JSON.
-  python3 -X utf8 -c 'import sys; sys.argv[1].encode("utf-8")' "$db" >/dev/null 2>&1 || return 1
+  # Same shared boundary main() applies to the raw --target before anything
+  # else; a raw invalid byte is not a control character, so the guard below
+  # that rejects CR/LF cannot see it.
+  validate_target_encoding "$db" || return 1
   # Bound the encoded filename without truncating it. PostgreSQL identifiers
   # are at most 63 bytes (NAMEDATALEN - 1); a longer name could not be a real
   # database and would risk ENAMETOOLONG after hex encoding.
@@ -374,6 +404,23 @@ write_summary() {
     done
     printf '\n  ],\n  "ok": %s\n}\n' "$([ "$rc" = 0 ] && echo true || echo false)"
   } > "$file"
+
+  # Fail closed: never publish a summary that is not strict UTF-8 and valid
+  # JSON. Read the BYTES first -- a lenient decoder would hide exactly the
+  # defect this guard exists for. If any entry did smuggle an ill-formed byte
+  # past the input boundary, delete the artifact rather than leaving evidence
+  # that looks valid but cannot be decoded (Session 41 / F-3).
+  if ! python3 -X utf8 - "$file" <<'PY'
+import json, sys
+raw = open(sys.argv[1], 'rb').read()
+text = raw.decode('utf-8')
+json.loads(text)
+PY
+  then
+    rm -f "$file"
+    printf '::error::state=MALFORMED_RESULT db=<invalid> refusing to publish an invalid summary artifact\n' >&2
+    return 1
+  fi
 }
 
 # --- main loop ------------------------------------------------------------
@@ -385,6 +432,19 @@ rc=0
 SUMMARY=()
 
 for target in "${TARGETS[@]}"; do
+  # Reject ill-formed UTF-8 in the RAW --target before it is split, logged,
+  # annotated, JSON-encoded, turned into an artifact filename or passed to
+  # psql. An invalid byte is not a control character, so the control-character
+  # guard below cannot catch it; json_string(ensure_ascii=False) would write
+  # that byte verbatim into collation-summary.json (Session 40 finding F-3).
+  # The diagnostic uses a fixed placeholder, never the raw bytes.
+  if ! validate_target_encoding "$target"; then
+    fail_state INVALID_TARGET_ENCODING "<invalid>" \
+      "target contains bytes that are not valid UTF-8"
+    SUMMARY+=('{"database": "", "state": "INVALID_TARGET_ENCODING"}')
+    rc=1; continue
+  fi
+
   db="${target%:*}"
   port="${target##*:}"
   conn_ok=1

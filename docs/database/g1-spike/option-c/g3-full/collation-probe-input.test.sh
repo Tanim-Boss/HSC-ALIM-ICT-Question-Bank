@@ -1,27 +1,37 @@
 #!/usr/bin/env bash
 # =====================================================================
-# Session 39 — input-handling regression tests for collation-probe.sh.
+# Sessions 39 + 41 — input-handling regression tests for collation-probe.sh.
 #
 #   ./collation-probe-input.test.sh
 #
-# Covers the two hardened areas (JSON validation without eval, and safe
-# artifact filename construction) plus the adjacent summary-JSON encoding.
+# Covers JSON validation without eval, safe artifact filename construction,
+# summary-JSON encoding, the strict UTF-8 --target boundary (Session 41 / F-3)
+# and the controlled-cwd non-execution assertion (Session 41 / F-4).
 # Deterministic and offline: psql is replaced by a stub in a temp directory,
-# so no production, staging or even local database is contacted.
+# so no production, staging or even local database is contacted. All writes
+# go into one mktemp tree, removed by the EXIT trap on success and failure.
 #
 # Uses only bash, python3 and coreutils — the same tooling the probe already
-# requires. No new dependencies and no changes to the workflow files.
+# requires. No new dependencies. The CI job that runs this suite lives in
+# .github/workflows/phase04a-collation-probe-input.yml.
 # =====================================================================
 set -Eeuo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROBE="$HERE/collation-probe.sh"
+CALLER_CWD="$PWD"
+# Never delete a pre-existing file in the invocation directory; only a marker
+# this suite could have created is cleaned up, on success AND on failure.
+CALLER_MARKER_PREEXISTED=0
+if [ -e "$CALLER_CWD/PROBE_PWNED" ]; then CALLER_MARKER_PREEXISTED=1; fi
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP"' EXIT
-mkdir -p "$TMP/out" "$TMP/bin"
+trap 'rm -rf "$TMP"; if [ "$CALLER_MARKER_PREEXISTED" = 0 ]; then rm -f "$CALLER_CWD/PROBE_PWNED"; fi' EXIT
+mkdir -p "$TMP/out" "$TMP/bin" "$TMP/unit-cwd"
+UNIT_CWD="$TMP/unit-cwd"
 
 # Sourcing defines the pure helpers (json_check, json_string,
-# validate_db_name, artifact_component, artifact_path) without measuring
+# validate_target_encoding, validate_db_name, artifact_component,
+# artifact_path) without measuring
 # anything. Set OUT afterwards for artifact_path assertions.
 # shellcheck source=collation-probe.sh
 source "$PROBE"
@@ -75,8 +85,14 @@ print(json.dumps(doc, ensure_ascii=False))
 PY
 }
 
+# json_check spawns Python, which inherits the caller's cwd. Run EVERY unit
+# call inside a dedicated, disposable cwd so a side-effect marker can be
+# asserted in the exact directory the child process saw (Session 40 F-4: the
+# old assertion checked $TMP while the child ran in the invocation cwd, so it
+# reported a false PASS). $1 is always an absolute path under $TMP.
 json_rc() { # $1 file, $2 db, $3 kind -> sets RC, writes $TMP/json.err
-  if json_check "$1" "$2" "$3" >"$TMP/json.out" 2>"$TMP/json.err"; then RC=0; else RC=$?; fi
+  if ( cd "$UNIT_CWD" && json_check "$1" "$2" "$3" ) \
+      >"$TMP/json.out" 2>"$TMP/json.err"; then RC=0; else RC=$?; fi
 }
 
 expect_json() { # $1 label, $2 want (0=success, 1=failure), $3 file, $4 db, $5 kind
@@ -153,11 +169,21 @@ INJECT_BYPASS="legit' or True or '"
 profile_doc "$INJECT_MATCH" "$D"
 expect_json 'expression-like payload is plain data (matching value)' 0 "$D" "$INJECT_MATCH" profile
 expect_no_stderr 'payload is never echoed into Python source/error' "$INJECT_MATCH"
-if [ -e "$TMP/PROBE_PWNED" ]; then
-  bad 'expression-like payload did not execute'
-  rm -f "$TMP/PROBE_PWNED"
+if [ -e "$UNIT_CWD/PROBE_PWNED" ]; then
+  bad 'expression-like payload did not execute (marker in controlled Python cwd)'
+  rm -f "$UNIT_CWD/PROBE_PWNED"
 else
-  ok 'expression-like payload did not execute'
+  ok 'expression-like payload did not execute (checked the exact Python cwd)'
+fi
+if [ -e "$CALLER_CWD/PROBE_PWNED" ]; then
+  if [ "$CALLER_MARKER_PREEXISTED" = 1 ]; then
+    ok 'pre-existing invocation-directory marker was left untouched'
+  else
+    bad 'expression-like payload wrote a marker into the invocation directory'
+    rm -f "$CALLER_CWD/PROBE_PWNED"
+  fi
+else
+  ok 'no side-effect marker in the invocation directory'
 fi
 
 profile_doc 'legit' "$D"
@@ -178,6 +204,40 @@ PY
 check_json_string 'json_string round-trips quotes/backslashes' 'db"q\z'
 check_json_string 'json_string round-trips Unicode' "$UNICODE"
 check_json_string 'json_string escapes control characters' "$(printf 'a\tb\nc"d\\e')"
+
+printf '\n%s\n' '-- strict UTF-8 input boundary (F-3, unit level) --'
+expect_encoding() { # $1 label, $2 accept|reject, $3 raw bytes
+  local label="$1" want="$2" v="$3" rc=0
+  validate_target_encoding "$v" || rc=$?
+  if { [ "$want" = accept ] && [ "$rc" -eq 0 ]; } || \
+     { [ "$want" = reject ] && [ "$rc" -ne 0 ]; }; then
+    ok "$label"
+  else
+    bad "$label (rc=$rc, want=$want)"
+  fi
+}
+expect_encoding 'ASCII target encoding is accepted' accept 'g3f_main:5432'
+expect_encoding 'Unicode target encoding is accepted' accept "${UNICODE}:5432"
+expect_encoding 'lone 0xff byte is rejected' reject "$(printf 'db\377:5432')"
+expect_encoding 'lone continuation byte 0x80 is rejected' reject "$(printf 'db\200:5432')"
+expect_encoding 'truncated 2-byte sequence is rejected' reject "$(printf 'db\303:5432')"
+expect_encoding 'overlong encoding is rejected' reject "$(printf 'db\300\257:5432')"
+expect_encoding 'UTF-8-encoded surrogate is rejected' reject "$(printf 'db\355\240\200:5432')"
+expect_encoding 'invalid byte in the port field is rejected' reject "$(printf 'g3f_main:54\37732')"
+expect_encoding 'U+FFFD replacement character is valid UTF-8 and accepted' \
+  accept "$(printf 'db\357\277\275:5432')"
+
+# json_string itself must refuse ill-formed input instead of emitting raw bytes.
+if json_string "$(printf 'db\377')" >"$TMP/badenc.out" 2>"$TMP/badenc.err"; then
+  bad 'json_string must refuse ill-formed UTF-8'
+else
+  if [ ! -s "$TMP/badenc.out" ] && \
+     grep -qF 'refusing to JSON-encode ill-formed UTF-8' "$TMP/badenc.err"; then
+    ok 'json_string fails closed on ill-formed UTF-8 (no output, clear diagnostic)'
+  else
+    bad 'json_string did not fail closed cleanly'
+  fi
+fi
 
 printf '\n%s\n' '-- filename handling --'
 component_rc() { # $1 db -> sets RC and COMP
@@ -314,13 +374,17 @@ PY
 chmod +x "$TMP/bin/psql"
 
 E2E_N=0
-e2e() { # $1 label, $2 db, $3 want_rc (0/1), $4... extra env assignments
-  local label="$1" db="$2" want="$3"; shift 3
+# Run the real probe with a caller-supplied RAW --target. The value may contain
+# bytes that are not valid UTF-8; it is passed as one argv element, never
+# interpolated into a shell string. The subprocess cwd is $TMP (outside the
+# repository), so no marker can land in the working tree.
+probe_run() { # $1 label, $2 raw --target, $3 want_rc (0/1), $4... extra env
+  local label="$1" target="$2" want="$3"; shift 3
   E2E_N=$((E2E_N + 1))
   local out="$TMP/e2e$E2E_N" rc
   mkdir -p "$out"
   if (cd "$TMP" && env PSQL="$TMP/bin/psql" PROBE_HOST=localhost PROBE_USER=g3 "$@" \
-        bash "$PROBE" --out "$out" --target "$db:5432") \
+        bash "$PROBE" --out "$out" --target "$target") \
         >"$TMP/e2e.out" 2>"$TMP/e2e.err"; then rc=0; else rc=$?; fi
   E2E_OUT="$out"; E2E_RC="$rc"
   if { [ "$want" = 0 ] && [ "$rc" -eq 0 ]; } || \
@@ -329,6 +393,30 @@ e2e() { # $1 label, $2 db, $3 want_rc (0/1), $4... extra env assignments
   else
     bad "$label (exit $rc, want $want): $(tail -3 "$TMP/e2e.err")"
   fi
+  # Every JSON artifact must be strict UTF-8 AND parse with the standard JSON
+  # parser, and the summary must exist. Read bytes first: a lenient decoder
+  # would hide exactly the F-3 defect this assertion exists to catch.
+  if python3 -X utf8 - "$out" <<'PY'
+import glob, json, os, sys
+d = sys.argv[1]
+summary = os.path.join(d, 'collation-summary.json')
+if not os.path.isfile(summary):
+    sys.exit('collation-summary.json is missing')
+paths = sorted(glob.glob(os.path.join(d, '*.json')))
+for p in paths:
+    text = open(p, 'rb').read().decode('utf-8')
+    json.loads(text)
+PY
+  then
+    ok "$label: all JSON artifacts are strict UTF-8 and parse"
+  else
+    bad "$label: a JSON artifact is invalid UTF-8, malformed, or missing"
+  fi
+}
+
+e2e() { # $1 label, $2 db, $3 want_rc (0/1), $4... extra env assignments
+  local label="$1" db="$2" want="$3"; shift 3
+  probe_run "$label" "$db:5432" "$want" "$@"
 }
 
 all_artifact_names_safe() { # $1 out dir
@@ -426,6 +514,110 @@ if python3 -c 'import json,sys; json.load(open(sys.argv[1], encoding="utf-8"))' 
   ok 'summary remains valid JSON for a rejected target'
 else
   bad 'summary JSON invalid for a rejected target'
+fi
+
+printf '\n%s\n' '-- F-3: valid Unicode target keeps documented UTF-8 output semantics --'
+probe_run 'valid Unicode target: full measurement succeeds' "${UNICODE}:5432" 0
+if [ "$E2E_RC" = 0 ]; then
+  assert_summary 'Unicode identity round-trips through summary JSON' \
+    "$E2E_OUT" "$UNICODE" 'OK'
+  if python3 -X utf8 - "$E2E_OUT/collation-summary.json" "$UNICODE" <<'PY'
+import sys
+raw = open(sys.argv[1], 'rb').read()
+assert sys.argv[2].encode('utf-8') in raw, 'human-readable UTF-8 identity was escaped'
+PY
+  then
+    ok 'ensure_ascii=False preserved: identity remains human-readable UTF-8'
+  else
+    bad 'valid Unicode identity was escaped or lost in the raw summary bytes'
+  fi
+fi
+
+printf '\n%s\n' '-- F-3: ill-formed UTF-8 in raw --target (actual byte sequences) --'
+# Every case uses genuine invalid bytes, not a U+FFFD replacement character.
+expect_invalid_utf8() { # $1 label, $2 raw target bytes
+  local label="$1" raw="$2" f n=0
+  probe_run "$label" "$raw" 1
+  if grep -qF 'state=INVALID_TARGET_ENCODING' "$TMP/e2e.err"; then
+    ok "$label: fail-closed diagnostic names INVALID_TARGET_ENCODING"
+  else
+    bad "$label: missing INVALID_TARGET_ENCODING diagnostic"
+  fi
+  if python3 -X utf8 - "$TMP/e2e.err" <<'PY'
+import sys
+open(sys.argv[1], 'rb').read().decode('utf-8')
+PY
+  then
+    ok "$label: stderr/annotation is strict UTF-8 (no raw byte leak)"
+  else
+    bad "$label: raw invalid byte leaked into the annotation"
+  fi
+  if python3 -X utf8 - "$E2E_OUT/collation-summary.json" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1], encoding='utf-8'))
+assert d['ok'] is False, d
+r = d['results'][0]
+assert r['state'] == 'INVALID_TARGET_ENCODING', r
+assert r['database'] == '', r
+PY
+  then
+    ok "$label: summary is a clean, honest failure record"
+  else
+    bad "$label: summary content is wrong or unparseable"
+  fi
+  for f in "$E2E_OUT"/collation-profile-* "$E2E_OUT"/collation-indexes-* \
+           "$E2E_OUT"/collation-fingerprint-*; do
+    if [ -f "$f" ]; then n=$((n + 1)); fi
+  done
+  if [ "$n" -eq 0 ]; then
+    ok "$label: no per-database artifacts were written before validation"
+  else
+    bad "$label: $n per-database artifacts were written before validation"
+  fi
+}
+
+# Session 40 reproducer: bare 0xff, no colon -> old line 402 json_string.
+expect_invalid_utf8 'bare 0xff, no port (Session 40 reproducer)' "$(printf 'db\377')"
+expect_invalid_utf8 'bare 0xff, valid port (old artifact_component branch)' \
+  "$(printf 'db\377:5432')"
+expect_invalid_utf8 'bare 0xff, non-numeric port (old port branch)' \
+  "$(printf 'db\377:notaport')"
+expect_invalid_utf8 'lone continuation byte 0x80' "$(printf 'db\200:5432')"
+expect_invalid_utf8 'truncated 2-byte sequence' "$(printf 'db\303:5432')"
+expect_invalid_utf8 'overlong encoding' "$(printf 'db\300\257:5432')"
+expect_invalid_utf8 'UTF-8-encoded surrogate' "$(printf 'db\355\240\200:5432')"
+expect_invalid_utf8 'invalid byte in the port field' "$(printf 'g3f_main:54\37732')"
+expect_invalid_utf8 'invalid byte after a valid Unicode prefix' \
+  "$(printf '\340\246\254\340\246\276\377:5432')"
+
+# A CR/LF plus an invalid byte must be rejected by the encoding gate, and must
+# not forge a second workflow command through the raw bytes.
+expect_invalid_utf8 'invalid byte plus newline' "$(printf 'evil\377\n::error::forged:5432')"
+if grep -qF '::error::forged' "$TMP/e2e.err"; then
+  bad 'invalid-byte target forged a workflow command'
+else
+  ok 'invalid-byte target forged no workflow command'
+fi
+
+printf '\n%s\n' '-- mixed valid + invalid targets in one invocation --'
+MIX_OUT="$TMP/mixed"; mkdir -p "$MIX_OUT"
+mix_bad="$(printf 'db\377:5432')"
+if (cd "$TMP" && env PSQL="$TMP/bin/psql" PROBE_HOST=localhost PROBE_USER=g3 \
+      bash "$PROBE" --out "$MIX_OUT" --target 'g3f_main:5432' --target "$mix_bad") \
+      >"$TMP/mixed.out" 2>"$TMP/mixed.err"; then mix_rc=0; else mix_rc=$?; fi
+if [ "$mix_rc" -ne 0 ]; then ok 'mixed run fails closed overall'; else
+  bad 'mixed run reported success despite an invalid target'; fi
+if python3 -X utf8 - "$MIX_OUT/collation-summary.json" <<'PY'
+import json, sys
+raw = open(sys.argv[1], 'rb').read()
+d = json.loads(raw.decode('utf-8'))
+assert d['ok'] is False, d
+assert [r['state'] for r in d['results']] == ['OK', 'INVALID_TARGET_ENCODING'], d
+PY
+then
+  ok 'mixed summary has both entries and remains strict UTF-8 JSON'
+else
+  bad 'mixed summary is corrupted or has the wrong entries'
 fi
 
 printf '\n== %d passed, %d failed ==\n' "$pass" "$fail"
