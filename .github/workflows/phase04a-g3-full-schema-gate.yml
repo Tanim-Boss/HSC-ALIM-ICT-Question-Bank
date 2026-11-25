@@ -226,6 +226,29 @@ jobs:
           done
           exit $rc
 
+      # READ-ONLY measurement of the database collation profile and of the
+      # per-key collation metadata of the six approved indexes.
+      #
+      # Owner authorisation A1/A2/A3 (Session 17). Phase 1 is MEASUREMENT ONLY:
+      # it does not compare against an approved profile, so it cannot fail
+      # because a locale is not C, C.utf8 or ICU — OD-COLL-03 (the production
+      # locale) and OD-COLL-05 (the drift policy) are still OPEN. It fails only
+      # when it did not measure what it claims to have measured.
+      #
+      # It runs after the gate because run.sh deletes its output directory on
+      # start (WORK="${WORK:-$G3F_DIR/out}"; rm -rf "$WORK"), and it writes into
+      # that same gitignored directory so the existing artifact upload below
+      # picks the evidence up — no new upload step and no new secret.
+      - name: Measure the PostgreSQL collation profile (read-only)
+        if: steps.g3.outcome == 'success'
+        run: |
+          set -euo pipefail
+          bash docs/database/g1-spike/option-c/g3-full/collation-probe.sh \
+            --out docs/database/g1-spike/option-c/g3-full/out \
+            --host localhost \
+            --target g3f_main:5432 \
+            --target g3f_replay:5434
+
       - name: Upload artefacts
         if: always()
         uses: actions/upload-artifact@v4
