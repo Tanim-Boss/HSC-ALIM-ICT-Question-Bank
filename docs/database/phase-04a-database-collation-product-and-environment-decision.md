@@ -557,8 +557,10 @@ both a `C` and a `C.utf8` libc database — i.e. the database-level equivalent o
 
 ### 8.3 Canonical representation
 
-Two blocks, fixed order, fixed keys, explicit NULL sentinel `-`, values rejected if they contain the
-delimiters (`;`, newline) so the string can never be ambiguous:
+Two blocks, fixed order, fixed keys, an explicit NULL sentinel `-`, and — in the original **proposal** — the
+rejection of any value containing the delimiters (`;`, newline) so the string "can never be ambiguous".
+**The rejection clause is `PROPOSED` and is NOT implemented**; §8.3.1 records what the committed probe does
+instead. The proposal is kept here verbatim because it is the design of record for any future specification:
 
 ```text
 collation-fingerprint/v1;pg=16;enc=UTF8;provider=libc;collate=C.utf8;ctype=C.utf8;iculocale=-;collversion=-
@@ -572,6 +574,63 @@ collation-fingerprint/v1;pg=16;enc=UTF8;provider=libc;collate=C.utf8;ctype=C.utf
 | `-` for NULL | distinguishes `NULL` from the empty string, which matters for `daticulocale` and `datcollversion` |
 | ordered keys, `;` separated | deterministic byte-for-byte comparison; no JSON key-order or whitespace ambiguity |
 | optional `sha256:` prefix form | lets CI store a short token while the full string stays available for diagnostics |
+
+#### 8.3.1 Implementation status of the canonical form
+
+`VERIFIED` against `docs/database/g1-spike/option-c/g3-full/collation-probe.sh`. The distinction matters
+because the paragraph above describes a *design*, and the repository contains an *implementation* that is
+weaker than it in three places.
+
+| Property | Status | Evidence |
+|---|---|---|
+| discriminator `collation-fingerprint/v1` | **IMPLEMENTED** | `FINGERPRINT_SQL` `:149–164` |
+| fixed key order, `;`-separated `key=value`, NULL sentinel `-` via `coalesce(…, '-')` | **IMPLEMENTED** | same |
+| empty or non-prefixed fingerprint refused | **IMPLEMENTED** — `MALFORMED_RESULT`, exit 1 | `:380–384` |
+| rejection of a raw value equal to `-` | **NOT IMPLEMENTED** — a value that literally equals `-` is indistinguishable from NULL | proposal §8.6 C3 (never applied); S24 `:189` |
+| rejection of `;` inside a value | **NOT IMPLEMENTED** — no delimiter check exists anywhere in the execution path | S24 `D5` |
+| rejection of a newline inside a value | **IMPLEMENTED as a run failure, not as a value rejection** — the control-character check in `emit_notice` (`:256–258`) refuses to annotate and the step exits 1 (`MALFORMED_RESULT`), but only at step 7, after the profile and index artefacts have already been written | `:250–264`, `:434–444` |
+| `unknown` provider | **NOT IMPLEMENTED** — serialized as `provider=unknown`; only the prefix is checked | proposal §8.6 C1; S24 `D4` |
+
+What this means, stated without over-claiming: **the property "the string can never be ambiguous" is not a
+property of the committed artefact.** What exists is a fixed-order serialization with a NULL sentinel, a
+prefix check, and a control-character check confined to the annotation step. A `datcollate`, `datctype` or
+`daticulocale` value containing `;` would add a segment that a naive splitter reads differently from the
+producer; a value equal to `-` would read as NULL. Neither case is detected.
+
+Remaining validation requirements, all `PROPOSED` and all inside **OD-COLL-04**, which is `OPEN`:
+
+1. Choose whether to escape, reject or tag (`-` sentinel versus a literal `-`) — proposal §8.6 C3.
+2. Choose where the delimiter check belongs: SQL serialization, the shell step, or the comparison layer.
+3. Keep the annotation-path control-character rule as a last line of defence, not as the only one.
+4. Re-run any measurement if the serialization changes, so the recorded artefacts stay comparable.
+
+No behaviour is changed by this subsection. The probe is measurement-only and remains so.
+
+#### 8.3.2 Counting convention — six fields, seven values, eight segments
+
+Three different counts legitimately appear across this package. They count different things and are not
+interchangeable:
+
+| Count | What it counts | Where it appears |
+|---|---|---|
+| **6** | the Session 14 *catalog fields* evaluated in §8.1: `encoding`, `datlocprovider`, `datcollate`, `datctype`, `daticulocale`, `datcollversion` | §8.1; the OD-COLL-04 options in §12 ("Session 14 six fields") |
+| **7** | the `key=value` **values** in the implemented string: those six rendered as `enc`, `provider`, `collate`, `ctype`, `iculocale`, `collversion`, **plus `pg`** major, which is derived from `server_version_num` and is not a catalog column (§8.2) | `FINGERPRINT_SQL` `:151`; CI run `45546248909` |
+| **8** | the `;`-separated **segments**: the `collation-fingerprint/v1` discriminator + the seven values | the same string |
+
+Counted directly from the measured CI value:
+
+```text
+collation-fingerprint/v1;pg=16;enc=UTF8;provider=libc;collate=en_US.utf8;ctype=en_US.utf8;iculocale=-;collversion=2.41
+```
+
+— 8 segments, 7 `key=value` fields, 1 discriminator. `VERIFIED` by counting, not by quotation.
+
+Outside all three counts, and never serialized inside the string: database identity (asserted separately by
+`IDENTITY_SQL` `:119`), cluster identity (not captured at all), and per-index collation metadata (a second
+document, `collation-indexes/v1`).
+
+**No fingerprint is approved by this subsection.** OD-COLL-04 is `OPEN`; §8.3.2 fixes terminology only, and
+the observed CI value above is evidence, not a specification.
 
 **A NULL in `collversion` is a fact about the environment, not a match.** Two databases with identical locale
 but different glibc builds produce **identical** fingerprints, because both are `-`. This is the honest limit
@@ -1032,6 +1091,7 @@ absent).
 
 | Revision | Date | Change |
 |---|---|---|
+| 3 | 2026-11-24 | **Revision 3 — documentation reconciliation (Session 28), no decision changed.** §8.3 now labels the delimiter-rejection clause `PROPOSED` / **NOT IMPLEMENTED** instead of describing it as current behaviour, and adds §8.3.1 (what the committed probe actually validates, `VERIFIED` against `collation-probe.sh`) and §8.3.2 (the six-fields / seven-values / eight-segments counting convention). Triggered by findings `C-02` and `C-04` of `docs/database/phase-04a-collation-decision-package-consolidation-audit.md`. No code, schema, migration, workflow or data was changed; every OD-COLL decision remains `OPEN`. |
 | 2 | 2026-11-24 | **Revision 2 — CI profile measured (Session 18).** The probe proposed in Session 16 was implemented (commits `e4fa80d`, `0aae136`) and executed; its values were retrieved through the Check Runs annotations API. Both CI databases report `collation-fingerprint/v1;pg=16;enc=UTF8;provider=libc;collate=en_US.utf8;ctype=en_US.utf8;iculocale=-;collversion=2.41` and are byte-identical (run `45546248909`, check run `138976563830`, commit `0aae1368a16cf6447cb7a01afc7554a9fdab4bc0`, PostgreSQL `16.16 (Debian 16.16-1.pgdg13+1)`). Adds §1.1, §7.7 and §8.7; **corrects** the libc `datcollversion` generalisation (§8.7.1); marks superseded statements in place instead of rewriting them; closes **T1** (§14.2). **No owner decision is made**, the production profile remains **UNKNOWN**, no production locale is selected, and OD-COLL-01…06 stay **OPEN**. |
 | 1 | 2026-11-24 | Initial decision-preparation document. Carries Session 14 forward without re-performing its experiments; adds four new measurements (E4–E6 case-mapping matrix including a JavaScript comparison, and E8 dump/restore drift). Defines the production environment contract (§7), the fingerprint (§8), the ten-scenario drift policy (§9), the validation process (§10), the guard split (§11), and six open owner decisions (§12). **No owner decision is made.** **No file other than this one was created or modified; nothing was committed, pushed, merged or deployed; no production or staging resource was contacted.** |
 

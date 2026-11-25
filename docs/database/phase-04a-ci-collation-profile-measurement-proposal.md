@@ -255,8 +255,12 @@ SELECT * FROM pg_database WHERE datname = current_database();   -- on port 5432 
 ```
 
 - **Primary target:** `g3f_main` on port 5432 — this is the database whose `default` collation governs the
-  three collated index keys and therefore the uniqueness semantics of `uq_tags_name_lower`,
-  `uq_colleges_name_lower` and `ix_question_assets_checksum`.
+  three collated index keys, **two** of which are collation-sensitive *unique* rules
+  (`uq_tags_name_lower`, `uq_colleges_name_lower`); the profile therefore decides their uniqueness
+  semantics. The third collated key belongs to `ix_question_assets_checksum`, which is **not unique** —
+  collation affects its ordering and comparison only, and no candidate collision analysis follows from it.
+  The other three Phase 04A indexes carry no collatable key at all (`indcollation = 0` for all eight of
+  their keys; R2 §12.1, and E10 in §9.2 below).
 - **Secondary target:** `g3f_replay` on port 5434 — cheap, and it tests an assumption nobody has checked:
   that three independently initialised containers share one profile.
 - **Deliberately excluded:** `g3f_shadow` (not asserted by any existing step; optional third iteration) and
@@ -955,6 +959,7 @@ nobody chose.
 
 | Revision | Date | Change |
 |---|---|---|
+| 3 | 2026-11-24 | **Documentation reconciliation (Session 28), no decision changed.** §5.3 no longer says the database default "governs the uniqueness semantics of" all three collated keys: two are collation-sensitive unique rules and the third (`ix_question_assets_checksum`) is non-unique, with collation affecting ordering and comparison only. Triggered by finding `C-06` of the Session 27 consolidation audit. T1 remains `CLOSED`; no measurement, code or workflow was changed. |
 | 2 | 2026-11-24 | **Completion update (recorded in Session 19).** The probe was implemented (Session 17, commit `e4fa80d`), hardened and re-committed (Session 18, commit `0aae1368a16cf6447cb7a01afc7554a9fdab4bc0`), executed in CI (run `45546248909`, check run `138976563830`), and its values retrieved through the Check Runs annotations API. PG `16.16 (Debian 16.16-1.pgdg13+1)`; both databases `collation-fingerprint/v1;pg=16;enc=UTF8;provider=libc;collate=en_US.utf8;ctype=en_US.utf8;iculocale=-;collversion=2.41`, byte-identical. Adds §17.4; corrects the `datcollversion` NULL generalisation (§8.1) and the bookworm variant assumption (§4, §7.1). **`T1` CLOSED**; `R2` remains **PARTIALLY RESOLVED**; OD-COLL-01…06 remain **OPEN**; no production locale selected. The original proposal and its predictions are preserved. |
 | 1 | 2026-11-24 | Initial T1 measurement proposal. Reads both PostgreSQL workflows in full, identifies `g3f_main` as the database to measure, records that CI logs and artifacts are unreachable from this environment, validates the probe SQL and the six-index query on a disposable PostgreSQL 16.2 cluster (destroyed), predicts the CI profile from the image source and labels it `INCONCLUSIVE`, and supplies an illustrative two-file patch that is **not applied**. **No CI measurement was performed. No workflow, script, schema, migration, test or database was modified. No owner decision was made. No production or staging resource was contacted. Nothing was committed, pushed, merged or deployed.** |
 

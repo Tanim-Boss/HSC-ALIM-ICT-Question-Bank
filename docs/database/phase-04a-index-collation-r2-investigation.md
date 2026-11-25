@@ -626,6 +626,22 @@ keys** (`uq_question_versions_one_published_per_question` 1, `uq_question_source
 keys** (`uq_tags_name_lower`, `uq_colleges_name_lower`, `ix_question_assets_checksum`, `indcollation =
 100`). Eleven keys in total. `VERIFIED`
 
+**Three collated keys are not three uniqueness-sensitive rules.** Only two of them are *collation-sensitive
+unique rules* — `uq_tags_name_lower` and `uq_colleges_name_lower` — where the profile decides which pairs
+collide. The third, `ix_question_assets_checksum`, is **non-unique**: its collated key affects ordering and
+byte comparison of a checksum index, and **candidate collision analysis does not apply to it**. The other
+four Phase 04A indexes need *structural* validation only (definition, predicate, `NULLS NOT DISTINCT`, key
+order, operator class), not Unicode collision analysis. Three terms must be kept apart:
+
+| Term | Scope | Applies to |
+|---|---|---|
+| collation-bearing key | a key whose `indcollation` is not `0` | three keys (the `database_default` group above) |
+| collation-sensitive unique rule | a unique index whose *uniqueness* depends on the collation | **two** indexes only |
+| candidate collision analysis / structural validation | the validation each index needs before any change | analysis for the two unique rules; structural checks for the other four |
+
+This paragraph adds no recommendation and changes no expectation form above. `VERIFIED` against
+`migration.sql:613–648` and the CI six-index measurement recorded as E10 in the measurement proposal §9.2.
+
 ### 12.2 Resolution and comparison (pseudocode, no implementation written)
 
 ```text
@@ -805,6 +821,7 @@ build, socket-only exposure, all clusters destroyed after the session.
 
 | Revision | Date | Change |
 |---|---|---|
+| 3 | 2026-11-24 | **Documentation reconciliation (Session 28), no expectation changed.** §12.1 now states explicitly that the three collation-bearing keys are not three uniqueness-sensitive rules: two are unique rules, and `ix_question_assets_checksum` is non-unique with ordering-only exposure, so candidate collision analysis does not apply to it. Triggered by finding `C-06` of the Session 27 consolidation audit. R2 remains **PARTIALLY RESOLVED**; no expectation form, no measurement and no code changed. |
 | 2 | 2026-11-24 | **Revision 2 (recorded in Session 20).** Reconciles two CI-only statements with the measured CI profile from Session 18 (run `45546248909`, check run `138976563830`, commit `0aae1368`) and the Session 19 T1 closure: §10.11 CI row → `SUPERSEDED (measured)`; §10.7/§11.4 libc-NULL generalisation corrected (CI reports `2.41`); new §11.5 measurement table with the exact fingerprint; **L1 rewritten** as CI measured / production unknown / equivalence not established; L4 corrected; §15 follow-up marked DONE. Verdict unchanged: **PARTIALLY RESOLVED**. All Session 14 experiments, negative tests and limitations preserved. |
 | 1 | 2026-11-24 | Initial R2 investigation. Reads the Session 13 design and Session 12 package, applies migration 0001 to three disposable PostgreSQL 16.2 databases with different locales, measures collation representation, inheritance, namespace collisions, identity stability, version metadata, expression behaviour and operator-class interaction. Establishes strategy D and the §12 contract. **No repository file created or modified except this document.** |
 
