@@ -97,6 +97,11 @@ usage() {
   exit 2
 }
 
+# The pure helpers below are defined at top level so the input-handling
+# regression tests can source this file without running a measurement. Only
+# the side-effecting sections are guarded; normal execution keeps the same
+# order as before.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 while [ $# -gt 0 ]; do
   case "$1" in
     --out)     OUT="${2:-}";        shift 2 ;;
@@ -113,6 +118,7 @@ done
 command -v "$PSQL"   >/dev/null || { echo "::error::state=MALFORMED_RESULT psql not found" >&2; exit 1; }
 command -v python3   >/dev/null || { echo "::error::state=MALFORMED_RESULT python3 not found" >&2; exit 1; }
 mkdir -p "$OUT"
+fi
 
 # --- SQL ------------------------------------------------------------------
 # Identity: the one value that must match the requested database name.
@@ -252,7 +258,11 @@ emit_notice() {
   [ -n "$fp_text" ] || return 1
   [ -n "$server" ]  || return 1
   [[ "$fp_text" == collation-fingerprint/v1\;* ]] || return 1
-  [[ "$db" =~ ^[A-Za-z0-9_]+$ ]] || return 1
+  # Accept every name that passed the probe's input validation (including
+  # Unicode and quoted identifiers) instead of an ASCII-only allow-list. That
+  # validation rejects control characters, path separators and conninfo
+  # forms, and the title is escaped below, so this cannot forge a command.
+  validate_db_name "$db" || return 1
   # No control characters anywhere: a CR or LF would let the message spawn a
   # second workflow command, and nothing this script produces contains one.
   if [[ "$fp_text$server$db" == *[[:cntrl:]]* ]]; then return 1; fi
@@ -262,18 +272,92 @@ emit_notice() {
     "$(gha_escape_data "$msg")"
 }
 
-# Validate a JSON document produced above. $1 file, $2 db, $3 kind, $4 python expr
+# JSON-encode an untrusted string with the standard library. Used for the
+# summary so a database name containing quotes, backslashes or Unicode cannot
+# forge or corrupt the JSON document.
+json_string() {
+  python3 -X utf8 -c 'import json, sys; print(json.dumps(sys.argv[1], ensure_ascii=False))' "$1"
+}
+
+# Validate a database name before it is used in a filesystem path or passed
+# to psql -d. PostgreSQL identifiers may contain Unicode, quotes, spaces and
+# punctuation; those remain valid. What is rejected is anything that could
+# escape the output directory, forge a workflow command, or make psql read
+# the value as a conninfo/URI connection string instead of a database name.
+validate_db_name() {
+  local db="$1"
+  [ -n "$db" ] || return 1
+  [[ "$db" != *[[:cntrl:]]* ]] || return 1
+  case "$db" in
+    */*|*\\*|.|..|-*|*=*|postgresql://*|postgres://*) return 1 ;;
+  esac
+  # Reject byte sequences that are not valid UTF-8, so both the JSON encoder
+  # and the hex round-trip stay well defined instead of producing bad JSON.
+  python3 -X utf8 -c 'import sys; sys.argv[1].encode("utf-8")' "$db" >/dev/null 2>&1 || return 1
+  # Bound the encoded filename without truncating it. PostgreSQL identifiers
+  # are at most 63 bytes (NAMEDATALEN - 1); a longer name could not be a real
+  # database and would risk ENAMETOOLONG after hex encoding.
+  [ "$(printf '%s' "$db" | wc -c)" -le 63 ] || return 1
+  return 0
+}
+
+# Deterministic, injective, path-safe component for artifact filenames: the
+# lowercase hex of the name's full UTF-8 byte sequence. Nothing is truncated
+# or normalised, so two distinct names can never map to one filename, and the
+# only characters that reach the filesystem are [0-9a-f]. Human-readable
+# identity stays inside the artifacts (profile/summary JSON), not in the path.
+artifact_component() {
+  local db="$1" hex
+  validate_db_name "$db" || return 1
+  hex="$(printf '%s' "$db" | od -An -v -tx1 | tr -d '[:space:]')" || return 1
+  [ -n "$hex" ] || return 1
+  [[ "$hex" =~ ^[0-9a-f]+$ ]] || return 1
+  printf '%s' "$hex"
+}
+
+# Join the designated output directory, a fixed literal prefix/suffix and a
+# validated hex component. The variable part can never contain a separator.
+artifact_path() {
+  local prefix="$1" suffix="$2" component="$3"
+  [[ "$component" =~ ^[0-9a-f]+$ ]] || return 1
+  printf '%s/%s-%s%s' "$OUT" "$prefix" "$component" "$suffix"
+}
+
+# Validate a JSON document produced above. $1 file, $2 db, $3 kind.
+# The database name is passed as a separate argv value and compared as an
+# ordinary string against a value parsed by the standard json module; it is
+# never interpolated into Python source, and no expression is evaluated.
 json_check() {
-  local file="$1" db="$2" kind="$3" expr="$4"
-  python3 - "$file" "$expr" <<'PY'
+  local file="$1" db="$2" kind="$3"
+  python3 -X utf8 - "$file" "$kind" "$db" <<'PY'
 import json, sys
-path, expr = sys.argv[1], sys.argv[2]
-with open(path, encoding='utf-8') as fh:
-    doc = json.load(fh)
+path, kind, expected = sys.argv[1], sys.argv[2], sys.argv[3]
+if not expected:
+    sys.exit('state=MALFORMED_RESULT empty expected database name')
+try:
+    with open(path, encoding='utf-8') as fh:
+        doc = json.load(fh)
+except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    sys.exit('state=MALFORMED_RESULT malformed or unreadable JSON: ' + str(exc))
 if not isinstance(doc, dict):
-    sys.exit('not a JSON object')
-if not eval(expr, {'d': doc}):   # expression is a fixed literal from this script
-    sys.exit('invariant failed: ' + expr)
+    sys.exit('state=MALFORMED_RESULT JSON document is not an object')
+if kind == 'profile':
+    checks = {
+        'probe':            doc.get('probe') == 'collation-profile/v1',
+        'current_database': doc.get('current_database') == expected,
+        'fields_present':   isinstance(doc.get('fields_present'), dict),
+    }
+elif kind == 'indexes':
+    checks = {
+        'probe':    doc.get('probe') == 'collation-indexes/v1',
+        'database': doc.get('database') == expected,
+        'rows':     isinstance(doc.get('rows'), list),
+    }
+else:
+    sys.exit('state=MALFORMED_RESULT unknown JSON kind: ' + kind)
+failed = [name for name, ok in checks.items() if not ok]
+if failed:
+    sys.exit('state=MALFORMED_RESULT JSON invariant failed: ' + ','.join(failed))
 PY
 }
 
@@ -293,6 +377,10 @@ write_summary() {
 }
 
 # --- main loop ------------------------------------------------------------
+# Wrapped in a function only so sourcing this file for the regression tests
+# defines the pure helpers without performing a measurement. Executed
+# normally, main() is called immediately below with identical control flow.
+main() {
 rc=0
 SUMMARY=()
 
@@ -301,17 +389,47 @@ for target in "${TARGETS[@]}"; do
   port="${target##*:}"
   conn_ok=1
 
-  if [ -z "$db" ] || [ -z "$port" ] || [ "$db" = "$target" ]; then
-    fail_state MALFORMED_RESULT "$target" "target must be <database>:<port>"
-    SUMMARY+=("{\"database\": \"$target\", \"state\": \"MALFORMED_RESULT\"}")
+  # Control characters in the raw target must never reach a log line: CR/LF
+  # could forge a second GitHub workflow command. Use a fixed placeholder.
+  if [[ "$target" == *[[:cntrl:]]* ]]; then
+    fail_state MALFORMED_RESULT "<invalid>" "target contains control characters"
+    SUMMARY+=("{\"database\": \"\", \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
+
+  if [ -z "$db" ] || [ -z "$port" ] || [ "$db" = "$target" ]; then
+    fail_state MALFORMED_RESULT "$target" "target must be <database>:<port>"
+    SUMMARY+=("{\"database\": $(json_string "$target"), \"state\": \"MALFORMED_RESULT\"}")
+    rc=1; continue
+  fi
+
+  # The port is written into the summary as a JSON number; only digits are
+  # safe to interpolate there.
+  if [[ ! "$port" =~ ^[0-9]+$ ]]; then
+    fail_state MALFORMED_RESULT "$db" "target port is not numeric"
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"state\": \"MALFORMED_RESULT\"}")
+    rc=1; continue
+  fi
+
+  # Validate and encode the database name BEFORE any path is built or any
+  # artifact is created. Rejection writes nothing for this target.
+  if ! key="$(artifact_component "$db")"; then
+    fail_state MALFORMED_RESULT "$db" \
+      "database name cannot be represented safely in an artifact path"
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"state\": \"MALFORMED_RESULT\"}")
+    rc=1; continue
+  fi
+  prof="$(artifact_path collation-profile .json "$key")"
+  prof_err="$(artifact_path collation-profile .err "$key")"
+  fp="$(artifact_path collation-fingerprint .txt "$key")"
+  idx="$(artifact_path collation-indexes .json "$key")"
+  idx_err="$(artifact_path collation-indexes .err "$key")"
 
   case "$db" in
     postgres|template0|template1)
       fail_state REFUSED_DEFAULT_DATABASE "$db" \
         "refusing to measure a default or template database; measure the database the migration targets"
-      SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"REFUSED_DEFAULT_DATABASE\"}")
+      SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"REFUSED_DEFAULT_DATABASE\"}")
       rc=1; continue ;;
   esac
 
@@ -321,12 +439,12 @@ for target in "${TARGETS[@]}"; do
   if ! actual="$("$PSQL" -h "$HOST" -p "$port" -U "$USER_NAME" -d "$db" \
                    -Atq -v ON_ERROR_STOP=1 -c "$IDENTITY_SQL" 2>&1)"; then
     fail_state MISSING_DATABASE "$db" "cannot connect or query: $(printf '%s' "$actual" | tail -1)"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MISSING_DATABASE\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MISSING_DATABASE\"}")
     rc=1; continue
   fi
   if [ "$actual" != "$db" ]; then
     fail_state WRONG_DATABASE_IDENTITY "$db" "current_database() is '$actual'"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"WRONG_DATABASE_IDENTITY\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"WRONG_DATABASE_IDENTITY\"}")
     rc=1; continue
   fi
 
@@ -336,23 +454,22 @@ for target in "${TARGETS[@]}"; do
             -c "SELECT count(*) FROM pg_database WHERE datname = current_database();" 2>&1)" || conn_ok=0
   if [ "$conn_ok" = 0 ] || [ "$rows" != "1" ]; then
     fail_state MALFORMED_RESULT "$db" "pg_database row count is '${rows:-?}', expected 1"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
   # 3. profile ------------------------------------------------------------
-  prof="$OUT/collation-profile-$db.json"
+  # prof/prof_err/fp/idx/idx_err come from the validated hex key above.
   if ! "$PSQL" -h "$HOST" -p "$port" -U "$USER_NAME" -d "$db" -Atq \
-         -v ON_ERROR_STOP=1 -c "$PROFILE_SQL" > "$prof" 2>"$OUT/collation-profile-$db.err"; then
-    fail_state MALFORMED_RESULT "$db" "profile query failed: $(tail -1 "$OUT/collation-profile-$db.err")"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+         -v ON_ERROR_STOP=1 -c "$PROFILE_SQL" > "$prof" 2>"$prof_err"; then
+    fail_state MALFORMED_RESULT "$db" "profile query failed: $(tail -1 "$prof_err")"
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
-  if ! json_check "$prof" "$db" profile \
-       "d['probe'] == 'collation-profile/v1' and d['current_database'] == '$db' and isinstance(d.get('fields_present'), dict)"; then
+  if ! json_check "$prof" "$db" profile; then
     fail_state MALFORMED_RESULT "$db" "profile JSON is missing required keys"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
@@ -365,37 +482,34 @@ PY
 )"
   if [ -n "$absent" ]; then
     fail_state UNSUPPORTED_CATALOG_FIELD "$db" "field(s) absent on this server: $absent"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"UNSUPPORTED_CATALOG_FIELD\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"UNSUPPORTED_CATALOG_FIELD\"}")
     rc=1; continue
   fi
 
   # 5. fingerprint --------------------------------------------------------
-  fp="$OUT/collation-fingerprint-$db.txt"
   if ! "$PSQL" -h "$HOST" -p "$port" -U "$USER_NAME" -d "$db" -Atq \
          -v ON_ERROR_STOP=1 -c "$FINGERPRINT_SQL" > "$fp" 2>/dev/null; then
     fail_state MALFORMED_RESULT "$db" "fingerprint query failed"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
   if [ ! -s "$fp" ] || ! grep -q '^collation-fingerprint/v1;' "$fp"; then
     fail_state MALFORMED_RESULT "$db" "fingerprint string is empty or malformed"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
   # 6. six-index metadata -------------------------------------------------
-  idx="$OUT/collation-indexes-$db.json"
   if ! "$PSQL" -h "$HOST" -p "$port" -U "$USER_NAME" -d "$db" -Atq \
-         -v ON_ERROR_STOP=1 -c "$INDEXES_SQL" > "$idx" 2>"$OUT/collation-indexes-$db.err"; then
-    fail_state MALFORMED_RESULT "$db" "index query failed: $(tail -1 "$OUT/collation-indexes-$db.err")"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+         -v ON_ERROR_STOP=1 -c "$INDEXES_SQL" > "$idx" 2>"$idx_err"; then
+    fail_state MALFORMED_RESULT "$db" "index query failed: $(tail -1 "$idx_err")"
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
-  if ! json_check "$idx" "$db" indexes \
-       "d['probe'] == 'collation-indexes/v1' and d['database'] == '$db' and isinstance(d.get('rows'), list)"; then
+  if ! json_check "$idx" "$db" indexes; then
     fail_state MALFORMED_RESULT "$db" "index JSON is missing required keys"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
@@ -408,7 +522,7 @@ PY
 )"
   if [ -n "$missing" ]; then
     fail_state MISSING_INDEX "$db" "approved index/indices absent: $missing"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MISSING_INDEX\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MISSING_INDEX\"}")
     rc=1; continue
   fi
 
@@ -423,7 +537,7 @@ assert all(r['exists'] for r in rows), 'a row reports exists=false'
 PY
   then
     fail_state MALFORMED_RESULT "$db" "index row count does not match declared key count"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
@@ -434,7 +548,7 @@ PY
   if ! emit_notice "$db" "$(cat "$fp")" "$server_version"; then
     fail_state MALFORMED_RESULT "$db" \
       "refusing to annotate: fingerprint or server version is not this script's own output"
-    SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
+    SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"MALFORMED_RESULT\"}")
     rc=1; continue
   fi
 
@@ -459,10 +573,17 @@ for row in idx['rows']:
           f"nnd={row['nulls_not_distinct']} predicate={row['has_predicate']}")
 PY
 
-  SUMMARY+=("{\"database\": \"$db\", \"port\": $port, \"state\": \"OK\", \"fingerprint\": $(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()))' "$fp")}")
+  SUMMARY+=("{\"database\": $(json_string "$db"), \"port\": $port, \"state\": \"OK\", \"fingerprint\": $(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1],encoding="utf-8").read().strip()))' "$fp")}")
 done
 
 write_summary "$rc"
 echo "=== summary: $OUT/collation-summary.json"
 cat "$OUT/collation-summary.json"
 exit "$rc"
+}
+
+# Only an executed probe measures anything; sourcing stops after the helper
+# definitions above.
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main
+fi
