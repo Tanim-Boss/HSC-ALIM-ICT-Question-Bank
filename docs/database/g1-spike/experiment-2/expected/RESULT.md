@@ -8,7 +8,7 @@ from a partial run.
 | Item | Value |
 |---|---|
 | Commit | `2361fa7` (`test(g1/2): name every object Prisma would remove, not just the count`) |
-| Workflow | [`.github/workflows/g1-experiment-2.yml`](../../../../.github/workflows/g1-experiment-2.yml) |
+| Workflow | [`.github/workflows/g1-experiment-2.yml`](../../../../../.github/workflows/g1-experiment-2.yml) |
 | Run (push) | [45238355790](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45238355790) |
 | Run (pull_request) | [45238369746](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/actions/runs/45238369746) |
 | Prisma CLI | 7.10.1 (asserted from `node_modules`) |
@@ -183,6 +183,6 @@ is sound; the failure is in what Prisma subsequently does with it.
 precise result, and still does not satisfy acceptance criteria 4 (no-change
 migration workflow without destructive proposals) and consequently 5–6.
 
-See [§11.3.3](../../phase-04a-question-bank-physical-schema-proposal.md#1133-g1-experiment-2--result)
+See [§11.3.3](../../../phase-04a-question-bank-physical-schema-proposal.md#1133-g1-experiment-2--result-fail-but-decisive)
 of the proposal. Request C remains the approved architectural design; its
 implementation remains blocked. The Option A fallback is **not** adopted.

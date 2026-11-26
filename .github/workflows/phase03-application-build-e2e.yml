@@ -1,0 +1,291 @@
+name: Phase 03 — application build and browser smoke
+
+# WHY THIS WORKFLOW EXISTS
+# ------------------------
+# Audit finding (Session 31). Before this file, the Next.js application surface
+# had NO continuous verification at all:
+#
+#   · `app/**`, `components/**` and `lib/**` appeared in no workflow's `paths:`
+#     filter, so a change confined to them triggered zero jobs.
+#   · No workflow ran `next build`. A production build could break — a Client
+#     Component importing `server-only`, a `@/lib/generated/prisma` import that
+#     no longer resolves at build time, a font, metadata or Tailwind regression —
+#     and every check would stay green.
+#   · `tests/e2e/smoke.spec.ts` and `playwright.config.ts` were committed in
+#     Phase 03 and never executed by CI. A test that never runs is not a test,
+#     and "the smoke suite exists" was being treated as if it meant something.
+#
+# The Phase 04A workflows verify the database layer (G-1, G-3, Option C, V-1…V-5)
+# and the question-bank services. None of them boots the application. This
+# workflow closes that gap and nothing else.
+#
+# WHAT IT DOES *NOT* DO
+# ---------------------
+#   · It does not deploy, publish, or contact production or staging.
+#   · It does not deploy migration 0001, run `migrate dev`/`db push`/`migrate
+#     reset`, or touch any database. Migration 0001 is applied only by the
+#     disposable-database, read-only CI checks described below.
+#   · It does not approve B1b, B2 or any OD-COLL decision, and it changes no
+#     decision status.
+#   · It does not ratify OD-26-1 (which checks are *required*). It adds a
+#     workflow; whether that workflow is a required status check is a repository
+#     settings change that only the owner can make (OD-26-1 remains open).
+#   · It does not claim the e2e suite covers product flows. It covers the
+#     application shell — the only thing that exists.
+#   · It does not measure the README's 200 KB initial-JS budget; performance
+#     gates are OD-26-3, which is not ratified.
+#
+# WHY THE TWO JOBS ARE SEPARATE
+# -----------------------------
+# `build` needs the generated Prisma client; `e2e` needs a Chromium download.
+# Keeping them apart means a browser-flake cannot mask a broken build, and a
+# broken build cannot be reported as a browser failure.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - '.github/workflows/phase03-application-build-e2e.yml'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'tests/e2e/**'
+      # The smoke suite's execution guard and its regression suite live here.
+      # Without these entries a change to either would trigger no job, which is
+      # how a guard quietly stops being tested.
+      - 'scripts/ci/playwright-run-guard.mjs'
+      - 'tests/unit/tooling/playwright-run-guard.test.ts'
+      - 'playwright.config.ts'
+      - 'next.config.ts'
+      - 'postcss.config.mjs'
+      - 'tailwind.config.ts'
+      - 'tsconfig.json'
+      - 'eslint.config.mjs'
+      - 'proxy.ts'
+      - 'server/**'
+      - 'prisma/schema.prisma'
+      - 'package.json'
+      - 'package-lock.json'
+  pull_request:
+    paths:
+      - '.github/workflows/phase03-application-build-e2e.yml'
+      - 'app/**'
+      - 'components/**'
+      - 'lib/**'
+      - 'tests/e2e/**'
+      # The smoke suite's execution guard and its regression suite live here.
+      # Without these entries a change to either would trigger no job, which is
+      # how a guard quietly stops being tested.
+      - 'scripts/ci/playwright-run-guard.mjs'
+      - 'tests/unit/tooling/playwright-run-guard.test.ts'
+      - 'playwright.config.ts'
+      - 'next.config.ts'
+      - 'postcss.config.mjs'
+      - 'tailwind.config.ts'
+      - 'tsconfig.json'
+      - 'eslint.config.mjs'
+      - 'proxy.ts'
+      - 'server/**'
+      - 'prisma/schema.prisma'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Production build (next build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22 with the npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      - name: Assert the pinned Prisma CLI
+        run: |
+          version="$(./node_modules/.bin/prisma --version 2>/dev/null | head -1)"
+          echo "$version"
+          case "$version" in
+            *7.10.1*) echo "OK: pinned Prisma 7.10.1" ;;
+            *) echo "::error title=build::Prisma is not pinned at 7.10.1"; exit 1 ;;
+          esac
+
+      # The client is git-ignored (see .gitignore). Without it `next build`
+      # fails on TS2307 in lib/db.ts for a reason that says nothing about the
+      # change under test — the same reason the Phase 04A unit job generates it.
+      - name: Generate the Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      - name: Assert the generated client was actually produced
+        run: |
+          # A silent `prisma generate` no-op would turn the build below into a
+          # "cannot find module" failure that looks like a code defect. Assert
+          # the exact module entry point instead of merely the directory, so the
+          # check tracks what `lib/db.ts` imports (`@/lib/generated/prisma/client`,
+          # configured as `generator client { output = "../lib/generated/prisma" }`).
+          entry="lib/generated/prisma/client.ts"
+          if [ ! -f "$entry" ]; then
+            echo "::error title=build::prisma generate did not produce $entry"
+            ls -R lib/generated 2>/dev/null || echo "(lib/generated does not exist)"
+            exit 1
+          fi
+          echo "OK: generated client entry point present at $entry"
+
+      # No database, no Supabase project and no AI key are configured. That is
+      # deliberate: lib/env.ts validates lazily by design, so `next build` must
+      # succeed without runtime secrets. If that ever stops being true, the
+      # build fails here rather than in the first production deploy.
+      - name: Production build (no runtime secrets configured)
+        run: npm run build
+
+      - name: Assert the build produced its expected artifacts
+        run: |
+          # Structural assertions rather than a route list: the page inventory
+          # will legitimately grow. What must not silently change is that the
+          # build emitted a servable application at all.
+          test -d .next || { echo "::error title=build::no .next directory was produced"; exit 1; }
+          test -f .next/BUILD_ID || { echo "::error title=build::no .next/BUILD_ID was produced"; exit 1; }
+          echo "BUILD_ID=$(cat .next/BUILD_ID)"
+          echo "OK: production build emitted a servable application"
+
+      # Server-only leakage is a security boundary, not a style rule. lib/db.ts
+      # and the publish services are marked `server-only`; if one is ever pulled
+      # into a Client Component the build fails (that is the marker's job). This
+      # step makes the *reason* visible in the log instead of leaving it as a
+      # bare module error, and it fails closed if the wording ever changes.
+      - name: Confirm the server-only boundary is still enforced
+        run: |
+          grep -q "server-only" lib/db.ts \
+            || { echo "::error title=build::lib/db.ts lost its server-only marker"; exit 1; }
+          echo "OK: lib/db.ts still carries the server-only marker"
+
+  e2e:
+    name: Browser smoke (Playwright, Chromium)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22 with the npm cache
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install the project's pinned dependencies
+        run: npm ci
+
+      # Same reason as the build job: the generated client is git-ignored. `next
+      # dev` compiles on demand, so a missing module would not fail at startup —
+      # it would surface as a 500 inside the smoke test, which reads like a UI
+      # defect. Generate it up front so a setup problem looks like a setup problem.
+      - name: Generate the Prisma client
+        run: ./node_modules/.bin/prisma generate
+
+      - name: Install the pinned Chromium build
+        run: npx playwright install --with-deps chromium
+
+      # The smoke suite asserts against the app shell only. It needs no
+      # database; the page renders by design with no runtime secrets, and the
+      # Supabase proxy logs "not configured" and passes the request through.
+      #
+      # WHICH SERVER THIS EXERCISES — the PRODUCTION bundle, not `next dev`.
+      # `playwright.config.ts` selects the command from the environment:
+      #
+      #   CI (this job) → `webServer.command` = `npm run build && npm run start`
+      #                   (i.e. `next build` then `next start`), 180 s boot budget,
+      #                   `reuseExistingServer: false`;
+      #   local         → `npm run dev`, because it is faster and is what a
+      #                   developer already has running.
+      #
+      # The reason is recorded in that file and in the commit history: an
+      # earlier revision of this job started `next dev`, whose client runtime
+      # could not open its HMR websocket in CI, so React never hydrated the
+      # Client Component and the theme-toggle assertion failed every run. A
+      # smoke test must exercise what actually ships, so CI builds and serves
+      # the production bundle, where no HMR client exists.
+      #
+      # Nothing is pre-started above: Playwright owns the server, so
+      # `playwright.config.ts` is the single source of truth for how the app
+      # boots. `PLAYWRIGHT_DEV_SERVER=1` forces the dev server for debugging.
+      #
+      # Because the webServer command builds, this job compiles independently of
+      # the `build` job. That costs roughly half a minute and is deliberate: the
+      # two jobs stay independent, so neither can be reported as the other.
+      #
+      # The JSON reporter is requested *in addition to* the list output so the
+      # execution guard below reads structured counts rather than scraping log
+      # text. `PLAYWRIGHT_JSON_OUTPUT_FILE` is the documented override for where
+      # that report is written.
+      - name: Run the committed smoke suite
+        env:
+          PLAYWRIGHT_JSON_OUTPUT_FILE: playwright-report/results.json
+        run: |
+          # The output is also teed to a file so the annotation step below can
+          # read it. GitHub's job-log download is not reachable from every
+          # environment (the Phase 04A harnesses hit the same wall), and an API
+          # annotation is often the only way to see WHY a run failed.
+          # `set -o pipefail` keeps the real exit status through the pipe.
+          set -o pipefail
+          npx playwright test --reporter=list,json 2>&1 | tee /tmp/playwright.log
+
+      - name: Emit failing cases as annotations
+        if: always()
+        run: |
+          # Reports only; it never changes the outcome of the run.
+          if [ ! -f /tmp/playwright.log ]; then echo "no log to annotate"; exit 0; fi
+          strip() { sed 's/\x1b\[[0-9;]*m//g' "$1" | tr -d '\r'; }
+
+          # GitHub caps annotations at 10 per step, so emit the FIRST detail
+          # block verbatim rather than cherry-picking labels. A label-based grep
+          # was tried and silently produced nothing useful: it has to guess how
+          # this Playwright version words its diff, and guessing is how a
+          # diagnostic step ends up reporting "it failed" with no evidence.
+          #
+          # The block starts at the first "Error: expect" and runs until the
+          # Call-log section ends. Blank lines are dropped so more of the block
+          # fits inside the annotation limit.
+          strip /tmp/playwright.log \
+            | awk '/Error: expect/{f=1} f && /^[[:space:]]*$/{blank++; if (blank>2) exit; next} f{blank=0; print}' \
+            | head -12 \
+            | while IFS= read -r line; do
+                [ -n "$line" ] && echo "::error title=detail::$line"
+              done
+
+          # Which test, and how the whole run ended.
+          strip /tmp/playwright.log | grep -E "^\s+[0-9]+\) \[chromium\]" | head -2 | while IFS= read -r line; do
+            echo "::error title=test::$line"
+          done
+          strip /tmp/playwright.log | grep -E "[0-9]+ (passed|failed|skipped|flaky)" | tail -2 | while IFS= read -r line; do
+            echo "::error title=counts::$line"
+          done
+          exit 0
+
+      - name: Assert the smoke suite actually executed
+        if: always()
+        run: node scripts/ci/playwright-run-guard.mjs playwright-report/results.json --min 1
+
+      - name: Upload the Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
+          if-no-files-found: ignore

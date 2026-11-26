@@ -1,6 +1,6 @@
 # Testing strategy
 
-**Purpose and scope.** Define verification for the approved architecture and its highest-risk boundaries. Tools are the README's recommendations; this repository has no installed dependencies, test suite or CI result to report.
+**Purpose and scope.** Define verification for the approved architecture and its highest-risk boundaries. Tools are the README's recommendations. Most of the intended layers below are still unbuilt; the section [Implemented verification — what actually runs today](#implemented-verification--what-actually-runs-today) states, without optimism, which checks genuinely execute and what they do not cover.
 
 ## Responsibilities and boundaries
 
@@ -30,6 +30,24 @@ Tests are required as each module is developed, not only in phase 10. Domain own
 | Recovery | Migration and restore rehearsal, environment isolation, authorized async job/artifact access and retries; production objectives are OD-22. |
 
 For the mobile-network budget, the README targets approximately 200 KB gzipped initial JavaScript on the exam route, compressed appropriately sized images and minimal layout shift. Treat this as a planning target until measurement method and performance gates are approved under OD-26. Do not certify PDF pagination or WCAG conformance without the applicable browser/manual checks.
+
+## Implemented verification — what actually runs today
+
+This section records committed, executing verification. It is separated from the intended layers above because those describe a target; the table below describes what the repository does now. A layer with no row here has **no** automated verification, and absence must be read as absence rather than as a pass.
+
+| Workflow | Scope it actually verifies | Deliberately not covered |
+|---|---|---|
+| `phase04a-v45-application.yml` | Unit suites (`tests/unit/**`), `tsc --noEmit`, ESLint, formatting of application files, repository + deployment-path guards, and the question-bank services against a real PostgreSQL 16 | The Next.js application build and the browser layer |
+| `phase03-application-build-e2e.yml` | `next build` with no runtime secrets configured, build-artifact assertions, the `server-only` boundary marker, and the committed Playwright smoke suite in Chromium — served from the **production bundle** (`next build` + `next start`) in CI, with an execution guard that fails the job if the suite ran nothing or skipped a case | Product flows (none exist), the 200 KB initial-JS budget (OD-26-3), visual regression, PDF/print output |
+| `phase04a-g3-*`, `g1-*`, `phase04a-option-c-prototype.yml`, `phase04a-prod-ready-v1-v5.yml`, `phase04a-real-schema-drift.yml`, `phase04a-collation-probe-input.yml` | Phase 04A schema, migration-workflow, drift and collation evidence against **disposable** databases | Production or staging resources — none is contacted |
+| `g1-prisma-drift-spike.yml`, `g1-experiment-2.yml` | Reproduce the unsafe Prisma behaviour; recorded as gate **G-1 FAILED** | Nothing is fixed by them; failure is the expected evidence |
+
+Two properties of this set are deliberate and should not be relaxed:
+
+- **A skipped suite is never a pass.** The integration job fails the build if its log shows `SKIPPED`, and requires a floor of executed cases. The browser job applies the same rule through `scripts/ci/playwright-run-guard.mjs`, because `playwright test` can exit zero having executed nothing.
+- **The browser suite is an application-shell smoke test, not product coverage.** `tests/e2e/smoke.spec.ts` asserts boot, the single `H1`, bilingual and mixed-script rendering, and theme toggling with persistence. It says nothing about examination behaviour, authorization or scoring.
+
+Whether these workflows are *required* status checks is not established here: that is repository settings and remains **OD-26-1**. Adding a workflow is not ratifying the check policy.
 
 ## Dependencies
 
