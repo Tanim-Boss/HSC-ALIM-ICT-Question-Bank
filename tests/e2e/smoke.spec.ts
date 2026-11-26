@@ -5,36 +5,25 @@ import { expect, test } from '@playwright/test';
  * Verifies: boot, document title, single H1, Bengali + English rendering,
  * theme toggle behaviour and persistence across reloads.
  *
- * WHY THE TOGGLE STEPS USE `toPass`
- * ---------------------------------
- * The first CI run of `phase03-application-build-e2e.yml` failed here, and the
- * cause was this test, not the application: the click was silently swallowed.
+ * WHY THIS RUNS AGAINST THE PRODUCTION BUNDLE IN CI
+ * -------------------------------------------------
+ * This suite once started `npm run dev` everywhere and failed in CI every time.
+ * Recording the cause here, because "it passes locally" was exactly what hid it:
  *
- * The page is server-rendered, so an interactive-looking button exists in the
- * HTML before React attaches its onClick handler. `next dev` compiles on
- * demand, which widens that window enough to lose a click reliably. Playwright's
- * `toHaveClass` assertion retries, but the *click* had already happened and was
- * never repeated — so the assertion could only watch a page that would never
- * change, and failed after its timeout with
- * `Expected pattern: /dark/` and a class list containing only the font variables.
+ *   · the server-rendered content was fine — title, H1 and both Bengali
+ *     fixtures asserted successfully, and a `.dark` rule was in the stylesheets;
+ *   · the Client Component never hydrated, so the click did nothing:
+ *     `localStorage` stayed `null` and the class never changed;
+ *   · the console showed the dev client failing repeatedly —
+ *     `WebSocket connection to ws://127.0.0.1:3000/_next/hmr failed:
+ *      Error during WebSocket handshake: ERR_INVALID_HTTP_RESPONSE`.
  *
- * `expect(async () => …).toPass()` re-runs the whole interaction, which is what
- * makes the step tolerant of the pre-hydration window. Running the click twice
- * would NOT be a fix: it would toggle dark on, then straight back off. Retrying
- * the compound action closes the race without weakening the assertion — the
- * final assertion is still exact.
+ * So the theme toggle was not broken; the DEV SERVER was. `playwright.config.ts`
+ * now builds and serves the production bundle in CI, where no HMR client
+ * exists. The assertions below are deliberately strict and unretried: an
+ * interaction that needs a retry to work is a defect, and the previous
+ * `toPass` workaround would have masked it.
  */
-
-/** Waits until React has hydrated, so the toggle's handler is actually attached. */
-async function waitForHydration(page: import('@playwright/test').Page) {
-  await page.waitForFunction(() => {
-    // React's pre-hydration bootstrap in app/layout.tsx has run, so the class
-    // the toggle writes is observable; the button is a Client Component, so a
-    // working handler proves hydration reached it.
-    return typeof window !== 'undefined' && window.localStorage !== undefined;
-  });
-}
-
 test.describe('application shell', () => {
   test('home page renders bilingual content and toggles the theme', async ({ page }) => {
     await page.goto('/');
@@ -51,23 +40,18 @@ test.describe('application shell', () => {
     const html = page.locator('html');
     await expect(html).not.toHaveClass(/dark/);
 
-    await waitForHydration(page);
+    // Toggle to dark; choice persists in localStorage.
+    await page.getByRole('button', { name: /switch to dark theme/i }).click();
+    await expect(html).toHaveClass(/dark/);
+    expect(await page.evaluate(() => window.localStorage.getItem('ict-atlas-theme'))).toBe('dark');
 
-    // Toggle to dark. The interaction is retried as a unit so a click that
-    // lands before hydration cannot fail the step; the assertion itself is exact.
-    await expect(async () => {
-      await page.getByRole('button', { name: /switch to dark theme/i }).click();
-      await expect(html).toHaveClass(/dark/, { timeout: 2_000 });
-    }).toPass({ timeout: 15_000 });
-
-    // Persistence across reload (localStorage).
+    // Persistence across reload — the pre-hydration bootstrap must reapply it.
     await page.reload();
     await expect(html).toHaveClass(/dark/);
 
     // Toggle back to light.
-    await expect(async () => {
-      await page.getByRole('button', { name: /switch to light theme/i }).click();
-      await expect(html).not.toHaveClass(/dark/, { timeout: 2_000 });
-    }).toPass({ timeout: 15_000 });
+    await page.getByRole('button', { name: /switch to light theme/i }).click();
+    await expect(html).not.toHaveClass(/dark/);
+    expect(await page.evaluate(() => window.localStorage.getItem('ict-atlas-theme'))).toBe('light');
   });
 });
