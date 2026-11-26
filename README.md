@@ -20,7 +20,10 @@
 | **v2.1** | 2026-11-23 | **UI/UX design specification integrated** ([§17](#17-uiux-design-system--ict-atlas)): ICT Atlas brand direction, color/typography tokens, information architecture, desktop & mobile layout, screen-by-screen specifications, component inventory, responsive behaviour, motion, accessibility, design states, and Figma handoff. Typography aligned to the design system (Manrope / Noto Sans Bengali / IBM Plex Mono) with SolaimanLipi retained as an optional print-fidelity face. |
 | **v2.2** | 2026-11-23 | **Premium UI/UX redesign applied to §17** — "Modern Academic SaaS" direction (Linear interaction discipline · Vercel visual precision · Framer marketing presentation · Raycast focused AI Tutor · DesignCode editorial content). New neutral-first palette with teal identity in light **and** dark themes, Geist Sans / Geist Mono / SolaimanLipi (Noto Sans Bengali fallback) typography with a 64 px Display scale, geometry and elevation tokens, desktop app shell with global `Ctrl/⌘ + K` command palette, per-surface visual direction with authentic product previews, explicit question-renderer block requirements, component groups, tightened motion budgets, tablet-aware responsive matrix, reorganised Figma file (`ICT Atlas — Design System & Product`, pages 00–10), and implementation design standards (semantic tokens, Vercel Web Interface Guidelines as QC). §4.5 and cross-references updated to match. |
 
-> **How to read this document:** [§4.4](#44-decision-register--locked-open-rejected) is the fastest path to the current state of every contested decision. Sections marked *(v2)* were added or revised by the architecture review; *(v2.1)* and *(v2.2)* mark the UI/UX design system in [§17](#17-uiux-design-system--ict-atlas).
+| **v2.3** | 2026-11-26 | **Faithful reference recreation + system-preference theme.** §17.1 rewritten from "inspired by" to a recreation contract: verified reference inventory with what was actually inspected (Vercel, Linear, Raycast, Framer, Design+Code, Udvash; ACS unavailable), ten recreation standards, a per-screen reference mapping, a numbered adaptation register (A1–A9), and an honest inspection-limits table. Every screen spec in §17.7 now opens with its reference target plus recreation specifics, states, responsive, theme and keyboard requirements. Theme selection changed to **OS/browser `prefers-color-scheme` only** — no manual toggle, no profile/Settings selector, no stored preference, no flash, no hydration mismatch; Light and Dark token sets both retained in full (§17.2.1) with a CSS-media-query wiring strategy. §17.10–§17.17 updated for reference-preserving resize, reference motion, theme accessibility checks and theme-parity acceptance criteria. Documentation only — no application code, theme implementation, schema or configuration was changed. |
+| **v2.3 status** | — | This revision **specifies** system-preference theming; it does **not** implement it. Application code in this repository still contains a class-based manual toggle and must be migrated in a later implementation phase against §17.2. |
+
+> **How to read this document:** [§4.4](#44-decision-register--locked-open-rejected) is the fastest path to the current state of every contested decision. Sections marked *(v2)* were added or revised by the architecture review; *(v2.1)* and *(v2.2)* mark the UI/UX design system in [§17](#17-uiux-design-system--ict-atlas); *(v2.3)* marks the faithful-recreation and system-theme revision.
 
 ---
 
@@ -56,7 +59,13 @@
 - [16. Getting Started Checklist](#16-getting-started-checklist)
 - [17. UI/UX Design System — ICT Atlas](#17-uiux-design-system--ict-atlas)
   - [17.1 Design direction](#171-design-direction)
+    - [17.1.1 Reference targets and the actual patterns being recreated](#1711-reference-targets-and-the-actual-patterns-being-recreated)
+    - [17.1.2 Faithful-recreation standards for future implementers](#1712-faithful-recreation-standards-for-future-implementers)
+    - [17.1.3 Per-screen reference mapping](#1713-per-screen-reference-mapping)
+    - [17.1.4 Documented adaptations and their reasons](#1714-documented-adaptations-and-their-reasons)
+    - [17.1.5 Inspection record and honest limits](#1715-inspection-record-and-honest-limits)
   - [17.2 Color tokens](#172-color-tokens)
+    - [17.2.1 Color tokens by theme](#1721-color-tokens-by-theme)
   - [17.3 Typography](#173-typography)
   - [17.4 Geometry, spacing and surfaces](#174-geometry-spacing-and-surfaces)
   - [17.5 Information architecture](#175-information-architecture)
@@ -1849,30 +1858,114 @@ Before writing the first line of application code:
 
 ### 17.1 Design direction
 
-**Concept: Modern Academic SaaS.** ICT Atlas is designed like a premium software product, not a conventional EdTech dashboard. The visual language combines the interaction discipline of Linear, the typographic restraint and precision of Vercel, the dark atmospheric focus of Raycast, the visual storytelling of Framer, and the polished educational presentation of DesignCode — resolved into an original identity for an academic product, not a copy of any one website.
+**Concept: Modern Academic SaaS — built by faithful recreation, not inspiration.** ICT Atlas is designed like a premium software product, not a conventional EdTech dashboard. The selected reference products are **UI recreation targets**: the layout, hierarchy, density, typography, component behaviour and interaction model of each named reference are reproduced as closely as is reasonably possible, then adapted only where ICT Atlas's academic content or workflow requires it. "Inspired by Linear" is not an acceptable outcome; a future implementer must open the real reference interface and build the pattern it actually uses.
 
-**Visual direction: Vercel × Linear × Raycast × Framer × DesignCode.**
+> **Non-negotiable:** the reference is the specification. Where this document describes a pattern from Vercel, Linear, Raycast, Framer, Design+Code, Udvash or ACS, the implementation must reproduce that reference's observable structure — proportions, spacing rhythm, type scale, control shapes, state behaviour — rather than substitute a generic dashboard card, a stock component, or a "similar but easier" layout. Every deliberate departure is recorded in [§17.1.4](#1714-documented-adaptations-and-their-reasons).
 
-| Reference | What it contributes | Where it applies |
+**Visual direction: Vercel × Linear × Raycast × Framer × Design+Code, with Udvash × ACS for academic presentation.**
+
+#### 17.1.1 Reference targets and the actual patterns being recreated
+
+Each reference is used for specific, non-overlapping surfaces. The right-hand column is what must be recreated, not merely echoed.
+
+| Reference | Actual interface inspected | Patterns that must be recreated | ICT Atlas surfaces |
+|---|---|---|---|
+| **Vercel** — [vercel.com](https://vercel.com/), [vercel.com/docs](https://vercel.com/docs), [vercel.com/design/guidelines](https://vercel.com/design/guidelines) | Marketing home (hero + customer-proof bands), docs shell (left nav, on-page TOC, terminal-style code blocks), published Web Interface Guidelines | Shadow-as-border on cards (`box-shadow: 0 0 0 1px`), 4 px spacing base with spacing-instead-of-dividers, 1200 px content width, 64 px header, 6 px default radius / 12 px cards, three-weight type discipline (400 read · 500 interact · 600 announce) with tight negative display tracking, dense data tables, keyboard/focus rules from the published guidelines | Marketing typography, table and filter layouts, question management, admin interface, focus/QC rules |
+| **Linear** — [linear.app](https://linear.app/) | Product UI captured on the home page (sidebar, Backlog/Todo/In Progress/Done issue groups, Triage and Intake, Planning views), published shortcut model (`⌘K` command menu, `G`-prefix navigation, `/` filters, `C` create, `Space` peek, `X` select, `Esc` back) | Persistent left sidebar with grouped, collapsible sections and a leading active indicator; compact uniform rows with inline-editable properties; single active row with high-contrast keyboard selection; filter bar that persists as removable chips; nested command palette with breadcrumb depth (`Esc` back, not just close); peeking a detail panel without losing list position | Student dashboard, question bank list/filters, examination navigation, admin tools, command palette |
+| **Raycast** — [raycast.com](https://www.raycast.com/), [/core-features/ai](https://www.raycast.com/core-features/ai) | Launcher/command palette (focused input, ranked list with group headers and recents, per-row shortcut hints), AI chat surface with model selector and reasoning states, action bar pattern (navigation title left, contextual actions + shortcuts right) | Floating, centred command surface with a single input; fuzzy filtered list of grouped results; active-row highlight; secondary **action panel** for the highlighted row; footer/action bar showing available actions with keycaps; compact uniform rows; monospace for shortcuts and technical values; dark, low-chrome, high-focus canvases | Command palette, global search, AI Tutor, keyboard-first workflows, contextual actions |
+| **Framer** — [framer.com](https://www.framer.com/), [/design](https://www.framer.com/design/) | Marketing home hero, breakpoint-labelled canvas previews (Desktop 1200 / Tablet 810 / Phone 390), canvas + Pages/Layers/Assets editor chrome, CMS table view | Poster-scale display headlines with strong negative tracking; one assertive statement per band with generous vertical breathing room; product UI shown as a live preview rather than stock imagery; white pill primary CTA on dark; restrained card grid; scroll-reveal motion confined to opacity/translate | Public marketing site, feature sections, onboarding, product previews |
+| **Design+Code** — [designcode.io](https://designcode.io/), [/courses](https://designcode.io/courses) | Course catalogue (numbered entries, tag filter row with counts, course meta line: lessons · duration · author), course detail with ordered lesson list, editorial long-form lesson pages | Numbered catalogue rows with a fixed meta line under each title; tag filter row with counts; lesson list with sequence numbers, duration and completion state; editorial reading column for long-form content; author/instructor attribution block | Chapter and lesson pages, explanations, learning resources, catalogue-style browsing of chapters |
+| **Udvash** — [udvash.com](https://udvash.com/), program detail pages (`/Program/Details/…`) | Bengali academic program page: benefit list with `►` markers, "একনজরে কোর্স বিবরণী" summary breakdown, chapter-wise exam counts, CQ + MCQ pairing, routine/syllabus download links, `Enroll Now` CTA | Bengali-first academic presentation; enumerated syllabus/exam breakdown with counts; clearly paired **CQ + MCQ** framing; downloadable routine/syllabus artifacts; dense Bengali text set with generous line-height | Question bank academic framing, chapter/topic browsing, exam-set summaries, Paper Studio structure |
+| **ACS** — [acs.com.bd](https://acs.com.bd/) | **Not available for inspection** — the domain returned an under-construction holding page on the inspection date | No ACS pattern is specified. Any future ACS reference must be inspected live before it is used; see [§17.1.5](#1715-inspection-record-and-honest-limits) | — (see the limitation below) |
+
+**The design philosophy — five product experiences, one system of recreated patterns:**
+
+| Surface | Primary reference to recreate | Treatment |
 |---|---|---|
-| **Vercel** — precision & simplicity ([vercel.com](https://vercel.com/)) | Restrained black-and-white palette, excellent typographic hierarchy, precise spacing and alignment, minimal technical visual language | Navigation, typography, tables, question management and the admin interface |
-| **Linear** — product craftsmanship ([linear.app](https://linear.app/)) | Beautifully organized application interfaces, subtle borders and surfaces, keyboard-oriented interactions, consistent component language | Student dashboard, filters, examination navigation, admin tools, command menus |
-| **Raycast** — atmosphere & interaction ([raycast.com](https://www.raycast.com/)) | Dark sophisticated surfaces, command-palette experiences, carefully controlled lighting, focused interaction design | AI Tutor, search, keyboard shortcuts, command palette, dark examination mode |
-| **Framer** — visual storytelling ([framer.com](https://www.framer.com/)) | Beautiful landing-page composition, responsive layouts, carefully designed motion, interactive product previews | Public homepage, feature presentations, onboarding, product demonstrations |
-| **DesignCode** — educational presentation ([designcode.io](https://designcode.io/)) | Rich learning content, strong typography and imagery, professional course presentation, clear content hierarchy | Chapter pages, explanations, learning resources and AI Tutor |
+| Public website | Framer — poster-scale marketing, live product previews | One assertive statement per band, generous vertical space, product UI shown as live preview, white pill CTAs, restrained reveal motion |
+| Student application | Linear — dense, keyboard-first product UI | Persistent grouped sidebar, compact uniform rows, removable filter chips, peekable detail panel, `⌘K` command menu |
+| Admin application | Vercel — precision, density | Shadow-border surfaces, spacing instead of dividers, dense tables, three-weight typography, filter bar above table |
+| AI Tutor | Raycast — focused dark command surface | Centred focused conversation, action bar with keycaps, monospace for technical output, high-focus dark canvas |
+| Learning content & question renderer | Design+Code — editorial | Numbered sequence, narrow reading measure, clear meta line, long-form rhythm in both languages |
+| Examination mode | Udvash — academic clarity, plus Linear discipline | Bengali-first question presentation, enumerated structure, quiet workspace, zero decorative chrome |
 
-**The design philosophy — five product experiences, one design system:**
+These surfaces deliberately look different from one another because the references look different from one another — that difference is the point. They share one token set, one component inventory and one interaction grammar (see [§17.2](#172-color-tokens) and [§17.8](#178-component-system)).
 
-| Surface | Influence | Treatment |
+#### 17.1.2 Faithful-recreation standards for future implementers
+
+These are requirements, not aspirations. A screen that violates them is not ready for implementation ([§17.17](#1717-design-to-code-acceptance-criteria)).
+
+1. **Inspect the real interface first.** Before building a screen, open the mapped reference product (the live product UI, not only its marketing screenshot) and record what was observed. Do not build from memory of a reference's reputation.
+2. **Recreate the layout, not a theme.** Match column structure, sidebar width, row height, control order, alignment grid and section rhythm to the reference. Reproducing a colour palette is not recreation.
+3. **Preserve proportions and density.** Reference density is part of the identity: Linear's compact rows and Vercel's dense tables must not be inflated into 24 px-padded cards with generous whitespace.
+4. **Preserve typographic hierarchy.** Match the relationship between display, section, label, body and metadata sizes and weights. Do not flatten a reference's hierarchy into one or two sizes.
+5. **Preserve component behaviour.** A reference dropdown that filters in place must not become a full-page navigation. A reference action panel must not become a modal. A reference peek must not become a route change.
+6. **Prefer recreation over invention.** When a reference has solved the pattern, reproduce it. Do not invent a novel interaction for a solved problem.
+7. **Adapt only where required, and record the reason.** Adaptations are permitted for academic content, Bengali script metrics, examination integrity, print output and accessibility — and each one is listed in [§17.1.4](#1714-documented-adaptations-and-their-reasons).
+8. **Never degrade to generic AI-dashboard aesthetics.** No gradient hero blobs, no glassmorphism panels, no 24 px-radius card walls, no decorative illustration, no floating 3D icons, no purple-to-pink gradients.
+9. **Never simplify a distinctive reference interaction.** If the reference's value is the keyboard flow, the inline edit, the peek, the action panel or the palette's nesting, that interaction is part of the specification and must ship.
+10. **Stay internally consistent.** A pattern recreated once is recreated everywhere: one command palette, one filter-chip idiom, one table header treatment, one dialog motion.
+
+**Asset and intellectual-property boundaries.** Faithfully recreate **observable structure** — layout, spacing, type relationships, component shapes, state behaviour and interaction model. Do **not** copy or reuse:
+
+- proprietary source code, minified bundles or internal CSS from a reference product;
+- logos, wordmarks, brand names, product names, icons or typefaces owned by a reference and presented as ICT Atlas's own;
+- protected illustrations, photography, mascots, marketing copy or customer names;
+- any private or authenticated reference screen captured without permission.
+
+Reference products are named in this document as *comparison targets for structure*, not as affiliations, endorsements or partners. ICT Atlas ships its own branding (The Atlas Grid, Teal identity, Geist/SolaimanLipi type), its own content, its own illustrations and its own copy. A recreation that reproduces Vercel's or Linear's brand surface instead of their layout discipline has failed the standard, not met it.
+
+#### 17.1.3 Per-screen reference mapping
+
+The authoritative mapping lives with each screen in [§17.7](#177-screen-by-screen-specifications). This table is the index.
+
+| ICT Atlas screen | Closest reference screen or component | Section |
 |---|---|---|
-| Public website | Framer — visual storytelling | Dark-agnostic marketing presentation with large product previews and restrained motion |
-| Student application | Linear — product interface | Light, precise application chrome with keyboard-first interactions |
-| Admin application | Vercel — precision | Information-dense, filter/table-first, minimal decoration |
-| AI Tutor | Raycast — focused dark interface | Atmospheric dark surface, restrained teal or warm-white accent |
-| Learning content & question renderer | DesignCode — editorial presentation | Typography-led, readable long-form content in both languages |
-| Examination mode | Readability first, never decoration | Quiet neutral (or dark) workspace; the question dominates |
+| Public landing page | Framer marketing home (hero band + live canvas previews) | [§17.7.1](#1771-public-landing-page) |
+| Authentication | Vercel/Linear sign-in dialogs (chrome-free, single centred column) | [§17.7.2](#1772-authentication) |
+| Student dashboard | Linear workspace home (grouped sections, compact rows, no metric-card grid) | [§17.7.3](#1773-student-dashboard) |
+| Question bank | Linear issue list + Vercel dashboard filter/table chrome | [§17.7.4](#1774-question-bank) |
+| Question details & explanations | Design+Code lesson page (editorial measure) + Raycast action bar | [§17.7.4](#1774-question-bank) |
+| Exam creation & configuration | Linear create-flow (progressive form in a panel, not a wizard carousel) | [§17.7.5](#1775-timed-examination-interface) |
+| Examination workspace | Udvash exam-set clarity + Linear keyboard discipline | [§17.7.5](#1775-timed-examination-interface) |
+| Results & performance | Vercel analytics (dense tables, minimal chart chrome) + Linear list grouping | [§17.7.6](#1776-examination-results) |
+| AI Tutor | Raycast AI (focused dark surface, action bar, model/context line) | [§17.7.7](#1777-ai-tutor) |
+| Paper Studio | Framer canvas chrome (outline + document preview) + Vercel settings panels | [§17.7.8](#1778-paper-studio) |
+| Admin dashboard | Vercel dashboard (sidebar, dense tables, spacing over dividers) | [§17.7.9](#1779-admin-dashboard) |
+| Question management | Linear issue list with inline properties + Vercel table columns | [§17.7.10](#17710-question-management) |
+| Command palette / global search | Raycast launcher inside Linear's nesting model | [§17.6](#176-global-application-layout) |
 
-This division is deliberate. A question-solving interface and a marketing homepage have different jobs. They share one design system and one token set — not necessarily identical visual treatments. (See [§17.2](#172-color-tokens) for how light and dark are used.)
+#### 17.1.4 Documented adaptations and their reasons
+
+Every departure from a reference is listed here. An unlisted departure is a defect.
+
+| # | Adaptation | Reference behaviour | Reason |
+|---|---|---|---|
+| A1 | Bengali type is larger (line-height ≥ 1.75) than the reference's Latin body metrics | References are Latin-only | Stacked matras and conjuncts clip at reference Latin leading; Bengali legibility is a hard academic requirement ([§4.5](#45-typography-and-script-system-v2)) |
+| A2 | **Both** themes are first-class designs; neither is a secondary variant or a filtered inversion | Linear, Raycast and Framer market dark-first | Students read long Bengali passages, code and diagrams; both themes are fully specified and selected by system preference ([§17.2](#172-color-tokens)) |
+| A3 | Examination workspace removes the sidebar, palette and all navigation | Linear/Raycast are navigation-dense | Exam focus and answer-key protection ([§17.14](#1714-security-reflected-in-the-interface)); navigation during a timed attempt is a distraction and a leak surface |
+| A4 | Tables and lists carry a source-provenance column | References have no provenance concept | Board / college / model / AI-draft questions must be visibly distinguishable ([§17.1.1](#1711-reference-targets-and-the-actual-patterns-being-recreated)) |
+| A5 | Command palette is suppressed during an active exam | Raycast is globally available | Timed-attempt integrity; also prevents accidental navigation |
+| A6 | Paper Studio adds A4 print geometry and a paginated preview | Framer canvas is screen-first | Printable board-style papers are a product requirement ([§17.7.8](#1778-paper-studio)) |
+| A7 | Board and College filters remain two independent controls | Reference filter bars often collapse facets into one menu | Academic taxonomy requires independent provenance filtering; see [§17.7.4](#1774-question-bank) |
+| A8 | Themes are selected by OS preference only; no in-product switcher | Most references offer a manual theme switch | Mandated product decision ([§17.2](#172-color-tokens)); an in-product switcher would be a second theme authority |
+| A9 | Bengali-first academic framing with English technical metadata | References are English-only | Matches the target student's reading habit and Udvash-style academic presentation |
+
+#### 17.1.5 Inspection record and honest limits
+
+What was actually inspected for this revision, and what was not:
+
+| Source | Inspected | Verified | Not verified |
+|---|---|---|---|
+| vercel.com, vercel.com/docs, vercel.com/design/guidelines | Home, docs shell, published guidelines (text) | Hero/proof structure, docs IA, code-block presentation, light/dark asset pairing, the published interaction/animation guidelines quoted in [§17.16](#1716-implementation-design-standards) | Dashboard internals, private product screens, exact component CSS |
+| linear.app | Marketing home product imagery (text) | Sidebar + grouped issue views, Triage/Intake/Planning, dark product surfaces, published shortcut model via public shortcut references | Live authenticated app, exact row heights and motion curves |
+| raycast.com, /core-features/ai | Home, AI feature page (text) | Palette anatomy (input, grouped list, recents, keycap hints), action panel and action bar, dark focused canvas, model selector | Native launcher pixel measurements, exact blur/elevation values |
+| framer.com, /design | Home, design page (text) | Poster-scale display type, breakpoint-labelled previews, canvas chrome, CMS table | Editor internals, exact easing values |
+| designcode.io, /courses | Home, catalogue (text) | Numbered catalogue rows, tag counts, course meta line, lesson counts, author attribution | Lesson player internals, video chrome |
+| udvash.com, program detail | Home and program pages (Bengali text) | Bengali academic framing, `►` benefit lists, syllabus breakdown with counts, CQ+MCQ pairing, downloadable routine/syllabus | Authenticated exam-taking UI, student dashboard internals |
+| acs.com.bd | Yes — returned an under-construction holding page | That the site is not publicly available | All academic/exam UX. **No ACS pattern is specified in this revision.** Re-inspect before using ACS as a reference |
+
+Where a measurement is not verified, this document states a target derived from the inspected structure and labels it as a target. Do not present an unverified measurement as an observed fact, and do not invent a reference behaviour to justify a design choice.
 
 | Principle | Design implication |
 |---|---|
@@ -1893,12 +1986,13 @@ This division is deliberate. A question-solving interface and a marketing homepa
 | One accent colour used deliberately | Glassmorphism as a default treatment |
 | Authentic product interface previews | Oversized rounded cards everywhere |
 | Clear, predictable interactions | Cartoon illustrations and mascots |
-| A light reading environment as the default | Making the entire product dark because the references are dark |
+| Both themes designed to equal completeness, chosen by the OS | Making the entire product dark because the references are dark |
 | Subtle surfaces separated by 1 px borders | Decorative shadows and glows |
 | Motion that explains navigation and selection | Unnecessary animations and page-load cascades |
 | Editorial question presentation | Generic AI-style purple gradients |
+| Recreating the mapped reference pattern | Substituting a generic card or button for a reference interaction |
 
-**One decision that shapes everything:** students will spend considerable time reading Bengali questions, code, diagrams and explanations. The default is a carefully designed **light reading environment with an excellent dark mode available everywhere** — not a dark product with a light mode bolted on. Examination mode prioritizes readability over decoration in both themes. AI Tutor is the one surface with an atmospheric dark presentation by default ([§17.7.7](#1777-ai-tutor)).
+**One decision that shapes everything:** students will spend considerable time reading Bengali questions, code, diagrams and explanations. **Both themes are designed to equal completeness** — Light and Dark each have a full token set, reviewed states and a full screen pass, and the operating system's colour-scheme preference selects between them ([§17.2](#172-color-tokens)). Neither is a bolt-on. Examination mode prioritizes readability over decoration in both themes. AI Tutor is the one surface with a locally dark presentation regardless of the global theme ([§17.7.7](#1777-ai-tutor)).
 
 **Five product experiences:** a structured, searchable question bank · a realistic online examination environment · detailed performance analysis and progress tracking · an AI-powered learning assistant · a professional paper creation and export studio. Authentication, administration and analytics services support these five surfaces — they are not separate products in the student's mind.
 
@@ -1914,20 +2008,47 @@ This division is deliberate. A question-solving interface and a marketing homepa
 >
 > AI Tutor — "Let's understand why." A concept explained, step by step.
 >
-> An original visual direction combining restrained light and dark product surfaces.
+> A visual system built by faithfully recreating five reference products and two academic platforms, in Light and Dark.
 >
-> **Linear's interaction discipline · Vercel's visual precision · Framer's marketing presentation · Raycast's focused AI experience · DesignCode's editorial clarity.**
+> **Linear's interaction discipline · Vercel's visual precision · Framer's marketing presentation · Raycast's focused AI experience · Design+Code's editorial clarity · Udvash's academic framing.**
 
 ### 17.2 Color tokens
 
 Neutral-first palette with **teal as the ICT Atlas identity color**. Teal identifies actions, selected states and the brand mark — it does not cover entire screens. Canvas and Surface carry the interface; Ink and Muted carry the text; Border separates surfaces.
 
-**Theme strategy**
+**Theme strategy — system preference is the sole authority**
 
-- **Light theme is the default** for learning and reading.
-- **Dark theme is available across the entire application** via the theme toggle (CSS variables + `dark` class strategy).
-- **AI Tutor** has a slightly more atmospheric dark presentation even inside the light theme ([§17.7.7](#1777-ai-tutor)).
+- **The operating system / browser colour-scheme preference selects the theme.** `prefers-color-scheme: dark` resolves to the Dark token set; otherwise the Light token set applies. There is no application-level override.
+- **There is no manual Light/Dark toggle anywhere** — not in the header, not in the profile menu, not in Settings, not in a keyboard shortcut, not as a query parameter. No user-selected theme is stored, and none is planned.
+- **The interface follows a live OS change** while the app is open: when the preference flips, the theme updates without a reload and without a state reset in the current view.
+- **Both themes are fully specified** ([§17.2.1](#1721-color-tokens-by-theme)) and both must pass the same screen, state and contrast review — Dark is not a filtered inversion of Light.
+- **No flash of the wrong theme.** The resolved theme is applied before first paint; no visible Light→Dark or Dark→Light flash on load.
+- **No hydration mismatch.** Server and client resolve the same initial theme contract; no element renders with a theme-dependent attribute that differs between the server HTML and the first client render.
+- **AI Tutor** has a locally dark presentation in both global themes ([§17.7.7](#1777-ai-tutor)) — this is a surface treatment, not a theme override.
 - **Examination mode** prioritizes readability in either theme — never decoration ([§17.7.5](#1775-timed-examination-interface)).
+
+**Required behaviour**
+
+| Condition | Result |
+|---|---|
+| No OS preference expressed (`no-preference` / no match) | Light token set — the CSS base, not a separate product default |
+| OS prefers light | Light token set |
+| OS prefers dark | Dark token set |
+| OS preference changes while the app is open | Theme updates live, no reload, no loss of view state |
+| Printed output (Paper Studio) | Print stylesheet is theme-independent: always the light, ink-on-paper A4 treatment ([§17.7.8](#1778-paper-studio)) |
+| Screenshot / PDF export of an on-screen view | Uses the theme resolved at export time |
+
+**Implementation constraints** (specification-level — see the last bullet for the existing code that a later phase must migrate):
+
+- Read the preference through the CSS media query `@media (prefers-color-scheme: dark)` as the primary mechanism, so the theme is correct on the first painted frame. A `color-scheme` declaration on the document root must match the resolved theme so native controls, scrollbars and form widgets follow it.
+- Do **not** read, write or migrate a theme key in `localStorage`, cookies, a database column or a user settings record. A persisted theme value would be a second authority and is prohibited.
+- Do **not** branch theme on `window.matchMedia` alone in a client effect if that would paint Light first and flip to Dark after hydration — that is exactly the prohibited flash. The CSS-only path is the acceptance criterion.
+- If a framework needs a class-based switch for a third-party component, the class must be set from the media query (via CSS, or a pre-paint script that only ever reads `matchMedia('(prefers-color-scheme: dark)')`), never from stored user input.
+- Changes made to `components/theme-toggle.tsx`, the pre-hydration bootstrap in `app/layout.tsx`, `tailwind.config.ts`'s `darkMode` setting or `app/globals.css` are **implementation work for a later phase**, not part of this specification revision. See [§17.17](#1717-design-to-code-acceptance-criteria).
+
+#### 17.2.1 Color tokens by theme
+
+Both tables below are complete specifications. A component is not finished until it has been reviewed in **both** sets; there is no "primary" theme that the other one approximates.
 
 **Light theme**
 
@@ -1975,7 +2096,7 @@ Neutral-first palette with **teal as the ICT Atlas identity color**. Teal identi
 - Verify every text/background pair at WCAG AA: 4.5:1 for body text, 3:1 for large text and UI boundaries.
 - Contrast notes: Ink on Canvas ≈ 16.9:1 (light) · 17.9:1 (dark); Teal `#16766B` on white ≈ 5.5:1; white on Teal ≈ 5.5:1; Teal on Teal Tint ≈ 4.8:1 (light) · Teal `#55B8A5` on Teal Tint `#203C36` ≈ 5.0:1 (dark); Red `#B6534C` on white ≈ 4.9:1; Amber `#B77C2B` on white ≈ 3.5:1 — use Amber for icons, badges and large text, and pair small warning copy with a tint background or Ink text. Light-theme Muted `#777D83` ≈ 4.2:1 — use it for large text and metadata only; body-size secondary copy uses Muted Strong `#6B7076` ≈ 5.0:1.
 
-**Tailwind mapping** (`tailwind.config.ts`) — tokens are CSS variables so one config serves both themes:
+**Tailwind mapping** (`tailwind.config.ts`) — tokens are CSS variables so one config serves both themes. With system-preference selection, the dark values must be reachable without a JS-applied class; the two acceptable strategies are given below.
 
 ```ts
 colors: {
@@ -1993,7 +2114,11 @@ colors: {
 ```
 
 ```css
+/* Light values are the base. Dark values are applied by the media query,
+   so the correct theme is painted on the first frame — no class, no script,
+   no stored preference, no flash. */
 :root {
+  color-scheme: light;
   --canvas: 250 250 250;   /* #FAFAFA */
   --surface: 255 255 255;  /* #FFFFFF */
   --elevated: 27 32 36;    /* #1B2024 */
@@ -2006,22 +2131,35 @@ colors: {
   --amber: 183 124 43;     /* #B77C2B */
   --red: 182 83 76;        /* #B6534C */
 }
-.dark {
-  --canvas: 9 11 13;       /* #090B0D */
-  --surface: 17 20 22;     /* #111416 */
-  --elevated: 27 32 36;    /* #1B2024 */
-  --ink: 242 244 245;      /* #F2F4F5 */
-  --muted: 139 148 156;    /* #8B949C */
-  --muted-strong: 139 148 156;
-  --border: 41 49 55;      /* #293137 */
-  --teal: 85 184 165;      /* #55B8A5 */
-  --teal-tint: 32 60 54;   /* #203C36 */
-  --amber: 217 168 87;     /* #D9A857 */
-  --red: 224 135 127;      /* #E0877F */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --canvas: 9 11 13;       /* #090B0D */
+    --surface: 17 20 22;     /* #111416 */
+    --elevated: 27 32 36;    /* #1B2024 */
+    --ink: 242 244 245;      /* #F2F4F5 */
+    --muted: 139 148 156;    /* #8B949C */
+    --muted-strong: 139 148 156;
+    --border: 41 49 55;      /* #293137 */
+    --teal: 85 184 165;      /* #55B8A5 */
+    --teal-tint: 32 60 54;   /* #203C36 */
+    --amber: 217 168 87;     /* #D9A857 */
+    --red: 224 135 127;      /* #E0877F */
+  }
 }
 ```
 
 > Define these once. No hex values in component files, no one-off arbitrary values (`bg-[#16766B]`).
+>
+> **Two sanctioned wiring strategies — choose one, never both:**
+>
+> 1. **CSS-first (preferred).** Keep the `@media (prefers-color-scheme: dark)` block above and set Tailwind's `darkMode` to `'media'`. No class, no script, no flash by construction. Because Tailwind's `dark:` variant is then unavailable for a manual switch, components should not need it — they consume semantic tokens, which already resolve correctly.
+> 2. **Class-mapped-from-media.** If a dependency requires `.dark`, keep the media block as the authority and mirror it with a `:root.dark { … }` rule that is applied by the same media query selector (e.g. `@media (prefers-color-scheme: dark) { :root { … } }` plus a `.dark` alias scoped under that media query), so the class can never disagree with the OS.
+>
+> In neither strategy may the theme be derived from storage, a URL parameter, a cookie or a user record. `darkMode: 'class'` driven by a stored value is **not** an approved configuration for this product.
+>
+> This repository currently contains a class-based manual toggle in application code (`components/theme-toggle.tsx`, the bootstrap script in `app/layout.tsx`, `darkMode: 'class'` in `tailwind.config.ts`). **This specification revision does not implement the change**; converting that code is a later implementation task tracked against this section, and must not be reported as already done.
 
 ### 17.3 Typography
 
@@ -2143,10 +2281,11 @@ Supported within those destinations: Question Bank (MCQ · CQ · Board Questions
 ┌───────────────────────────────────────────────────────┐
 │ Logo       Breadcrumb       Search      Help  Profile │
 ├──────────────┬────────────────────────────────────────┤
-│              │                                        │
+│ WORKSPACE  ▾ │                                        │
 │  Overview    │                                        │
-│  Questions   │            MAIN CONTENT                │
-│  Practice    │                                        │
+│  Questions   │                                        │
+│  Practice    │            MAIN CONTENT                │
+│ STUDY      ▾ │                                        │
 │  Examinations│                                        │
 │  AI Tutor    │                                        │
 │  Analytics   │                                        │
@@ -2155,6 +2294,8 @@ Supported within those destinations: Question Bank (MCQ · CQ · Board Questions
 │  Profile     │                                        │
 └──────────────┴────────────────────────────────────────┘
 ```
+
+Sections are collapsible with a persistent header row (Linear's grouped sidebar); the footer block is separated by a hairline rule, not a section header. Collapsed sections hide their rows and keep their header visible.
 
 | Element | Width / height |
 |---|---|
@@ -2170,7 +2311,8 @@ Supported within those destinations: Question Bank (MCQ · CQ · Board Questions
 - Persistent, always-visible active navigation: Teal Tint background, Teal text, 3 px Teal bar on the leading edge.
 - Subtle hover backgrounds (Canvas/Elevated shift, 120 ms); never a hard colour swap.
 - Tooltips in collapsed mode; keyboard navigation through the rail (`Tab` order, arrow keys within the list where supported).
-- User profile and account menu anchored at the bottom; Settings above it.
+- **Grouped, collapsible sections with section headers** (Reference: Linear). Primary destinations are grouped rather than presented as one flat list of seven links; each group can collapse, remembers its expansion while the session lives, and shows the active item with the 3 px leading indicator described above.
+- User profile and account menu anchored at the bottom; Settings above it. **The account menu contains no theme control** ([§17.2](#172-color-tokens)).
 - Brand logo + product name at the top; workspace context below it when relevant.
 
 **Top bar** — logo, breadcrumb, global search trigger, help, profile. Breadcrumb shows where you are (`Overview / Question Bank / Dhaka Board 2024`), not a duplicate of the sidebar. Do not duplicate sidebar navigation in the top bar.
@@ -2191,10 +2333,19 @@ QUICK ACTIONS
 Navigate with ↑ ↓ · Select with Enter · Close with Esc
 ```
 
+**Reference to recreate:** **Raycast launcher** anatomy inside **Linear's** nesting model. Both were inspected; the palette below is a recreation of their observable structure, not a generic search modal.
+
 - Fuzzy search across questions, examinations, topics, papers, settings and actions, grouped by type (Questions / Examinations / Papers / Actions / Navigate).
+- **Grouped results with sticky group headers**, ranked so the closest match sits first; a **Recents** group appears when the query is empty (Raycast's recents behaviour).
+- **Per-row shortcut hints** in Geist Mono at the right edge, so the palette teaches the direct shortcut — the reference's central learning mechanism.
+- **Secondary action panel** (`⌘/Ctrl + K` within the palette) listing every operation available for the highlighted row; actions without a shortcut are still reachable.
+- **Nesting with breadcrumb depth**: entering a sub-page shows a breadcrumb and `Esc` goes back one level rather than closing the palette; a second `Esc` closes it (Linear's back-vs-close distinction).
 - Opens with a subtle scale (0.98 → 1) and opacity transition, ~150–180 ms; results update on every keystroke, debounced.
-- Full keyboard support: `↑` `↓` to move, `Enter` to select, `Esc` to close; focus never leaves the palette until it closes.
+- Full keyboard support: `↑` `↓` to move, `Enter` to select, `Esc` to go back/close; focus never leaves the palette until it closes. The active row is tracked with `aria-activedescendant` so typing is uninterrupted.
 - Selecting a result performs the action or navigates; recent items are pinned when the query is empty.
+- **Footer hint bar** shows the available keys for the current state (navigate · select · back · close), matching the reference's action bar.
+- Empty query with no recents, and "No results" both offer a next action (search the question bank, create a test) instead of a blank surface.
+- Overlay: neutral scrim, single elevated surface, no glassmorphism, no blurred backdrop decoration. The palette is centred, with a top offset around 15–20 % of viewport height.
 
 **Mobile — reference viewport 390 × 844 px**
 
@@ -2209,7 +2360,15 @@ Navigate with ↑ ↓ · Select with Enter · Close with Esc
 
 #### 17.7.1 Public landing page
 
-**Influence:** Framer — visual storytelling. The public site is designed like a premium technology product, not like an institutional brochure.
+**Reference to recreate:** **Framer** marketing home (`framer.com`) — poster-scale display headline, one assertive statement per band, generous vertical breathing room, product UI shown as a live preview, white pill primary CTA. Secondary reference: **Vercel** home for the proof band (customer/usage strip) and light/dark asset discipline. Structural hierarchy is recreated from Framer, not paraphrased into a generic SaaS hero.
+
+**What must be recreated from Framer (verified from the public home and `/design` page):**
+
+- A single **left-aligned or centred display headline** at poster scale with strong negative tracking — not a 32 px marketing heading.
+- **One band = one assertion.** No carousel of competing messages, no three-column feature grid above the fold.
+- **Real product UI as the hero visual** — Framer shows breakpoint-labelled canvas previews (Desktop 1200 / Tablet 810 / Phone 390). ICT Atlas shows a real question card and exam screen, optionally with the same device/breakpoint labelling.
+- **Restrained card grid** below the fold; cards are surfaces with hairline borders, not rounded gradient tiles.
+- **Section rhythm driven by spacing**, with dividers used sparingly.
 
 **Hero composition:**
 
@@ -2225,7 +2384,19 @@ Navigate with ↑ ↓ · Select with Enter · Close with Esc
 - Motion is choreographed and calm (Framer-style reveals, 150–200 ms, [§17.11](#1711-motion-guidelines)); nothing bounces, nothing loops.
 - The page must remain fully legible and navigable with `prefers-reduced-motion: reduce` (all content visible without animation).
 
+**States:** default · sticky-header condensed on scroll · mobile menu open · form validation (newsletter/contact, if present) · 404/offline · language-variant content.
+
+**Responsive:** 1440 hero uses the two-part composition (headline column + product preview); 768–1439 stacks the preview below the headline at reduced scale; ≤ 767 single column, display clamped to 40 px, section padding reduced to 24–32 px, product preview becomes a scrollable single-screen crop rather than a miniature of the whole app.
+
+**Theme:** the marketing site must be complete in **both** Light and Dark, selected by system preference like the rest of the product ([§17.2](#172-color-tokens)). Do not ship a dark-only marketing site as a shortcut, and do not invert the product screenshots to fake a dark variant — pair each preview with its own theme-correct render (Vercel's light/dark asset pairing is the reference for this).
+
+**Keyboard & accessibility:** skip link · visible focus on every CTA · header nav fully operable by keyboard · preview panels reachable and not a keyboard trap · decorative motion removed under reduced motion.
+
 #### 17.7.2 Authentication
+
+**Reference to recreate:** **Linear** and **Vercel** sign-in surfaces — a chrome-free, single centred column on the Canvas, one primary action, no marketing furniture, no sidebar. The reference's restraint (short field stack, one accent action, inline error text under the field) is the specification; do not add illustration panels, split-screen imagery or social-proof sidebars.
+
+**Composition:** centred column, maximum ~400 px, brand mark above the form, form card is Surface with a 1 px Border (Vercel shadow-as-border is acceptable), one Primary button at full column width, secondary action as a text link below.
 
 **Sign-in fields:** email address or supported identifier · password · remember me · forgot password. Actions: Sign in (Primary), Create an account (Outline/Ghost).
 
@@ -2239,10 +2410,24 @@ Navigate with ↑ ↓ · Select with Enter · Close with Esc
 - Password rules are stated before the first keystroke, not discovered after failure.
 - Do not reveal whether an email exists until after a successful sign-in (account-enumeration protection).
 - Auth screens are chrome-free: no sidebar, no bottom navigation.
+- No theme control on auth screens (there is none anywhere — [§17.2](#172-color-tokens)).
+
+**Responsive:** ≤ 767 the column fills the viewport with 16 px side padding and 44 px minimum control height; inputs stay ≥ 16 px text to prevent iOS zoom. Desktop keeps the centred card; do not stretch the form to full width.
+
+**Theme:** both themes must render the form card with the same border, spacing and focus ring; password visibility toggle and error text must pass AA in both.
+
+**Keyboard & accessibility:** focus enters the first field on load; `Enter` submits from any field; the show-password control is a real button with an accessible name and `aria-pressed` state, never only an icon change · the error summary receives focus on a failed submit and each entry links to its field · the brand mark is decorative markup with no redundant text alternative when the wordmark is adjacent.
 
 #### 17.7.3 Student dashboard
 
-**Influence:** Linear — product craftsmanship. Avoid a conventional dashboard with six colourful metric cards; use an editorial layout with one clear hierarchy.
+**Reference to recreate:** **Linear** workspace home — a **persistent grouped sidebar**, compact uniformly-tall rows, and an editorial content column with a clear hierarchy. Explicitly **not** a six-card metric dashboard. The reference's information density (many rows visible, secondary metadata inline, one accent per row at most) must be preserved.
+
+**Recreation specifics:**
+
+- **Sidebar** (see [§17.6](#176-global-application-layout)): grouped, collapsible sections with a 3 px leading active indicator; workspace/user switcher at the top; the same treatment Linear uses, not a flat link list.
+- **Metric row stays typographic and inline** — no icon-in-coloured-circle cards, no sparkline per metric.
+- **Grouped lists, not card grids.** "Areas to improve" and "Recent activity" are two vertical lists with row-level hover and a single right-aligned action, mirroring Linear's issue list rhythm.
+- **One primary action** in the header region; everything else is secondary or ghost.
 
 **Composition (first viewport):**
 
@@ -2281,9 +2466,26 @@ Web design                   Chapter Test 02
 - Empty state for a new student: one clear **Start your first practice test** action, not zero-valued cards.
 - Self-assessed CQ marks are visually distinct (dashed line / hatched bar / label) and never blended into MCQ accuracy ([§7.3.1](#731-student-dashboard-metrics)).
 
+**States:** loading (skeleton rows matching the row height, not spinners in empty cards) · empty (new student) · partial data (no exams yet, practice exists) · error with retry · offline banner.
+
+**Responsive:** ≥ 1280 persistent 248 px sidebar + 12-column content · 1024–1279 sidebar may collapse to a 60 px rail · 768–1023 icon rail, single content column · ≤ 767 no sidebar, bottom navigation for the five primary destinations, metric row wraps to two columns, lists become full-width rows with the trailing action moved into an overflow menu.
+
+**Theme:** both themes, reviewed at full screen — the greeting, metric row, chart series colours, progress bars and row hover surfaces each have a Light and a Dark specification. Dark is not a dimmed copy of Light: Canvas → Surface → Elevated carries the hierarchy, the chart gridlines are neutralised so the series stays legible, and the 3 px active-navigation indicator keeps its contrast against the Dark sidebar surface. Never rely on the chart's fill alone to distinguish series.
+
+**Keyboard & accessibility:** `⌘/Ctrl + K` opens the command palette · sidebar sections are collapsible with `Enter`/`Space` and expose `aria-expanded` · chart has a text/table equivalent · metric figures are readable in document order · each list row is one tab stop with `Enter` opening it, matching Linear's single-highlight row model rather than a link-per-metadata-item · the time-range selector is a radio group with arrow-key movement and its current value in the accessible name.
+
 #### 17.7.4 Question bank
 
-**Influence:** Vercel — precision and information density. This screen is an instrument, not a brochure.
+**Reference to recreate:** **Linear issue list** (compact uniform rows, inline editable metadata, removable filter chips, single active row, peek panel) combined with **Vercel dashboard** chrome (spacing instead of dividers, shadow-border surfaces, dense table header, filter bar directly above the data). This screen is an instrument, not a brochure, and its density is part of the reference identity.
+
+**Recreation specifics:**
+
+- **Filter bar sits directly above the list**, as in both references — not in a left rail, not behind a modal.
+- **Applied filters become removable chips** in a single wrapping row, each with its own ×; "Clear all" is a text action at the row end. This is the Linear chip idiom.
+- **Rows are uniform height and compact.** Metadata is inline and secondary. Hover raises the row surface by one tonal step; the keyboard-selected row uses the Teal Tint selection surface with a 1 px leading indicator, exactly as the references mark the active row.
+- **Property editing is inline**, not a modal-per-field: changing a chapter, topic or difficulty edits in place from the row, matching Linear's inline property menus.
+- **Peek, don't navigate.** Selecting a row reveals the question detail in a right-hand peek panel while the list keeps its scroll position (`Space` peeks in Linear). `Esc` closes the peek without losing filters.
+- **The table header is sticky** and carries sort affordance plus the result count.
 
 **Layout:**
 
@@ -2321,9 +2523,41 @@ Filter options are derived from actual data, with counts per facet. On mobile, f
 
 **Question detail (expanded):** complete question · source information · answer key (when authorized) · explanation · formulas/diagrams · related questions · report an issue.
 
-**Empty states:** "No questions match these filters" (with **Clear filters**), "No saved questions yet" (with **Browse questions**), "No questions available for this topic" (with **Choose another topic**). Every empty state provides a useful next action.
+**Question detail and explanation view — reference: Design+Code lesson page + Raycast action bar.**
+
+- **Reference to recreate:** **Design+Code** long-form lesson page for the reading column — a single narrow measure (~68–72 characters), a numbered sequence for sub-parts and steps, a small meta line above the title, and generous vertical rhythm between blocks. The explanation is *read*, not scanned, so the column stays narrow even on a wide screen; the peek panel and the full route use the same renderer.
+- **Raycast contribution:** an **action bar** at the top of the detail carries the actions available for this question (`Save` · `Add to test` · `Ask AI Tutor` · `Report`) with their keycap hints, rather than burying them in an overflow menu.
+- **Hierarchy, in order:** source meta line (Board · Year · Chapter · Type, Micro/Muted, tracked caps) → question stem (Body/H4, weight 500–600) → stimulus/diagram → options or subquestions → a hairline rule → answer key (only when authorized for this user and state) → explanation blocks → related questions → report action. The rule between question and answer is the only divider in the column.
+- **Block rendering** follows [§17.9](#179-content-and-question-rendering): paragraphs, lists, tables, code, formulas (KaTeX) and images each have a defined block component; none is ad-hoc styled per page.
+- **States:** answer key withheld (with the reason stated, never disabled-looking controls) · explanation not yet authored (with "Ask AI Tutor" as the next action) · AI explanation pending/streaming/failed · image failed to load with a text fallback · question archived/withdrawn (banner above the stem, content remains readable) · report submitted.
+- **Responsive:** ≥ 1024 reading column centred at its measure with the action bar aligned to that measure · 768–1023 the column takes full width minus gutter, measure preserved by padding · ≤ 767 action bar collapses to `Save` + overflow, meta line wraps to two lines, tables inside the question scroll in their own labelled region, formula overflow becomes a horizontal scroll region with a visible affordance.
+- **Theme:** both themes. Answer-key and explanation surfaces use `Surface` against the page `Canvas`; correctness colour appears only as a paired label + icon, and code blocks keep the shared dark code surface in both themes ([§17.2](#172-color-tokens)).
+- **Keyboard & accessibility:** the action bar is a toolbar with arrow-key roving focus · `S` saves, `A` opens AI Tutor (single-letter shortcuts only when focus is not in a text field) · the explanation heading order is real (`h2`/`h3`), not styled paragraphs · math exposes accessible text and code blocks are keyboard-scrollable and copyable · when opened as a peek, `Esc` returns focus to the originating row.
+
+**Empty states:** "No questions match these filters" (with **Clear filters**), "No saved questions yet" (with **Browse questions**), "No questions available for this topic" (with **Choose another topic**). Every empty state provides a useful next action — matching the references, the empty state is a short neutral message inside the list area, not a full-page illustration.
+
+**Loading & error states:** skeleton rows at the real row height, ~150–300 ms show delay, result count shown as a placeholder not a zero · facet request failure shows the filter bar with an inline retry, keeping already-applied chips · partial results (facet counts unavailable) must not block the list.
+
+**Responsive:** ≥ 1280 list + peek panel side by side · 1024–1279 peek overlays the list instead of shrinking it · 768–1023 single column, peek becomes a full-height drawer · ≤ 767 filters open in a bottom sheet with an applied-count badge on the trigger, rows become stacked blocks with metadata wrapping to a second line, and the peek becomes a full-screen route. The list never scrolls horizontally; long Bengali compounds wrap.
+
+**Theme:** both themes fully specified. Chips, selected rows, hover surfaces and the sticky header are reviewed in Light and Dark. A Dark-theme selected row uses Teal Tint `#203C36` with Teal text; never rely on the tinted background alone to mark selection.
+
+**Keyboard & accessibility:** `/` focuses search · `↑`/`↓` move the active row · `Enter` opens the peek · `Space` peeks in the reference's sense (hold-to-preview where implemented) · `Esc` closes the peek or clears the row selection · `⌘/Ctrl + K` opens the palette from anywhere on the screen · every chip is a button with an accessible name including the facet ("Remove filter: Board, Dhaka") · `aria-activedescendant` tracks the active row so focus stays in the list · applied filters are reflected in the URL so refresh/back/forward and deep links work (Vercel "URL as state").
 
 #### 17.7.5 Timed examination interface
+
+**Reference to recreate:** **Udvash** academic structure (Bengali-first question presentation, enumerated question sets, CQ + MCQ pairing) plus **Linear** keyboard discipline and chrome restraint. The examination workspace is the one surface that deliberately **removes** reference navigation — this is a documented adaptation (A3, [§17.1.4](#1714-documented-adaptations-and-their-reasons)).
+
+**Exam setup (before the attempt starts) — reference: Linear create-flow.**
+
+- **Reference to recreate:** **Linear's create-flow** — a single panel that opens over the current view, with grouped property rows that commit as you set them, an inline resolved summary, and a primary action that states its own outcome. Not a multi-step wizard carousel, not a modal stack, not a decorative stepper.
+- **Fields, grouped:** subject/paper · education level · chapter/topic scope · question count and type mix (MCQ / CQ) · duration · marks and negative-marking rules · source scope (Board years, College, Source). The **Board** and **College** scopes are separate rows with separate chips, consistent with [§17.7.4](#1774-question-bank) (A7).
+- **Progressive disclosure:** each row shows its resolved value inline; opening a row reveals a searchable option list with per-facet counts, closing it keeps the selection. The start button states exactly what will be generated ("40 MCQ · 30 minutes").
+- **Availability honesty:** if the selected scope cannot fill the requested count, the shortfall is stated inline next to the count field with the available number — the panel does not silently generate a shorter exam and does not disable the action without a reason.
+- **States:** default · scope too narrow (shortfall message + suggested relaxation) · zero-question scope (blocked, with the reason) · duration invalid (bound rules stated) · loading facet counts · facet request failed with inline retry · creating the attempt (label preserved, spinner) · creation failed with retry that cannot double-create · cancelled with unsaved changes guard.
+- **Responsive:** ≥ 1024 the panel is a centred overlay over the dimmed list, ~560 px wide · 768–1023 full-width panel with the list behind, escaped by `Esc` · ≤ 767 the panel is a full-height sheet; each group becomes a collapsible summary and the start action is pinned above the safe area.
+- **Theme:** both themes; overlay scrim, panel surface and inset field surfaces all resolve from semantic tokens, and the panel must pass AA in both.
+- **Keyboard & accessibility:** the panel is a labelled dialog, focus enters the first field and returns to the trigger on close · `Tab` moves between group rows, `Enter`/`Space` opens a row, `Esc` closes only the open row first and the panel on the second press (Linear's back-not-close nesting) · the resolved summary is in the panel's accessible description so the outcome is announced before activation.
 
 **Purpose:** a quiet, almost distraction-free workspace. Neutral or dark background; the question is the dominant element. Do not copy a typical LMS examination screen.
 
@@ -2360,7 +2594,24 @@ Three regions only:
 - The student receives an understandable confirmation with the result location.
 - No command palette, no sidebar, no notifications, no marketing chrome inside an active examination.
 
+**Recreated details (Linear discipline applied to a quiet surface):**
+
+- The question navigator grid uses compact uniform cells with the same selected/answered/review marking grammar as the question bank rows, so the two surfaces teach one another.
+- The header is a single 60 px bar with three zones (title/meta · countdown · submit), mirroring the reference action bar's left/centre/right logic.
+- Options are full-width rows with a leading radio/checkbox, hover raising surface by one tonal step, and a single accent for the chosen state — no card-per-option with heavy borders.
+- Keyboard: `1`–`4` (or `ক`–`ঘ` where the interface is Bengali) select an MCQ option · `←`/`→` previous/next · `M` mark for review · `Esc` closes the navigator drawer only · `⌘/Ctrl + Enter` opens the submit confirmation. The submit confirmation is a dialog focused on the "review unanswered" summary, defaulting to the non-destructive action.
+
+**States:** loading the attempt (skeleton of the three regions) · active · saving · save failed with retry · offline with queued answers · expired/locked with an explanation and no editable controls · submission in progress (labels preserved, button shows a spinner — Vercel: keep the original label) · submission confirmed · submission failed with a retry that cannot double-submit.
+
+**Responsive:** desktop keeps the three regions; ≤ 1023 the navigator collapses into a drawer opened from the header; ≤ 767 the header keeps only countdown and submit, the question fills the viewport, answer controls sit above the fold and the option rows keep ≥ 44 px height. Bengali question text never truncates.
+
+**Theme:** both themes. The examination surface must remain the highest-legibility screen in the product in either theme; the countdown never animates and never changes colour as a warning unless the change is paired with text.
+
 #### 17.7.6 Examination results
+
+**Reference to recreate:** **Vercel analytics** (dense numeric tables, minimal chart chrome, numbers set with tabular figures) with **Linear** list grouping for the per-question review. Results are a data surface, not a celebration page — no confetti, no oversized score ring, no trophy illustration.
+
+**Composition:** a compact summary strip of inline figures (Vercel-style, spacing not dividers) · topic/chapter tables with aligned numeric columns · per-question review as a list of rows, each expandable in place (Linear inline disclosure) rather than a modal per question.
 
 **Summary:** total score · total marks · accuracy · correct · incorrect · unanswered · time taken.
 
@@ -2370,9 +2621,36 @@ Three regions only:
 
 > Never present automatically generated marks as officially verified marks. Label the evaluation source (`AUTO` / `SELF_ASSESSED` / `TEACHER_REVIEWED`) wherever marks appear.
 
+**Recreated details (Vercel analytics + Linear grouping):**
+
+- **Figures are set in tabular numerals** at one size with a small muted label above; separators are spacing, not rules, so the strip reads as one line of numbers.
+- **Tables sort and align by column priority** (accuracy, attempts, then chapter); numeric columns are right-aligned and monospaced only for identifiers, never for headings.
+- **Charts are minimal** — line or bar, no gridline decoration, no gradient fill, no legend when a single series is shown; the axis labels are the only chrome.
+- **Per-question review is a grouped list, not a table of cards:** each row states question number · type · correctness label · marks, and expands in place to show the explanation. Grouping mirrors Linear's list sections (Correct · Incorrect · Unanswered · Needs review).
+- **Nothing celebrates.** No confetti, no animated ring, no badge art; the score is a number with its denominator and its evaluation source.
+
+**States:** loading (skeleton strip + table rows at true height, with the show-delay rule from [§17.7.4](#1774-question-bank)) · CQ results pending authorized marking (clearly labelled pending, no provisional marks presented as final) · partial analytics (some chapters below the Not-enough-data threshold) · evaluation-service failure (figures unavailable with retry; the attempt itself is unaffected) · empty history for a new student (a single next action: start a practice test) · stale results after a question was withdrawn (banner naming the affected items) · export in progress/failed.
+
+**Responsive:** ≥ 1280 summary strip in one row, tables beside a narrow chart column · 1024–1279 strip wraps to two rows, charts stack under their table · 768–1023 single column, tables keep aligned numerics but drop to priority columns · ≤ 767 the summary becomes a two-column figure grid, tables become definition-style rows (label above value) without losing the numeric alignment inside each row, and the per-question review keeps its expand-in-place behaviour.
+
+**Theme:** both themes. Correct/incorrect colours are always paired with a text label and icon; the palette's AA-verified Amber/Red values are used in each theme ([§17.2.1](#1721-color-tokens-by-theme)); charts use the same semantic series colours so a series keeps its identity across themes.
+
+**Keyboard & accessibility:** sortable headers are buttons with `aria-sort` · the review list is a single tab stop per row with `Enter` expanding in place and `Esc` collapsing · figures are in document order and have accessible names including units ("78 percent accuracy") · every chart has a text/table equivalent · the score's evaluation source is part of its accessible description, not a tooltip.
+
+**Print/export:** the results summary may be exported as a theme-independent ink-on-paper document; it must not inherit a dark chart background.
+
 #### 17.7.7 AI Tutor
 
-**Influence:** Raycast — atmosphere & interaction. This is where the darker visual identity becomes distinctive.
+**Reference to recreate:** **Raycast AI** (`raycast.com/core-features/ai`) — a focused dark surface with a compact conversation list, a single bright prompt input as the focal point, an action bar carrying contextual actions with keycap hints, and a model/context line above the answer. Recreate that anatomy; do not produce a generic chat bubble interface.
+
+**Recreation specifics (verified from the public AI page):**
+
+- **Prompt input is the brightest element.** Everything else recedes; the input has a visible border, generous height and a submit affordance inside the field.
+- **An action bar under the input** shows the actions available for the current answer (Explain differently · Simpler · Example · Related practice · Copy) with their keyboard hints, exactly as Raycast exposes per-context actions instead of hiding them in a menu.
+- **A context line above the answer** states what the tutor is answering from ("From: DHAKA BOARD 2024 · Chapter 03 · MCQ") — the reference's model-selector line, reused for source provenance.
+- **Streaming/reasoning state** is shown as a single terse status line ("Thinking…", with the ellipsis per Vercel's ellipsis rule), never a bouncing avatar.
+- **Grouped history** by recency with a `New chat` row at the top, matching the reference's Recents grouping.
+- Monospace is reserved for shortcuts, code and identifiers — never for prose.
 
 ```
 ┌──────────────┬─────────────────────────────┐
@@ -2415,9 +2693,17 @@ Each block is typographically distinct (H4/Micro label + Body content, KaTeX for
 - Do not expose examination answer keys during an active examination.
 - Show the remaining daily quota before the student hits the wall.
 
+**States:** empty conversation (a short prompt-suggestion list sourced from the student's weak topics, not decorative cards) · streaming · stream error with retry that preserves the question · quota exhausted with reset time · provider unavailable ("Tutor is temporarily unavailable. Your exams are unaffected.") · report submitted confirmation.
+
+**Responsive:** ≥ 1024 two columns (history + conversation) · 768–1023 history collapses to a drawer · ≤ 767 single column, history is a back-navigable screen, input is anchored above the keyboard, action bar becomes a horizontally scrollable row of chips that never covers the input.
+
+**Theme:** the tutor surface is **locally dark in both global themes** (A2/A8 context, [§17.1.4](#1714-documented-adaptations-and-their-reasons)) and must not be affected by the OS preference beyond the surrounding app chrome. Text, code and math inside it pass AA against the tutor canvas, not against the global Canvas token.
+
+**Keyboard & accessibility:** input autofocused on desktop only · `⌘/Ctrl + Enter` sends · `Esc` stops a stream · `↑` recalls the previous prompt · streaming text is announced politely (`aria-live="polite"`) and does not steal focus · every action-bar action is reachable by Tab and shows its shortcut in its accessible name.
+
 #### 17.7.8 Paper Studio
 
-**Influence:** Framer + Vercel. A genuine document-production workspace, not a settings form bolted onto a preview.
+**Reference to recreate:** **Framer** canvas chrome (left outline with Pages/Layers/Assets grouping, centre live canvas, right inspector) combined with **Vercel** settings panels (grouped fields, inline values, no wizard). A genuine document-production workspace, not a settings form bolted onto a preview. Print structure follows the Udvash-style academic paper layout (header block, numbered subquestions, marks in the margin).
 
 **Desktop:** three columns.
 
@@ -2433,9 +2719,25 @@ Each block is typographically distinct (H4/Micro label + Body content, KaTeX for
 
 **Export:** PDF (print-ready) · TXT · JSON · Base64 (an encoding, not a document format — always label what is encoded). PDF rules: correct Bengali glyphs, embedded/reliably available fonts, proper image resolution, consistent margins, no split stems where avoidable, no orphaned question numbers, stable page numbering, print-safe contrast. Technical path in [§7.5](#75-question-paper-studio--export-system).
 
+**Recreated details:** left outline rows are drag-reorderable with a visible drop indicator and a keyboard alternative (Vercel: gestures always have a non-gesture path) · the centre preview is the canvas: selectable page, zoom control, page boundaries, and the A4 sheet is a real light paper surface even when the app theme is Dark (this is the print-fidelity exception, [§17.2](#172-color-tokens)) · the right inspector groups properties into collapsible sections with inline current values, matching the reference inspector rather than a long flat form.
+
+**States:** no questions in the outline (empty with an "Add from question bank" action) · preview rendering (skeleton sheet, not a spinner over white) · overflow warning when a question exceeds a page · export running (label preserved, progress, cancellable) · export failed with retry · export succeeded with a persistent link · unsaved changes indicator.
+
+**Responsive:** ≥ 1280 three columns · 1024–1279 inspector collapses into a drawer over the preview · 768–1023 outline becomes a drawer · ≤ 767 sequential panels (outline → preview → settings) with the preview scaling to fit width; never three squeezed columns.
+
+**Theme:** the workspace chrome follows the system theme; **the paper preview and print output are always ink-on-paper Light**, with `@media print` forced to the light palette regardless of `prefers-color-scheme`. Print styles must not depend on theme tokens that change.
+
+**Keyboard & accessibility:** the outline is a `listbox`-style tree with `↑`/`↓` to move, `⌥/Alt + ↑`/`↓` to reorder (the keyboard equivalent of drag), `Enter` to select a question in the preview · the preview is reachable and scrollable by keyboard with a visible page indicator · inspector sections are disclosures with `aria-expanded`, opened by `Enter`/`Space` · zoom is `+`/`−` with a stated percentage, never a slider only · export is announced with progress and a persistent, focusable result link · the preview carries a text description of page count and overflow because the visual sheet is not perceivable to every user.
+
 #### 17.7.9 Admin dashboard
 
-**Influence:** Vercel + Linear. Information-dense and functional; admins decide, the screen informs.
+**Reference to recreate:** **Vercel dashboard** (sidebar + dense table + numeric analytics, spacing over dividers) with **Linear** list/bulk-selection mechanics (row selection, bulk action bar, saved views). Information-dense and functional; admins decide, the screen informs.
+
+**Recreation specifics:**
+
+- **Bulk selection is a first-class interaction**, as in Linear: selecting rows reveals an action bar with the count and the available operations; `X` toggles selection, `⌘/Ctrl + A` selects the visible page.
+- **Saved filter views** appear as named entries in the sidebar — the reference's view model, not a modal that must be re-opened.
+- **Tables use Vercel density**: 12–13 px metadata, tabular numerals, sticky header, right-aligned numerics, no zebra striping (use hairline dividers).
 
 **Overview metrics:** total questions · published · drafts · awaiting review · active students · published examination papers.
 
@@ -2455,7 +2757,19 @@ Each block is typographically distinct (H4/Micro label + Body content, KaTeX for
 
 **Rule:** use status labels — never a coloured dot alone.
 
+**States:** loading table (skeleton rows at true height) · empty inventory · no results for the active view (with "Clear view") · permission-denied panel for non-admin roles · bulk action in progress with a count · conflict when a row changed server-side (row-level inline warning, not a global toast only) · export/report generation.
+
+**Responsive:** ≥ 1280 persistent sidebar + table · 1024–1279 collapsible rail, columns collapse by priority · 768–1023 horizontal scroll only inside a labelled table region, never on the page · ≤ 767 the table becomes a card-free stacked list (title, status label, key metadata, overflow actions) and bulk actions move to a sticky bar.
+
+**Theme:** both themes. Status labels carry a text label plus a tonal surface in both; the palette's Amber/Red status variants are used at their AA-verified values ([§17.2.1](#1721-color-tokens-by-theme)).
+
+**Keyboard & accessibility:** full table navigation · row selection and bulk-action bar reachable without a pointer · column sort announced via `aria-sort` · saved views are links (deep-linkable) · audit history is a real table, not a tooltip.
+
 #### 17.7.10 Question management
+
+**Reference to recreate:** **Linear** issue detail/editor (inline properties at the top, content body beneath, activity stream at the side) with **Vercel** form density (grouped fields, inline validation, no decorative section cards).
+
+**Composition:** a metadata bar directly under the title holding the editable properties as chips/inline menus (chapter, topic, type, board, year, source, difficulty, marks, status) — the reference's property row — with the content editor as the main column and revision/audit history in a right column or collapsible panel.
 
 **Metadata:** education level · subject · chapter · topic · subtopic · question type · board · examination year · source · difficulty · marks · publication status.
 
@@ -2466,6 +2780,14 @@ Each block is typographically distinct (H4/Micro label + Body content, KaTeX for
 **CQ editor:** stimulus · stimulus assets · subquestions ক/খ/গ/ঘ · marks per subquestion · marking guide · explanation.
 
 **Publication workflow:** Draft → Review → Approved → Published; also Rejected, Archived, Needs correction. Every published question has revision history and every status change is audit-logged ([§7.6](#76-admin-dashboard--content-management)).
+
+**States:** new/unsaved · validation errors inline per field · unsaved-changes guard on navigate away · image upload progress and failure · math/code preview error · publish blocked with the reason stated · publish confirmation with the resulting status · permission denied.
+
+**Responsive:** editor is single-column from 1024 px down, metadata properties wrap into rows; ≤ 767 the metadata row becomes a collapsible summary that opens as a bottom sheet, the editor fills the viewport, and the toolbar sticks above the keyboard.
+
+**Theme:** both themes. The rich-text editor's own selection, caret, placeholder and code-block surfaces must be specified per theme; code blocks use the shared dark code surface in both themes ([§17.2](#172-color-tokens)).
+
+**Keyboard & accessibility:** inline property menus open with `Enter`, navigable with arrows, commit with `Enter`, dismiss with `Esc` · the editor exposes heading/list/code shortcuts documented in-product · image insertion requires alt text or an explicit decorative marking · Bengali and English runs carry correct `lang` attributes.
 
 ### 17.8 Component system
 
@@ -2508,6 +2830,30 @@ States: default · hover · focus · pressed · disabled · loading. Standard he
 **Feedback components:** toast notification · confirmation dialog · warning banner · error message · loading skeleton · empty state · success state.
 
 **Naming:** `Button/Primary/Default`, `Question/MCQ/Default`, `Navigation/Sidebar/Active`, `Examination/Timer/Warning` — the same names in Figma and in the component folder.
+
+**Recreated component contracts (reference → ICT Atlas component)**
+
+These components exist because a reference uses them, and they must carry that reference's behaviour, not a generic substitute. Each is built once and reused ([§17.16](#1716-implementation-design-standards)).
+
+| Component | Reference source | Behaviour that defines it |
+|---|---|---|
+| Sidebar with grouped sections | Linear | Persistent, collapsible section headers, 3 px leading active indicator, icon rail when collapsed, footer block above the profile row |
+| Command palette + action panel | Raycast inside Linear's nesting | Floating centred surface, single input, grouped results, keycap hints per row, `⌘K` action panel, `Esc` back then close, `aria-activedescendant` |
+| Filter chip row | Linear / Vercel | Chips wrap in one row, each removable with its facet in the accessible name, "Clear all" as a trailing text action, count visible on the mobile trigger |
+| Data table header | Vercel | Sticky, dense, sort affordance with `aria-sort`, right-aligned tabular numerals, spacing instead of row dividers, shadow-as-border on the container |
+| Status label | Vercel | Text + tonal surface in every theme, never colour alone; same token per status across surfaces |
+| Peek panel | Linear | Opens beside the list without losing scroll position; `Esc` closes to the originating row |
+| Inline property menu | Linear | Opens in place over the row, arrows to move, `Enter` to commit, `Esc` to dismiss — never a modal per field |
+| Action bar | Raycast | Contextual actions for the current object with visible keycap hints, left title / right actions |
+| Bulk action bar | Linear | Appears on first selection with the count, `X` toggles selection, `⌘/Ctrl + A` selects the visible page, destructive actions confirmed |
+| Disclosure row | Linear / Vercel | Expands in place with a chevron, `aria-expanded`, focus retained, no modal per item |
+| Metric figure | Vercel | Small muted label above a tabular-numeral value, spacing (not dividers) between figures — never an icon-in-a-coloured-circle |
+| Numbered list row | Design+Code | Fixed sequence number, title, one meta line (meta · duration/status) — the catalogue idiom reused for chapters and lessons |
+| Question stem block | Udvash | Bengali-first typography, enumerated ক/খ/গ/ঘ sub-parts with marks in the margin, generous leading |
+| Paper sheet | Framer / Udvash print | Real page geometry, page boundaries and numbering, ink-on-paper Light regardless of theme |
+| Export panel | Vercel settings | Grouped fields with inline current values, no wizard; actions state their outcome |
+
+If a future implementation needs a component that appears in this table and builds a different behaviour, that is an unlisted adaptation and must be added to [§17.1.4](#1714-documented-adaptations-and-their-reasons) with a reason.
 
 ### 17.9 Content and question rendering
 
@@ -2593,6 +2939,8 @@ Use a **44 px minimum touch target** where practical, visible keyboard focus on 
 
 Do not simply hide important content on mobile. Every desktop capability has a mobile equivalent — filters become a drawer, not a dead end; tables become stacked rows, not a horizontal-scroll trap.
 
+**Resize behaviour must preserve reference character.** The reference products keep their density and hierarchy as they narrow rather than switching to a generic stacked-card layout. Recreate that: Linear's rows stay rows (metadata wraps, it does not become a card), Raycast's palette collapses to a single-column result list, Framer's previews rescale rather than re-compose, and Vercel's tables keep aligned numerics until a true card-free stacked list is unavoidable. Changing the information architecture on small screens is allowed and expected; abandoning the reference's visual grammar is not.
+
 ### 17.11 Motion guidelines
 
 Motion is functional and restrained. Interactions feel **intentional, not decorative**.
@@ -2618,6 +2966,8 @@ Motion is functional and restrained. Interactions feel **intentional, not decora
 
 Use motion to communicate navigation, selection, loading, completion, expansion and collapse. Respect `prefers-reduced-motion` (disable transforms and autoplay; keep opacity fades short). No decorative animation that competes with reading or examination tasks. **No motion on the exam timer itself** — it must be stable and legible.
 
+**Recreating reference motion:** the reference products move sparingly and only for cause — Linear's palette and menus appear almost instantly, Raycast surfaces snap into place, Framer's marketing reveals are opacity/translate only. Animate **`transform` and `opacity` only** (compositor-friendly; never `width`, `height`, `top`, `left`), keep interactions interruptible so a second input does not queue behind an animation, and never use motion to mask loading you could have avoided. No bounce, no spring overshoot, no looping ambient motion, no parallax, no scroll-jacking.
+
 ### 17.12 Accessibility
 
 Target **WCAG 2.2 AA** where applicable.
@@ -2636,6 +2986,11 @@ Target **WCAG 2.2 AA** where applicable.
 - [ ] Timers and autosave status announced politely (`aria-live="polite"`), not on every second
 - [ ] The question navigator exposes current/answered/review state as text, not only as a coloured square
 - [ ] Command palette fully operable by keyboard; exam screen operable without a mouse
+- [ ] **System-preference theming only:** the theme resolves from `prefers-color-scheme`, there is no theme control in the UI, and no theme value is read from or written to storage, cookies or a user record ([§17.2](#172-color-tokens))
+- [ ] No flash of the wrong theme on load, and no hydration mismatch on a theme-dependent attribute
+- [ ] Every screen, state and component reviewed in **both** Light and Dark
+- [ ] Native controls and scrollbars follow the resolved theme (`color-scheme`)
+- [ ] Print output (`@media print`, Paper Studio export) is theme-independent ink-on-paper Light
 
 ### 17.13 Design states
 
@@ -2652,6 +3007,8 @@ Every important screen is designed in multiple states, not just the happy path.
 **Admin:** draft · under review · approved · published · rejected · archived · permission denied.
 
 > Rule: no screen ships without at least loading, empty and error states. These are part of the component, not an afterthought.
+
+> **Theme parity rule:** every state above exists in **both** Light and Dark. A state that has only been designed in one theme is incomplete — and since the theme is selected by the OS, no state may assume the user can switch to the other theme to read it.
 
 ### 17.14 Security reflected in the interface
 
@@ -2725,22 +3082,36 @@ Implement the design with:
 - For Linear's design philosophy, its own interface redesign writing (see [how we redesigned the Linear UI](https://linear.app/now/how-we-redesigned-the-linear-ui) and the [behind the latest design refresh](https://linear.app/now/behind-the-latest-design-refresh) notes) is especially useful: reduce unnecessary visual elements while retaining information density.
 - The architecture in [§4](#4-technology-stack) already matches this stack; do not introduce a second styling approach.
 
+**Recreation discipline at implementation time**
+
+- **Open the reference before building.** For every screen, the implementer opens the mapped reference interface from [§17.1.3](#1713-per-screen-reference-mapping) and compares the built screen against it: column structure, row height, control order, type hierarchy, spacing rhythm, state behaviour.
+- **Compare side by side, not from memory.** A recreation that has not been visually compared to the reference is unverified.
+- **Do not "improve" a reference pattern into a familiar generic one.** If the reference's list has inline-editable properties, the implementation must not replace them with a modal. If the reference exposes an action panel, the implementation must not fold it into a dropdown menu.
+- **Record deviations.** Any deviation from the reference is either covered by [§17.1.4](#1714-documented-adaptations-and-their-reasons) or added to it in the same change — with a reason tied to academic function, Bengali metrics, exam integrity, print or accessibility.
+- **One pattern, one implementation.** The command palette, filter chips, table header, status label, dialog and peek panel are built once and reused; a second variant of the same pattern is a defect.
+
 ### 17.17 Design-to-code acceptance criteria
 
 A screen is ready for implementation when:
 
 - [ ] Desktop layout specified (1440 × 1000 reference)
 - [ ] Mobile behaviour specified (390 × 844 reference)
+- [ ] The mapped reference screen is identified ([§17.1.3](#1713-per-screen-reference-mapping)) and the recreation approach is stated (which structures are copied, which are adapted)
+- [ ] Every adaptation is listed in [§17.1.4](#1714-documented-adaptations-and-their-reasons) with a reason
 - [ ] All primary components have variants and states
-- [ ] Interactive states documented (default, hover, focus, disabled, loading, error)
+- [ ] Interactive states documented (default, hover, focus, active, selected, disabled, loading, error)
 - [ ] Typography and spacing defined from the token scale
-- [ ] Both themes specified (light default, dark available) via the shared CSS variables
+- [ ] **Both themes fully specified** via the shared CSS variables, with the theme resolved by `prefers-color-scheme` only — no theme control, no stored preference ([§17.2](#172-color-tokens))
+- [ ] No theme flash on load and no hydration mismatch on theme-dependent output
 - [ ] Content overflow considered (long Bengali compounds, code, tables, 320 px width)
-- [ ] Loading and empty states exist
+- [ ] Loading, empty, error and success states exist, in both themes
+- [ ] Responsive behaviour documented for each breakpoint band ([§17.10](#1710-responsive-design))
+- [ ] Keyboard interactions and shortcuts specified, including palette navigation where applicable
 - [ ] Accessibility requirements addressed ([§17.12](#1712-accessibility))
 - [ ] Data requirements understood (which fields, which API, which permissions)
 - [ ] Design tokens available in `tailwind.config.ts`
 - [ ] No hex values or arbitrary Tailwind values in page code
+- [ ] No generic AI-dashboard artifacts introduced (gradients, glassmorphism, oversized rounded cards, decorative illustration, mascots, gratuitous animation)
 
 ### 17.18 Design production sequence
 
@@ -2857,16 +3228,28 @@ It defines the locked brand direction, color tokens, typography, information
 architecture, screen specifications, component inventory, responsive rules,
 and accessibility targets. Design within that system — do not invent a new one.
 
+Before drawing anything, open the reference interfaces named in README
+§17.1.1 and §17.1.3 for each screen and study the actual layout, row heights,
+type scale, spacing and interaction. Recreate what you observe; do not work
+from memory of "a Linear-style app". Note in the handoff which reference you
+compared against and what you deliberately changed (§17.1.4).
+
 Product: ICT Atlas — an HSC/ALIM ICT Question Bank platform for Bangladesh.
-Design direction: Modern Academic SaaS — Linear's interaction discipline,
-Vercel's visual precision, Framer's marketing presentation, Raycast's focused
-dark AI experience, DesignCode's editorial clarity. One design system, five
-surface treatments (public site, student app, admin app, AI Tutor, learning
-content); a light reading environment is the default, with an excellent dark
-mode everywhere. It must not look like a generic AI-generated dashboard, a
-children's app, or a gamified mobile app. No purple gradients, no
-glassmorphism, no decorative 3D icons, no oversized rounded cards, no
-mascots — and do not make the whole product dark either.
+Design direction: Modern Academic SaaS built by FAITHFUL RECREATION of real
+reference products — Linear's interaction discipline, Vercel's visual
+precision, Framer's marketing presentation, Raycast's focused dark AI
+experience, Design+Code's editorial clarity, Udvash's Bengali academic
+framing. Recreate their actual layouts, density, hierarchy, components and
+interaction behaviour; adapt only where academic function requires it, and
+record each adaptation with a reason (README §17.1.4). Do not produce a
+generic "inspired-by" dashboard. One design system, five surface treatments
+(public site, student app, admin app, AI Tutor, learning content). Both
+themes are designed to equal completeness and are selected exclusively by the
+operating system / browser prefers-color-scheme — there is no theme toggle,
+no theme setting, no stored theme preference. It must not look like a generic
+AI-generated dashboard, a children's app, or a gamified mobile app. No purple
+gradients, no glassmorphism, no decorative 3D icons, no oversized rounded
+cards, no mascots — and do not make the whole product dark either.
 
 Design tokens (see README §17.2 for the full light + dark sets):
 - Light: Canvas #FAFAFA · Surface #FFFFFF · Ink #17191B · Muted #777D83
@@ -2881,7 +3264,7 @@ Design tokens (see README §17.2 for the full light + dark sets):
   KaTeX (math)
 - Code surfaces: Elevated #1B2024 in both themes
 
-Three surfaces:
+Three deliverable surfaces (carrying the five treatments above):
 1. Public website — home, about, question bank preview, features, pricing,
    sign in, register, legal pages.
 2. Student application — dashboard, question bank (MCQ/CQ, board/model/topic
@@ -2905,10 +3288,13 @@ Also produce:
    feedback) with all variants and states
 4. Responsive behaviour per §17.10 (sidebar → bottom navigation, filters →
    drawer, AI Tutor two-column → single-column, Paper Studio three-column →
-   sequential panels)
-5. Accessibility notes targeting WCAG 2.2 AA: contrast, visible focus,
+   sequential panels). Resize must preserve each reference's visual grammar,
+   not fall back to a generic stacked-card layout.
+5. Both Light and Dark appearances for every screen and state, resolved by
+   prefers-color-scheme only — no theme control anywhere in the UI
+6. Accessibility notes targeting WCAG 2.2 AA: contrast, visible focus,
    labels, 44 × 44 touch targets, no colour-only status, reduced motion
-6. A design-to-code handoff mapping every token and component to a Tailwind
+7. A design-to-code handoff mapping every token and component to a Tailwind
    class or shadcn/ui component
 
 Do not start implementing the application until the design structure is

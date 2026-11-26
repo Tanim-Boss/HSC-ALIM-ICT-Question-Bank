@@ -13,7 +13,7 @@
 - **Design concept:** **The Atlas Grid**—knowledge made navigable. The draft [`brand-mark.svg`](brand-mark.svg) turns that into an original, flat geometric monogram: an open `A` drawn on a 24 × 24 grid with a centered crossbar and one small upper-right locator node. The 1.75 px paths use `currentColor`; set it to the approved brand Teal for the primary mark, or a contrast-safe monochrome token for one-color use. It must never depend on a gradient, mascot, 3D effect or enclosing rounded app tile.
 - **Wordmark:** Geist Sans; `ICT` receives the stronger weight and `Atlas` the same family at regular/medium weight. Keep the mark and wordmark aligned on one optical baseline. In Bengali UI, the product name itself remains the Latin wordmark unless a future localization decision approves otherwise.
 - **Brand color:** Teal is a locator/action color, not a screen fill. Use Ink for the wordmark in both themes where contrast permits; use the approved Teal token for the mark's locator detail. Accent is a rare editorial highlight, with dark Ink on Accent.
-- **Reference integrity:** Linear, Vercel, Framer, Raycast and DesignCode are influences for interaction discipline, precision, storytelling, focused dark surfaces and editorial learning—not templates to copy. The Atlas Grid is an original product identity.
+- **Reference integrity:** Linear, Vercel, Framer, Raycast, Design+Code and (for academic presentation) Udvash are **faithful UI-recreation targets**, not loose influences: their observable layouts, density, hierarchy, component behaviour and interaction models must be reproduced and only adapted where ICT Atlas's academic function requires it (README §17.1.1–§17.1.4). What is **not** copied is ownership: no proprietary source code, private assets, logos, brand identity or protected illustration is reproduced or presented as ICT Atlas's own. The Atlas Grid remains an original product identity.
 
 The SVG is a vector draft for review, not an approved final logo. Use the Foundations page to review optical balance, the locator node at small sizes, wordmark spacing and Light/Dark contrast before approval. In a lockup, pair the mark with live `ICT Atlas` text in Geist Sans rather than converting the wordmark into an uneditable path.
 
@@ -21,14 +21,14 @@ The SVG is a vector draft for review, not an approved final logo. Use the Founda
 
 | Surface | Distinct treatment | Shared invariants |
 |---|---|---|
-| Public website | Framer-inspired storytelling, large editorial type, authentic product material and restrained motion. | Same brand, typography, palette and accessible controls; no marketing page is specified here. |
-| Student application | Linear-inspired light-first productivity, keyboard-ready navigation and clear task hierarchy. | Same tokens and component contracts; content outranks chrome. |
-| Admin application | Vercel-inspired precision, compact density, aligned tables and quiet borders. | Same tokens; density changes spacing, never meaning or accessibility. |
-| AI Tutor | Raycast-inspired focused dark treatment; it may use a local dark surface inside an otherwise light session. | Same semantic tokens, controls and type; no separate color system or purple gradient. |
-| Learning content | DesignCode-inspired editorial presentation for long explanations, questions and examples. | Same shared renderer and bilingual type rules; no page-specific question styling. |
+| Public website | **Framer recreation**: poster-scale display type, one assertion per band, authentic product previews, restrained opacity/translate reveals. | Same brand, typography, palette and accessible controls; no marketing page is specified here. |
+| Student application | **Linear recreation**: persistent grouped sidebar, compact uniform rows, inline properties, keyboard-ready navigation and a peek panel. | Same tokens and component contracts; content outranks chrome. |
+| Admin application | **Vercel recreation**: shadow-border surfaces, spacing instead of dividers, compact density, aligned tabular numerics, quiet borders. | Same tokens; density changes spacing, never meaning or accessibility. |
+| AI Tutor | **Raycast recreation**: focused dark surface, single bright input, action bar with keycap hints; local dark surface inside either global theme. | Same semantic tokens, controls and type; no separate color system or purple gradient. |
+| Learning content | **Design+Code recreation**: numbered sequence, editorial measure, clear meta line for long explanations, questions and examples. | Same shared renderer and bilingual type rules; no page-specific question styling. |
 | Examination mode | Quiet neutral workspace; the question and answer controls dominate. | Same components in either theme; no command palette, decorative motion or low-contrast timer. |
 
-The default student learning and reading environment is Light. Dark is supported across the system but is not the product-wide default. Examination readability takes precedence over the Raycast influence.
+**Light and Dark are both fully specified and equally supported.** Neither is a fallback: the interface uses whichever the operating system/browser colour-scheme preference resolves to, and every surface above must be reviewed in both. Examination readability takes precedence over the Raycast influence in either theme.
 
 ## 2. Color and semantic tokens
 
@@ -60,13 +60,20 @@ Palette values do not make every possible pairing accessible. Contrast is checke
 
 ## 3. Theme architecture
 
-- Light is the default. Dark uses the **same semantic token names** and the same component recipes; only theme variable values change.
-- Implementation uses the approved `dark` class strategy: light values at the root, dark overrides on the theme root. Use `color-scheme` consistently for native controls. Persisting a user preference and the system-preference policy are implementation concerns, not a new design decision.
+**Authority: the operating system / browser colour-scheme preference, and nothing else.** README [§17.2](../../README.md#172-color-tokens) is the governing specification; this section states how the design system consumes it.
+
+- Light values are the base; Dark applies when `prefers-color-scheme: dark` matches. Dark uses the **same semantic token names** and the same component recipes; only theme variable values change.
+- **There is no manual theme control in the design system** — no toggle component, no theme selector in a profile menu or Settings surface, no user override, and no persisted theme preference. A theme switcher is not a planned feature and must not be designed, specified or added to the component inventory (see [component-architecture.md](component-architecture.md)).
+- **Both themes are first-class.** Every screen, component, state and surface is specified and reviewed in both sets; Dark is not a filtered inversion and Light is not the only "real" design.
+- Wiring: keep the dark overrides inside `@media (prefers-color-scheme: dark)` so the correct theme is painted on the first frame. If a `.dark` class is unavoidable for a dependency, it may only be applied *from* the same media query — never from stored input. `color-scheme` must match the resolved theme so native controls and scrollbars follow it.
+- **Prohibited:** reading or writing a theme key in `localStorage`, a cookie, a settings record or the database; a theme query parameter; a `darkMode: 'class'` configuration driven by user choice; painting Light first and correcting after hydration (a visible flash).
+- Print and export use a theme-independent ink-on-paper Light treatment; `@media print` must not depend on tokens that change with the OS preference.
+- This repository currently contains a class-based manual toggle in application code. That code is **not** part of the approved design system and is scheduled for replacement; its presence is not evidence that the system-preference behaviour is implemented.
 - Components read semantic variables only. No inline hex, arbitrary Tailwind color, opacity-derived color, or one-off page theme. Theme-specific component CSS is permitted only when it consumes the same semantic role.
-- AI Tutor may set a local dark surface without changing the global theme. Learning and examination remain readable in Light by default.
+- AI Tutor may set a local dark surface without changing the global theme; this is a surface treatment, not a theme override. Learning and examination remain readable in both themes.
 - In Light, ordinary raised surfaces use Surface, borders and restrained elevation. The approved Elevated dark surface is reserved for code/terminal blocks or an explicitly specified dark treatment. In Dark, Canvas → Surface → Elevated provides tonal hierarchy; shadows are nearly invisible.
 
-The JSON records primitive hex values and theme-specific semantic aliases. The aliases are intended to map into the CSS-variable names and Tailwind names documented in [implementation guidelines](implementation-guidelines.md); this repository has no app/theme configuration to modify yet.
+The JSON records primitive hex values and theme-specific semantic aliases. The aliases map into the CSS-variable names and Tailwind names documented in [implementation guidelines](implementation-guidelines.md). The committed `tailwind.config.ts` and `app/globals.css` already follow the token layer, but they currently implement the `.dark` class strategy driven by a manual toggle — that wiring contradicts this section and is scheduled for replacement by the media-query strategy described above. Their presence is **not** evidence that system-preference theming is implemented.
 
 ## 4. Typography, geometry and layout
 
@@ -105,7 +112,7 @@ Use the approved file/page plan from README §17.15. This phase supplies specifi
 - **01 Foundations:** Color variables with Light/Dark modes; typography styles; 4 px spacing/grid; radii, borders, elevation, breakpoints and responsive shell measurements.
 - **02 Components:** Shared components and their variants/states from [component architecture](component-architecture.md).
 
-Use slash naming aligned with the token paths and README conventions, for example `Color/Primary/Teal`, `Typography/Heading/H1`, `Button/Primary/Default`, `Navigation/Sidebar/Active`, and `Question/MCQ/Default`. Use Figma variables for the same semantic names; make Light the default mode and Dark the alternate. Components should use Auto Layout, named properties and explicit focus/disabled/loading/error variants. Do not create Marketing Website, Student Application or other product-screen frames as part of this task.
+Use slash naming aligned with the token paths and README conventions, for example `Color/Primary/Teal`, `Typography/Heading/H1`, `Button/Primary/Default`, `Navigation/Sidebar/Active`, and `Question/MCQ/Default`. Use Figma variables for the same semantic names and give Light and Dark **equal** specimen coverage (the Figma mode is a review device, not a runtime switch). Components should use Auto Layout, named properties and explicit focus/disabled/loading/error variants. Do not create Marketing Website, Student Application or other product-screen frames as part of this task.
 
 ## 7. Review gate and unresolved decisions
 
