@@ -221,45 +221,31 @@ jobs:
           if [ ! -f /tmp/playwright.log ]; then echo "no log to annotate"; exit 0; fi
           strip() { sed 's/\x1b\[[0-9;]*m//g' "$1" | tr -d '\r'; }
 
-          # ORDER MATTERS. GitHub caps annotations per step (10), so the most
-          # specific evidence must be emitted FIRST or it is silently dropped —
-          # which is exactly what happened on the first run of this job: the
-          # generic "failed" lines used up the budget and the Expected/Received
-          # values that identify the defect never appeared.
+          # GitHub caps annotations at 10 per step, so emit the FIRST detail
+          # block verbatim rather than cherry-picking labels. A label-based grep
+          # was tried and silently produced nothing useful: it has to guess how
+          # this Playwright version words its diff, and guessing is how a
+          # diagnostic step ends up reporting "it failed" with no evidence.
+          #
+          # The block starts at the first "Error: expect" and runs until the
+          # Call-log section ends. Blank lines are dropped so more of the block
+          # fits inside the annotation limit.
+          strip /tmp/playwright.log \
+            | awk '/Error: expect/{f=1} f && /^[[:space:]]*$/{blank++; if (blank>2) exit; next} f{blank=0; print}' \
+            | head -12 \
+            | while IFS= read -r line; do
+                [ -n "$line" ] && echo "::error title=detail::$line"
+              done
 
-          # 1. the assertion's actual values — the only lines that name the defect
-          strip /tmp/playwright.log | grep -E "^\s*(Expected|Received|Locator|Timeout|Call log):" | head -6 | while IFS= read -r line; do
-            echo "::error title=assertion::$line"
-          done
-
-          # 2. the error headline, which names the matcher
-          strip /tmp/playwright.log | grep -E "Error: expect|Error: " | head -3 | while IFS= read -r line; do
-            echo "::error title=error::$line"
-          done
-
-          # 3. which test, and how the run ended
+          # Which test, and how the whole run ended.
           strip /tmp/playwright.log | grep -E "^\s+[0-9]+\) \[chromium\]" | head -2 | while IFS= read -r line; do
             echo "::error title=test::$line"
           done
-          strip /tmp/playwright.log | grep -E "[0-9]+ (passed|failed|skipped|flaky)" | tail -3 | while IFS= read -r line; do
+          strip /tmp/playwright.log | grep -E "[0-9]+ (passed|failed|skipped|flaky)" | tail -2 | while IFS= read -r line; do
             echo "::error title=counts::$line"
-          done
-
-          # 4. the web-server log, because a boot failure looks like a UI failure
-          strip /tmp/playwright.log | grep -iE "webServer|npm run dev|Ready in|EADDRINUSE|Timeout" | head -4 | while IFS= read -r line; do
-            echo "::error title=webserver::$line"
           done
           exit 0
 
-      # A skipped or zero-case run must never be reported as green. `playwright
-      # test` exits non-zero on a failure, but it can exit zero having run
-      # nothing at all — if `testDir` stops matching, a filter goes stale, or
-      # the only test is skipped. The decision lives in a committed, unit-tested
-      # script rather than inline YAML so it can be verified locally:
-      # `tests/unit/tooling/playwright-run-guard.test.ts` covers every branch.
-      #
-      # `if: always()` because this must also run when the suite failed, and it
-      # must not turn a real failure into a confusing second one.
       - name: Assert the smoke suite actually executed
         if: always()
         run: node scripts/ci/playwright-run-guard.mjs playwright-report/results.json --min 1
