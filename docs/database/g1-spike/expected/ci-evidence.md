@@ -70,5 +70,5 @@ so that a datamodel mistake can never again be reported as a Prisma verdict.**
 ## Verdict
 
 **G-1 FAILS.** See §11.3.2 of
-[`../phase-04a-question-bank-physical-schema-proposal.md`](../phase-04a-question-bank-physical-schema-proposal.md).
+[`../../phase-04a-question-bank-physical-schema-proposal.md`](../../phase-04a-question-bank-physical-schema-proposal.md).
 Request C reverts to its documented fallback, which requires re-approval.
