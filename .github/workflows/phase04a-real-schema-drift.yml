@@ -14,15 +14,33 @@ name: Phase 04A — real 18-table Prisma drift measurement
 # What it establishes
 #   E1. no-change drift, database -> datamodel, on the real schema
 #   E2. Option C snapshot -> snapshot no-change must be EMPTY
-#   E3. Option C snapshot -> snapshot with one additive probe must contain only
-#       that additive change (no unrelated destructive operation)
+#   E3. Option C snapshot -> snapshot with one additive probe must contain an
+#       ADD COLUMN and must NOT contain any of the FOUR destructive statement
+#       forms listed in the E3 step below. It is NOT a general
+#       destructive-SQL detector (see "Detection limits").
 #
 # What it deliberately does NOT do
 #   * it does not execute the generated SQL (proposed != applied, always)
 #   * it does not create a migration, commit anything, or write to prisma/
 #   * it does not fail the build merely because E1 finds drift — finding drift
-#     is the measurement. It fails on tooling errors (exit 1), on E2 producing
-#     any SQL, or on E3 producing destructive statements.
+#     is the measurement. E1 accepts Prisma exit 0 (empty diff) AND exit 2
+#     (non-empty diff); only other exits are tooling errors. It fails on E2
+#     producing any SQL, or on E3 producing one of the four checked forms.
+#
+# Detection limits (Session 41 / F-5: claim narrowed, behaviour unchanged)
+#   E3's check is a case-insensitive TEXT regex over the generated SQL:
+#     DROP CONSTRAINT | DROP INDEX | DROP COLUMN | ALTER COLUMN
+#   It does NOT detect DROP TABLE, DROP SCHEMA, DROP TYPE, DROP SEQUENCE,
+#   TRUNCATE, DROP VIEW/FUNCTION/TRIGGER, or any other destructive statement.
+#   It does not parse SQL, so it cannot distinguish a match inside a comment,
+#   a quoted string or an identifier from a real statement (and may therefore
+#   produce a false positive on such text). A green E3 proves only that those
+#   four literal forms were absent from this one generated script.
+#   The E1 inventory step COUNTS statements (including DROP TABLE) and reports
+#   them; it does not assert that any count is zero. A passing workflow is NOT
+#   proof that every destructive drift is detected, that the schema is
+#   structurally safe, or that a production migration would be safe.
+#   This is a MEASUREMENT harness, not a complete structural schema guard.
 
 on:
   push:
@@ -147,6 +165,8 @@ jobs:
             --script --exit-code > "$OUT/e1-nochange.sql" 2> "$OUT/e1-nochange.err" || rc=$?
           echo "$rc" > "$OUT/e1-exit.txt"
           echo "E1 exit=$rc (0 = empty diff, 2 = non-empty, 1 = tooling error)"
+          # Measurement-only: 0 (empty diff) and 2 (non-empty diff) are both
+          # accepted; only a tooling error fails E1. Semantics unchanged.
           case "$rc" in
             0|2) : ;;
             *) cat "$OUT/e1-nochange.err"; echo "::error title=E1::prisma migrate diff errored (exit $rc)"; exit 1 ;;
@@ -188,12 +208,13 @@ jobs:
             echo "::error title=E2::Option C reported $statements statement(s) between a snapshot and itself"
             exit 1
           fi
-          echo "::notice title=E2 sentinel bytes::$bytes" 
+          echo "::notice title=E2 sentinel bytes::$bytes"
 
       # ---------------------------------------------------------------------
-      # E3 — Option C with one additive probe: only that change may appear
+      # E3 — Option C with one additive probe: ADD COLUMN present and none of
+      # the four checked destructive forms (NOT a general destructive guard)
       # ---------------------------------------------------------------------
-      - name: 'E3 — Option C additive probe (only the probe may appear)'
+      - name: 'E3 — Option C additive probe (four checked forms absent)'
         run: |
           set -uo pipefail
           awk '
@@ -221,8 +242,12 @@ jobs:
           cat "$OUT/e3-additive.sql"
           grep -qi "ADD COLUMN" "$OUT/e3-additive.sql" || {
             echo "::error title=E3::the probe produced no ADD COLUMN — it proves nothing"; exit 1; }
+          # Narrow, literal text check — exactly those four forms. See the
+          # workflow header "Detection limits" for what is NOT covered and why
+          # a broader regex was rejected: matching comments/quoted strings
+          # cannot be distinguished reliably without a real SQL parser.
           if grep -Eqi 'DROP +CONSTRAINT|DROP +INDEX|DROP +COLUMN|ALTER COLUMN' "$OUT/e3-additive.sql"; then
-            echo "::error title=E3::an additive change also produced destructive SQL"
+            echo "::error title=E3::an additive change produced one of the four checked destructive forms"
             exit 1
           fi
 
@@ -240,6 +265,9 @@ jobs:
 
       # ---------------------------------------------------------------------
       # Inventory: what did Prisma propose, exactly?
+      # Counts are informational evidence only. This step does not assert that
+      # any destructive count (including DROP TABLE) is zero; semantics
+      # unchanged (Session 41 / F-5 note).
       # ---------------------------------------------------------------------
       - name: 'Inventory E1 — classify every proposed statement'
         run: |
