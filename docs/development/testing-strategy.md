@@ -38,7 +38,7 @@ This section records committed, executing verification. It is separated from the
 | Workflow | Scope it actually verifies | Deliberately not covered |
 |---|---|---|
 | `phase04a-v45-application.yml` | Unit suites (`tests/unit/**`), `tsc --noEmit`, ESLint, formatting of application files, repository + deployment-path guards, and the question-bank services against a real PostgreSQL 16 | The Next.js application build and the browser layer |
-| `phase03-application-build-e2e.yml` | `next build` with no runtime secrets configured, build-artifact assertions, the `server-only` boundary marker, and the committed Playwright smoke suite in Chromium | Product flows (none exist), the 200 KB initial-JS budget (OD-26-3), visual regression, PDF/print output |
+| `phase03-application-build-e2e.yml` | `next build` with no runtime secrets configured, build-artifact assertions, the `server-only` boundary marker, and the committed Playwright smoke suite in Chromium — served from the **production bundle** (`next build` + `next start`) in CI, with an execution guard that fails the job if the suite ran nothing or skipped a case | Product flows (none exist), the 200 KB initial-JS budget (OD-26-3), visual regression, PDF/print output |
 | `phase04a-g3-*`, `g1-*`, `phase04a-option-c-prototype.yml`, `phase04a-prod-ready-v1-v5.yml`, `phase04a-real-schema-drift.yml`, `phase04a-collation-probe-input.yml` | Phase 04A schema, migration-workflow, drift and collation evidence against **disposable** databases | Production or staging resources — none is contacted |
 | `g1-prisma-drift-spike.yml`, `g1-experiment-2.yml` | Reproduce the unsafe Prisma behaviour; recorded as gate **G-1 FAILED** | Nothing is fixed by them; failure is the expected evidence |
 

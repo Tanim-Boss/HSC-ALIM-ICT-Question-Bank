@@ -50,6 +50,11 @@ on:
       - 'components/**'
       - 'lib/**'
       - 'tests/e2e/**'
+      # The smoke suite's execution guard and its regression suite live here.
+      # Without these entries a change to either would trigger no job, which is
+      # how a guard quietly stops being tested.
+      - 'scripts/ci/playwright-run-guard.mjs'
+      - 'tests/unit/tooling/playwright-run-guard.test.ts'
       - 'playwright.config.ts'
       - 'next.config.ts'
       - 'postcss.config.mjs'
@@ -68,6 +73,11 @@ on:
       - 'components/**'
       - 'lib/**'
       - 'tests/e2e/**'
+      # The smoke suite's execution guard and its regression suite live here.
+      # Without these entries a change to either would trigger no job, which is
+      # how a guard quietly stops being tested.
+      - 'scripts/ci/playwright-run-guard.mjs'
+      - 'tests/unit/tooling/playwright-run-guard.test.ts'
       - 'playwright.config.ts'
       - 'next.config.ts'
       - 'postcss.config.mjs'
@@ -193,10 +203,29 @@ jobs:
       # database; the page renders by design with no runtime secrets, and the
       # Supabase proxy logs "not configured" and passes the request through.
       #
-      # Playwright owns the dev server here (`webServer` in playwright.config.ts,
-      # `npm run dev`, 120 s boot budget, baseURL http://127.0.0.1:3000). Nothing
-      # is pre-started above, so the config is the single source of truth for how
-      # the app boots.
+      # WHICH SERVER THIS EXERCISES — the PRODUCTION bundle, not `next dev`.
+      # `playwright.config.ts` selects the command from the environment:
+      #
+      #   CI (this job) → `webServer.command` = `npm run build && npm run start`
+      #                   (i.e. `next build` then `next start`), 180 s boot budget,
+      #                   `reuseExistingServer: false`;
+      #   local         → `npm run dev`, because it is faster and is what a
+      #                   developer already has running.
+      #
+      # The reason is recorded in that file and in the commit history: an
+      # earlier revision of this job started `next dev`, whose client runtime
+      # could not open its HMR websocket in CI, so React never hydrated the
+      # Client Component and the theme-toggle assertion failed every run. A
+      # smoke test must exercise what actually ships, so CI builds and serves
+      # the production bundle, where no HMR client exists.
+      #
+      # Nothing is pre-started above: Playwright owns the server, so
+      # `playwright.config.ts` is the single source of truth for how the app
+      # boots. `PLAYWRIGHT_DEV_SERVER=1` forces the dev server for debugging.
+      #
+      # Because the webServer command builds, this job compiles independently of
+      # the `build` job. That costs roughly half a minute and is deliberate: the
+      # two jobs stay independent, so neither can be reported as the other.
       #
       # The JSON reporter is requested *in addition to* the list output so the
       # execution guard below reads structured counts rather than scraping log
