@@ -205,7 +205,42 @@ jobs:
       - name: Run the committed smoke suite
         env:
           PLAYWRIGHT_JSON_OUTPUT_FILE: playwright-report/results.json
-        run: npx playwright test --reporter=list,json
+        run: |
+          # The output is also teed to a file so the annotation step below can
+          # read it. GitHub's job-log download is not reachable from every
+          # environment (the Phase 04A harnesses hit the same wall), and an API
+          # annotation is often the only way to see WHY a run failed.
+          # `set -o pipefail` keeps the real exit status through the pipe.
+          set -o pipefail
+          npx playwright test --reporter=list,json 2>&1 | tee /tmp/playwright.log
+
+      - name: Emit failing cases as annotations
+        if: always()
+        run: |
+          # Reports only; it never changes the outcome of the run.
+          if [ ! -f /tmp/playwright.log ]; then echo "no log to annotate"; exit 0; fi
+          strip() { sed 's/\x1b\[[0-9;]*m//g' "$1" | tr -d '\r'; }
+
+          # 1. the per-test summary lines, which name the failing assertion
+          strip /tmp/playwright.log | grep -E "^\s+[0-9]+\) |✘|✗|failed$" | head -30 | while IFS= read -r line; do
+            [ -n "$line" ] && echo "::error title=FAILED::$line"
+          done
+
+          # 2. Playwright's error/expectation blocks, which carry the actual values
+          strip /tmp/playwright.log | grep -E "Error:|Expected:|Received:|expect\(|locator\(|Call log:|waiting for" | head -25 | while IFS= read -r line; do
+            echo "::error title=assertion::$line"
+          done
+
+          # 3. the counts, so a partial run is visible
+          strip /tmp/playwright.log | grep -E "[0-9]+ (passed|failed|skipped|flaky)" | tail -5 | while IFS= read -r line; do
+            echo "::error title=counts::$line"
+          done
+
+          # 4. the web-server log, because a boot failure looks like a UI failure
+          strip /tmp/playwright.log | grep -iE "webServer|npm run dev|Ready in|EADDRINUSE|Timeout" | head -10 | while IFS= read -r line; do
+            echo "::error title=webserver::$line"
+          done
+          exit 0
 
       # A skipped or zero-case run must never be reported as green. `playwright
       # test` exits non-zero on a failure, but it can exit zero having run
