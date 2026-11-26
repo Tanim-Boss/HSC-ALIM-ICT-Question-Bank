@@ -1,0 +1,381 @@
+name: Phase 04A — real 18-table Prisma drift measurement
+
+# MEASUREMENT ONLY. This workflow computes Prisma's migration diff against the
+# REAL 18-table schema and reports it. It never applies a generated diff, never
+# touches a production database, and needs no secrets.
+#
+# Why it exists
+#   The G-1 spike measured drift on a 10-model prototype. Its conclusion is
+#   recorded as FAILED, but its blast radius does not transfer to the real
+#   schema: the prototype's datamodel and SQL disagree on referential actions,
+#   which the real pair does not. See
+#   docs/database/phase-04a-real-18-table-prisma-drift-investigation.md §13.2.
+#
+# What it establishes
+#   E1. no-change drift, database -> datamodel, on the real schema
+#   E2. Option C snapshot -> snapshot no-change must be EMPTY
+#   E3. Option C snapshot -> snapshot with one additive probe must contain an
+#       ADD COLUMN and must NOT contain any of the FOUR destructive statement
+#       forms listed in the E3 step below. It is NOT a general
+#       destructive-SQL detector (see "Detection limits").
+#
+# What it deliberately does NOT do
+#   * it does not execute the generated SQL (proposed != applied, always)
+#   * it does not create a migration, commit anything, or write to prisma/
+#   * it does not fail the build merely because E1 finds drift — finding drift
+#     is the measurement. E1 accepts Prisma exit 0 (empty diff) AND exit 2
+#     (non-empty diff); only other exits are tooling errors. It fails on E2
+#     producing any SQL, or on E3 producing one of the four checked forms.
+#
+# Detection limits (Session 41 / F-5: claim narrowed, behaviour unchanged)
+#   E3's check is a case-insensitive TEXT regex over the generated SQL:
+#     DROP CONSTRAINT | DROP INDEX | DROP COLUMN | ALTER COLUMN
+#   It does NOT detect DROP TABLE, DROP SCHEMA, DROP TYPE, DROP SEQUENCE,
+#   TRUNCATE, DROP VIEW/FUNCTION/TRIGGER, or any other destructive statement.
+#   It does not parse SQL, so it cannot distinguish a match inside a comment,
+#   a quoted string or an identifier from a real statement (and may therefore
+#   produce a false positive on such text). A green E3 proves only that those
+#   four literal forms were absent from this one generated script.
+#   The E1 inventory step COUNTS statements (including DROP TABLE) and reports
+#   them; it does not assert that any count is zero. A passing workflow is NOT
+#   proof that every destructive drift is detected, that the schema is
+#   structurally safe, or that a production migration would be safe.
+#   This is a MEASUREMENT harness, not a complete structural schema guard.
+
+on:
+  push:
+    branches: [main, 'arena/**']
+    paths:
+      - '.github/workflows/phase04a-real-schema-drift.yml'
+      - 'prisma/schema.prisma'
+      - 'prisma/migrations/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift:
+    name: Real-schema drift measurement (node 22, postgres 16)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: drift
+          POSTGRES_PASSWORD: drift
+          POSTGRES_DB: drift
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U drift"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      PGPASSWORD: drift
+      DATABASE_URL: postgresql://drift:drift@localhost:5432/drift
+      OUT: /tmp/drift
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies (pinned Prisma 7.10.1)
+        run: npm ci --no-audit --no-fund
+
+      - name: Ensure a PostgreSQL 16 client and report server version
+        run: |
+          set -uo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-16 >/dev/null
+          psql --version
+          echo "server: $(psql "$DATABASE_URL" -Atc 'SHOW server_version;')"
+
+      - name: Record the exact toolchain
+        run: |
+          set -uo pipefail
+          mkdir -p "$OUT"
+          node_modules/.bin/prisma --version 2>&1 | tee "$OUT/00-prisma-version.txt"
+          node --version | tee "$OUT/00-node-version.txt"
+          psql "$DATABASE_URL" -Atc 'SHOW server_version;' | tee "$OUT/00-pg-version.txt"
+          git rev-parse HEAD | tee "$OUT/00-commit.txt"
+          sha256sum prisma/schema.prisma \
+                    prisma/migrations/0001_phase04a_question_bank/migration.sql \
+                    prisma/migrations/migration_lock.toml | tee "$OUT/00-hashes.txt"
+
+      # The migration is applied through the approved gate, so the database gets
+      # real Prisma migration history (with the committed checksum) rather than
+      # a hand-executed schema. This is the same path V-1 uses.
+      - name: Apply the committed history through the approved gate
+        run: |
+          set -euo pipefail
+          bash scripts/db/deploy-gate.sh deploy -- --config prisma.config.ts
+          node_modules/.bin/prisma migrate status --config prisma.config.ts \
+            | tee "$OUT/01-status.txt"
+          psql "$DATABASE_URL" -Atc \
+            "select count(*) from _prisma_migrations where finished_at is not null and rolled_back_at is null;" \
+            | tee "$OUT/01-applied-count.txt"
+
+      - name: Capture the catalog BEFORE (after the committed migration)
+        run: |
+          set -euo pipefail
+          cat > "$OUT/catalog.sql" <<'SQL'
+          select 'TABLES|' || count(*) from pg_tables
+            where schemaname='public' and tablename <> '_prisma_migrations';
+          select 'ENUMS|' || count(*) from pg_type t join pg_namespace n on n.oid=t.typnamespace
+            where t.typtype='e' and n.nspname='public';
+          select 'FKS|' || count(*) from pg_constraint
+            where contype='f' and connamespace='public'::regnamespace;
+          select 'CHECKS|' || count(*) from pg_constraint
+            where contype='c' and connamespace='public'::regnamespace;
+          select 'COMPOSITE_FKS|' || count(*) from pg_constraint
+            where contype='f' and connamespace='public'::regnamespace and array_length(conkey,1) > 1;
+          select 'UNMODELLABLE_INDEXES|' || count(*) from pg_indexes
+            where schemaname='public'
+              and (indexdef like '%WHERE%' or indexdef like '%lower(%'
+                   or indexdef like '%NULLS NOT DISTINCT%');
+          select 'CONSTRAINT_NAME|' || conname from pg_constraint
+            where contype='f' and connamespace='public'::regnamespace order by conname;
+          select 'INDEX_NAME|' || indexname from pg_indexes
+            where schemaname='public'
+              and (indexdef like '%WHERE%' or indexdef like '%lower(%'
+                   or indexdef like '%NULLS NOT DISTINCT%')
+            order by indexname;
+          SQL
+          psql "$DATABASE_URL" -At -f "$OUT/catalog.sql" | tee "$OUT/02-catalog-before.txt"
+
+      # ---------------------------------------------------------------------
+      # E1 — no-change drift: live database -> committed datamodel
+      # ---------------------------------------------------------------------
+      - name: 'E1 — no-change drift (database -> datamodel)'
+        run: |
+          set -uo pipefail
+          rc=0
+          node_modules/.bin/prisma migrate diff \
+            --config prisma.config.ts \
+            --from-config-datasource \
+            --to-schema prisma/schema.prisma \
+            --script --exit-code > "$OUT/e1-nochange.sql" 2> "$OUT/e1-nochange.err" || rc=$?
+          echo "$rc" > "$OUT/e1-exit.txt"
+          echo "E1 exit=$rc (0 = empty diff, 2 = non-empty, 1 = tooling error)"
+          # Measurement-only: 0 (empty diff) and 2 (non-empty diff) are both
+          # accepted; only a tooling error fails E1. Semantics unchanged.
+          case "$rc" in
+            0|2) : ;;
+            *) cat "$OUT/e1-nochange.err"; echo "::error title=E1::prisma migrate diff errored (exit $rc)"; exit 1 ;;
+          esac
+          echo "--- E1 generated SQL ($(wc -c < "$OUT/e1-nochange.sql") bytes) ---"
+          cat "$OUT/e1-nochange.sql"
+
+      # ---------------------------------------------------------------------
+      # E2 — Option C: snapshot -> snapshot, no change, must be EMPTY
+      # ---------------------------------------------------------------------
+      - name: 'E2 — Option C snapshot -> snapshot (must be empty)'
+        run: |
+          set -uo pipefail
+          cp prisma/schema.prisma "$OUT/snapshot-prev.prisma"
+          rc=0
+          node_modules/.bin/prisma migrate diff \
+            --config prisma.config.ts \
+            --from-schema "$OUT/snapshot-prev.prisma" \
+            --to-schema prisma/schema.prisma \
+            --script > "$OUT/e2-snapshot-nochange.sql" 2> "$OUT/e2.err" || rc=$?
+          echo "E2 exit=$rc"
+          if [ "$rc" -ne 0 ]; then
+            cat "$OUT/e2.err"
+            echo "::error title=E2::Option C snapshot diff errored (exit $rc)"
+            exit 1
+          fi
+          # Prisma writes the sentinel "-- This is an empty migration." rather
+          # than a zero-byte file, so emptiness is judged by counting STATEMENTS,
+          # not bytes. The first run of this workflow failed here on the sentinel
+          # alone — an assertion bug in the harness, not a defect in Option C.
+          bytes="$(wc -c < "$OUT/e2-snapshot-nochange.sql")"
+          # `|| true`: with `bash -e -o pipefail` (how Actions runs steps) a
+          # grep that selects no line exits 1 and would abort the step before
+          # the count is even examined. That is what failed run 45381042601.
+          statements="$(grep -vE '^[[:space:]]*(--.*)?$' "$OUT/e2-snapshot-nochange.sql" | wc -l || true)"
+          echo "E2 output bytes=$bytes, statements=$statements (expect 0 statements)"
+          if [ "$statements" -ne 0 ]; then
+            cat "$OUT/e2-snapshot-nochange.sql"
+            echo "::error title=E2::Option C reported $statements statement(s) between a snapshot and itself"
+            exit 1
+          fi
+          echo "::notice title=E2 sentinel bytes::$bytes"
+
+      # ---------------------------------------------------------------------
+      # E3 — Option C with one additive probe: ADD COLUMN present and none of
+      # the four checked destructive forms (NOT a general destructive guard)
+      # ---------------------------------------------------------------------
+      - name: 'E3 — Option C additive probe (four checked forms absent)'
+        run: |
+          set -uo pipefail
+          awk '
+            /^model Subtopic \{/ { inblock = 1 }
+            inblock && /^  @@map\("subtopics"\)/ && !done {
+              print "  probeMarker String?"; done = 1
+            }
+            { print }
+          ' prisma/schema.prisma > "$OUT/snapshot-probe.prisma"
+          grep -q "probeMarker" "$OUT/snapshot-probe.prisma" || {
+            echo "::error title=E3::the additive probe was not inserted"; exit 1; }
+
+          rc=0
+          node_modules/.bin/prisma migrate diff \
+            --config prisma.config.ts \
+            --from-schema "$OUT/snapshot-prev.prisma" \
+            --to-schema "$OUT/snapshot-probe.prisma" \
+            --script > "$OUT/e3-additive.sql" 2> "$OUT/e3.err" || rc=$?
+          echo "E3 exit=$rc"
+          if [ "$rc" -ne 0 ]; then
+            cat "$OUT/e3.err"
+            echo "::error title=E3::additive diff errored (exit $rc)"
+            exit 1
+          fi
+          cat "$OUT/e3-additive.sql"
+          grep -qi "ADD COLUMN" "$OUT/e3-additive.sql" || {
+            echo "::error title=E3::the probe produced no ADD COLUMN — it proves nothing"; exit 1; }
+          # Narrow, literal text check — exactly those four forms. See the
+          # workflow header "Detection limits" for what is NOT covered and why
+          # a broader regex was rejected: matching comments/quoted strings
+          # cannot be distinguished reliably without a real SQL parser.
+          if grep -Eqi 'DROP +CONSTRAINT|DROP +INDEX|DROP +COLUMN|ALTER COLUMN' "$OUT/e3-additive.sql"; then
+            echo "::error title=E3::an additive change produced one of the four checked destructive forms"
+            exit 1
+          fi
+
+      - name: Capture the catalog AFTER and prove nothing was executed
+        run: |
+          set -euo pipefail
+          psql "$DATABASE_URL" -At -f "$OUT/catalog.sql" | tee "$OUT/03-catalog-after.txt"
+          if diff -u "$OUT/02-catalog-before.txt" "$OUT/03-catalog-after.txt" > "$OUT/04-catalog-delta.txt"; then
+            echo "catalog unchanged: no proposed statement was applied (by design)"
+          else
+            cat "$OUT/04-catalog-delta.txt"
+            echo "::error title=integrity::the catalog changed — something was executed"
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------------
+      # Inventory: what did Prisma propose, exactly?
+      # Counts are informational evidence only. This step does not assert that
+      # any destructive count (including DROP TABLE) is zero; semantics
+      # unchanged (Session 41 / F-5 note).
+      # ---------------------------------------------------------------------
+      - name: 'Inventory E1 — classify every proposed statement'
+        run: |
+          set -uo pipefail
+          f="$OUT/e1-nochange.sql"
+          {
+            echo "== E1 proposed operations =="
+            printf 'DROP CONSTRAINT  %s\n' "$(grep -c 'DROP CONSTRAINT' "$f" || true)"
+            printf 'DROP INDEX       %s\n' "$(grep -c 'DROP INDEX' "$f" || true)"
+            printf 'ADD CONSTRAINT   %s\n' "$(grep -c 'ADD CONSTRAINT' "$f" || true)"
+            printf 'ADD COLUMN       %s\n' "$(grep -c 'ADD COLUMN' "$f" || true)"
+            printf 'DROP TABLE       %s\n' "$(grep -c 'DROP TABLE' "$f" || true)"
+            printf 'ALTER COLUMN     %s\n' "$(grep -c 'ALTER COLUMN' "$f" || true)"
+            echo
+            echo "== C-1..C-5 =="
+            for c in fk_questions_level_subject fk_questions_chapter_subject \
+                     fk_questions_topic_chapter fk_questions_subtopic_topic \
+                     fk_answer_keys_options_of_version; do
+              n="$(grep -c "$c" "$f" || true)"
+              echo "  $c  occurrences=$n"
+            done
+            echo
+            echo "== the six hand-written indexes =="
+            for i in uq_question_versions_one_published_per_question uq_question_sources_identity \
+                     uq_topics_chapter_order uq_tags_name_lower uq_colleges_name_lower \
+                     ix_question_assets_checksum; do
+              n="$(grep -c "$i" "$f" || true)"
+              echo "  $i  occurrences=$n"
+            done
+            echo
+            echo "== referential-action statements in the diff (if any) =="
+            grep -oE 'ON DELETE [A-Z ]+|ON UPDATE [A-Z ]+' "$f" | sort | uniq -c || echo "  none"
+          } | tee "$OUT/05-e1-inventory.txt"
+          # One annotation per finding, so the numbers are readable from the API
+          echo "::notice title=E1 exit::$(cat "$OUT/e1-exit.txt")"
+          echo "::notice title=E1 DROP CONSTRAINT::$(grep -c 'DROP CONSTRAINT' "$f" || true)"
+          echo "::notice title=E1 DROP INDEX::$(grep -c 'DROP INDEX' "$f" || true)"
+          echo "::notice title=E1 ADD CONSTRAINT::$(grep -c 'ADD CONSTRAINT' "$f" || true)"
+          echo "::notice title=E1 composite FKs named::$(grep -oE 'fk_(questions_(level_subject|chapter_subject|topic_chapter|subtopic_topic)|answer_keys_options_of_version)' "$f" | sort -u | wc -l || true)"
+          echo "::notice title=E1 hand-written indexes named::$(grep -oE '(uq_(question_versions_one_published_per_question|question_sources_identity|topics_chapter_order|tags_name_lower|colleges_name_lower)|ix_question_assets_checksum)' "$f" | sort -u | wc -l || true)"
+          echo "::notice title=E3 additive SQL::$(tr '\n' ' ' < "$OUT/e3-additive.sql" | cut -c1-400)"
+
+      # The job log is not always reachable (a sandbox or an auditor may only
+      # have API access), so the COMPLETE generated SQL is also published as
+      # chunked annotations. Newlines are escaped as %0A, which GitHub decodes,
+      # so the retrieved text is byte-identical to the file.
+      - name: 'Publish the complete generated SQL as annotations'
+        if: always()
+        run: |
+          set -uo pipefail
+          SUMMARY=""
+          emit() {
+            file="$1"; label="$2"
+            [ -f "$file" ] || { echo "::notice title=${label}::<no file>"; return; }
+            bytes="$(wc -c < "$file")"
+            # GitHub caps the annotations a single step may create (about ten),
+            # and silently drops the rest. Run 45381341939 lost the last two
+            # emits that way, so only ONE summary notice is spent here and the
+            # rest is reserved for the SQL chunks themselves.
+            SUMMARY="${SUMMARY}${label}=${bytes}B "
+            n=0
+            if [ "$bytes" -gt 0 ]; then
+              split -b 6000 -d -a 3 "$file" "/tmp/chunk.${label}."
+              for c in "/tmp/chunk.${label}."*; do
+                n=$((n+1))
+                esc="$(sed -e 's/%/%25/g' -e 's/\r//g' "$c" | awk '{printf "%s%%0A", $0}')"
+                echo "::notice title=${label} chunk ${n}::${esc}"
+              done
+              rm -f "/tmp/chunk.${label}."*
+            fi
+          }
+          emit "$OUT/e1-nochange.sql" "E1-SQL"
+          emit "$OUT/e3-additive.sql" "E3-SQL"
+          emit "$OUT/e2-snapshot-nochange.sql" "E2-SQL"
+          emit "$OUT/02-catalog-before.txt" "CATALOG-BEFORE"
+          emit "$OUT/04-catalog-delta.txt" "CATALOG-DELTA"
+          emit "$OUT/05-e1-inventory.txt" "E1-INVENTORY"
+          echo "::notice title=emitted bytes::${SUMMARY}"
+
+      - name: Confirm the existing guards still pass with this workflow present
+        run: |
+          set -euo pipefail
+          bash docs/database/g1-spike/option-c/repo-guard.sh "$PWD"
+          python3 scripts/db/deploy-path-guard.py
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-schema-drift-evidence
+          path: /tmp/drift/
+          if-no-files-found: warn
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### Real 18-table Prisma drift measurement"
+            echo
+            echo "E1 exit: $(cat /tmp/drift/e1-exit.txt 2>/dev/null || echo n/a)"
+            echo
+            echo '```'
+            cat /tmp/drift/05-e1-inventory.txt 2>/dev/null || echo "no inventory"
+            echo '```'
+            echo
+            echo "E2 (snapshot -> snapshot): $(wc -c < /tmp/drift/e2-snapshot-nochange.sql 2>/dev/null || echo n/a) bytes (expect 0)"
+            echo
+            echo "E3 (additive probe):"
+            echo '```sql'
+            cat /tmp/drift/e3-additive.sql 2>/dev/null || echo "n/a"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
