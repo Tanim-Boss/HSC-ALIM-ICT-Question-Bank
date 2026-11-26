@@ -221,23 +221,32 @@ jobs:
           if [ ! -f /tmp/playwright.log ]; then echo "no log to annotate"; exit 0; fi
           strip() { sed 's/\x1b\[[0-9;]*m//g' "$1" | tr -d '\r'; }
 
-          # 1. the per-test summary lines, which name the failing assertion
-          strip /tmp/playwright.log | grep -E "^\s+[0-9]+\) |✘|✗|failed$" | head -30 | while IFS= read -r line; do
-            [ -n "$line" ] && echo "::error title=FAILED::$line"
-          done
+          # ORDER MATTERS. GitHub caps annotations per step (10), so the most
+          # specific evidence must be emitted FIRST or it is silently dropped —
+          # which is exactly what happened on the first run of this job: the
+          # generic "failed" lines used up the budget and the Expected/Received
+          # values that identify the defect never appeared.
 
-          # 2. Playwright's error/expectation blocks, which carry the actual values
-          strip /tmp/playwright.log | grep -E "Error:|Expected:|Received:|expect\(|locator\(|Call log:|waiting for" | head -25 | while IFS= read -r line; do
+          # 1. the assertion's actual values — the only lines that name the defect
+          strip /tmp/playwright.log | grep -E "^\s*(Expected|Received|Locator|Timeout|Call log):" | head -6 | while IFS= read -r line; do
             echo "::error title=assertion::$line"
           done
 
-          # 3. the counts, so a partial run is visible
-          strip /tmp/playwright.log | grep -E "[0-9]+ (passed|failed|skipped|flaky)" | tail -5 | while IFS= read -r line; do
+          # 2. the error headline, which names the matcher
+          strip /tmp/playwright.log | grep -E "Error: expect|Error: " | head -3 | while IFS= read -r line; do
+            echo "::error title=error::$line"
+          done
+
+          # 3. which test, and how the run ended
+          strip /tmp/playwright.log | grep -E "^\s+[0-9]+\) \[chromium\]" | head -2 | while IFS= read -r line; do
+            echo "::error title=test::$line"
+          done
+          strip /tmp/playwright.log | grep -E "[0-9]+ (passed|failed|skipped|flaky)" | tail -3 | while IFS= read -r line; do
             echo "::error title=counts::$line"
           done
 
           # 4. the web-server log, because a boot failure looks like a UI failure
-          strip /tmp/playwright.log | grep -iE "webServer|npm run dev|Ready in|EADDRINUSE|Timeout" | head -10 | while IFS= read -r line; do
+          strip /tmp/playwright.log | grep -iE "webServer|npm run dev|Ready in|EADDRINUSE|Timeout" | head -4 | while IFS= read -r line; do
             echo "::error title=webserver::$line"
           done
           exit 0
