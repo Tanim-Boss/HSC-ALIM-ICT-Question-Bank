@@ -137,7 +137,8 @@ A single safe, typed question renderer remains the target across destinations, b
 - **Date picker:** keyboard moves by day/week and month/year through documented controls; Enter/Space selects; Esc returns to the trigger. Current date, selected date and unavailable dates are distinguishable without color.
 - **Dialogs/drawers:** focus is managed, Escape behavior is safe, close control has an accessible name, and background content is not operable when modal. Confirmation copy precedes destructive commit.
 - **Tooltip/popover:** tooltip works on focus as well as hover; popovers have a clear non-modal or modal keyboard model. Hover is never required for essential functionality.
-- **Command palette:** `Ctrl/⌘+K`, type to filter, Up/Down to move, Enter to act, Esc to close and restore focus. Suppress it during active examinations and while editing text.
+- **Command palette:** `Ctrl/⌘+K`, type to filter, Up/Down to move, Enter to act, Esc to go back one nesting level and a second Esc to close and restore focus, `Ctrl/⌘+K` again for the highlighted row's action panel. Active row tracked with `aria-activedescendant` so typing is never interrupted; per-row shortcut hints are visible. Suppress it during active examinations and while editing text (README §17.6).
+- **Theme:** no component receives, reads or emits a theme preference. Components render from semantic variables and inherit whichever theme the OS preference resolved. A component with a theme prop, a "toggle theme" action, or a stored theme read is a contract violation (README [§17.2](../../README.md#172-color-tokens)).
 - **Academic content:** diagrams have alternatives; code is keyboard-scrollable and copyable; math has accessible text. Examination answer controls remain operable without a mouse. Timer/autosave announcements are polite and not emitted every second.
 
 ## 4. Responsive behavior
@@ -152,7 +153,8 @@ A single safe, typed question renderer remains the target across destinations, b
 
 - Figma component names follow the token/component language: `Button/Primary/Default`, `Button/Primary/Loading`, `Form/TextInput/Error`, `Navigation/Sidebar/Active`, `Feedback/Dialog/Open`, `Question/MCQ/Default`, `Academic/AnswerOption/Selected`.
 - Use component properties for a small, intentional set such as `variant`, `size`, `state`, `theme` and `locale`; create only meaningful combinations. Do not generate every theoretical state combination for static components.
-- Use Auto Layout, 4 px spacing tokens, semantic color variables and explicit content constraints. Provide Light default / Dark alternate and English / Bengali specimens for the foundations/components only.
+- `theme` is a **specimen property for review**, not a user-facing switch. It exists so Light and Dark variants can be compared in Figma; it must never be mapped to a toggle, a settings control, an override or a persisted value in code. The runtime theme is resolved by the OS/browser `prefers-color-scheme` preference only (README [§17.2](../../README.md#172-color-tokens)).
+- Use Auto Layout, 4 px spacing tokens, semantic color variables and explicit content constraints. Provide **both** Light and Dark specimens (neither as an "alternate" afterthought) and English / Bengali specimens for the foundations/components only.
 - Include focus, disabled, loading, error, success, empty and representative content variants where relevant. A screenshot of only the default state is not a handoff.
 - Code implementations later use the exact shared token layer, semantic HTML, accessible names, labels, descriptions and controlled state. The selected component library, code folder layout and page architecture are not chosen here.
 

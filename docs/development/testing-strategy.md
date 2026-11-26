@@ -46,6 +46,7 @@ Two properties of this set are deliberate and should not be relaxed:
 
 - **A skipped suite is never a pass.** The integration job fails the build if its log shows `SKIPPED`, and requires a floor of executed cases. The browser job applies the same rule through `scripts/ci/playwright-run-guard.mjs`, because `playwright test` can exit zero having executed nothing.
 - **The browser suite is an application-shell smoke test, not product coverage.** `tests/e2e/smoke.spec.ts` asserts boot, the single `H1`, bilingual and mixed-script rendering, and theme toggling with persistence. It says nothing about examination behaviour, authorization or scoring.
+- **The smoke suite's theme assertion contradicts the approved specification.** README [§17.2](../../README.md#172-color-tokens) makes the OS/browser `prefers-color-scheme` preference the sole theme authority, with no manual toggle and no persisted preference. The committed assertion therefore describes behaviour that must be **removed**, not preserved. A later implementation change should replace it with assertions that: the theme follows an emulated `prefers-color-scheme` value, no theme control exists in the DOM, no theme key is written to storage, and no theme flash or hydration warning occurs on load. Recording this here is not evidence that the change has been made.
 
 Whether these workflows are *required* status checks is not established here: that is repository settings and remains **OD-26-1**. Adding a workflow is not ratifying the check policy.
 

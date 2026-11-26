@@ -1,22 +1,25 @@
 # Design-system implementation guidelines
 
-**Scope.** Handoff rules for a future implementation of the approved Foundations and Core Components. This repository does not yet contain an application, Tailwind configuration, CSS theme, font assets or components. This document creates none of them and does not select a second styling system.
+**Scope.** Handoff rules for the implementation of the approved Foundations and Core Components. **Current state:** the repository does contain an application shell, a `tailwind.config.ts`, a `:root`/`.dark` CSS theme and a manual theme toggle. None of that is approved design-system output — the theme toggle in particular violates README §17.2 and must be replaced by the system-preference wiring described below. This document creates no application code and does not select a second styling system.
 
 **Source order.** README §§4.5/17 govern locked decisions → [`tokens.json`](tokens.json) mirrors the values for machine use → [design-system.md](design-system.md), [typography.md](typography.md) and [component-architecture.md](component-architecture.md) define usage. When sources disagree, do not silently ship a new value; report the discrepancy and update the authority/mirror together.
 
 ## 1. Token consumption
 
 - Treat `tokens.json` as the only machine-readable token map. Its `$value` entries hold the exact palette and design values; `$extensions.ictAtlas.cssVariable` and `tailwindClass` identify intended mappings. The file is DTCG-style JSON with ICT Atlas extensions, not a claim that a token-build package is installed.
-- Define Light semantic values at the root and Dark values under the approved `.dark` theme scope. Keep semantic names identical between themes; components must not branch on raw hex values.
+- Define Light semantic values at the root and Dark values inside `@media (prefers-color-scheme: dark)`. Keep semantic names identical between themes; components must not branch on raw hex values. A `.dark` class scope is permitted **only** as an alias applied by that same media query (for a dependency that requires a class) — never as a scope set from stored user input.
 - Preserve the existing README primitive variable names: `--canvas`, `--surface`, `--elevated`, `--ink`, `--muted`, `--muted-strong`, `--border`, `--teal`, `--teal-tint`, `--accent`, `--amber` and `--red`. Expose additional semantic aliases only when sourced from the JSON references. Do not manually copy a second palette into component files.
-- When mapping CSS variables to Tailwind, use the alpha-aware RGB form (`rgb(var(--token) / <alpha-value>)`) described in README §17.2. This allows utilities to share one theme value. The exact config belongs to the future app setup phase; do not create `tailwind.config.ts` in this documentation-only phase.
+- When mapping CSS variables to Tailwind, use the alpha-aware RGB form (`rgb(var(--token) / <alpha-value>)`) described in README §17.2. This allows utilities to share one theme value. The committed `tailwind.config.ts` already carries the approved token mapping; the only sanctioned change to it is the `darkMode` strategy migration described in README §17.2, and it must be made against the specification rather than by inventing a palette.
 - Use semantic classes/roles such as `bg-canvas`, `bg-surface`, `text-ink`, `text-muted-strong`, `border-border`, `bg-teal`, `bg-teal-tint`, plus semantic action/state aliases. Do not use raw hex, arbitrary Tailwind values (`bg-[#...]`) or per-page overrides.
 - Typography, spacing, geometry, elevation, breakpoint and motion tokens are consumed from the same JSON map. Every padding, gap and radius should resolve to a named token. Avoid arbitrary values and one-off CSS systems.
 
 ## 2. Theme and surface rules
 
-- Light is the learning/reading default. Dark is a fully supported alternate, not a product-wide mandate. An AI Tutor local dark treatment must still use the same semantic variables.
-- Switch theme on a shared root, not independently per component. Native controls and scrollbars should use the matching `color-scheme`. Prevent flash of an unintended theme when a preference is later implemented.
+- **The theme is selected by the operating system / browser colour-scheme preference only** (README [§17.2](../../README.md#172-color-tokens)). Both themes are fully supported and fully specified; neither is a bolt-on, and neither is a product-wide mandate.
+- **No manual theme control exists:** no toggle component, no theme selector in a profile menu or Settings, no user override, and no persisted theme preference (no `localStorage`, cookie, settings row or database column). Do not add one as a convenience and do not describe one as planned.
+- **Do not flash.** Resolve the theme from the media query in CSS so the first painted frame is already correct. Do not read `matchMedia` in a client effect that paints Light first and flips after hydration, and do not emit a theme-dependent attribute that differs between server HTML and the first client render (hydration mismatch).
+- Switch theme on a shared root, not independently per component. Native controls and scrollbars must follow via a matching `color-scheme` declaration. Print output is theme-independent ink-on-paper Light.
+- An AI Tutor local dark treatment must still use the same semantic variables and must not change the global theme.
 - Light and Dark components retain the same sizes, states, focus, typography and behavior. Only semantic token values change. Add a theme-specific rule only for a documented contrast/surface reason. **Do not ship the Dark primary-button foreground as currently specified:** README §17.8's Ink-on-Teal pair fails normal-text AA; the contrast-safe Canvas alternative is not approved.
 - Code/terminal content deliberately uses the approved dark code surface and light code text in both themes. Do not derive code colors from the surrounding body text.
 - Prefer 1 px borders and tonal layers. Shadows are reserved for popovers, dialogs and dragged items; do not add a default card shadow or glow.
@@ -53,7 +56,7 @@ Use the Vercel Web Interface Guidelines reference identified in README §17.16 a
 
 ## 6. Figma-to-code handoff
 
-- Figma variables use the same token and theme names as `tokens.json`. Foundations use Light as default and Dark as alternate.
+- Figma variables use the same token and theme names as `tokens.json`. Foundations specify Light and Dark with equal coverage; the runtime theme is resolved by the OS `prefers-color-scheme` preference only.
 - Core components are named consistently with this specification, e.g. `Button/Primary/Default`, `Button/Primary/Loading`, `Form/TextInput/Error`, `Feedback/Dialog/Open`, `Question/MCQ/Default`.
 - Components use Auto Layout, named variants and explicit min/max constraints; do not bind every component to every theoretical state. Record component behavior and responsive rules in the component spec.
 - Handoff includes desktop 1440 × 1000, mobile 390 × 844, tablet and 320 px edge checks, plus Light/Dark and English/Bengali specimens. No product-page frames are included in this work.
