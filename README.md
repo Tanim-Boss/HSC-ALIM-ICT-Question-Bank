@@ -109,7 +109,7 @@ The first subject is **ICT (তথ্য ও যোগাযোগ প্রয�
 
 Chapter is a first-class taxonomy entity, not a free-text field — see [§6.2](#62-relationship-design).
 
-**Board taxonomy.** `Board` covers the eleven general education boards **plus `MADRASAH` (Alim)**, `BTEB`/technical, and a `TEST_EXAM` source type for college and model tests. A college/model-test question carries `College` instead of a board; a board question carries neither. Both are represented through the `QuestionSource` relation, never as columns on `Question`.
+**Board taxonomy and provenance.** `Board` covers the eleven general education boards **plus `MADRASAH` (Alim)**, `BTEB`/technical, and a `TEST_EXAM` source type for college and model tests. `Board` and `College` are distinct provenance dimensions: within a `QuestionSource` attribution, a college/model-test source may reference a `College` rather than a `Board`, and a board source references a `Board` rather than a `College` ([§6.2](#62-relationship-design), [OD-08](docs/architecture/technology-decisions.md#open-decision-register)). This per-attribution distinction must **not** be read as a single merged board-or-college filter: both are separate, independently selectable filter dimensions ([§7.1.1](#711-filtering-system)). Board and college provenance lives in `QuestionSource` records, never as free-text fields on `Question`.
 
 **Exam shape the platform must reproduce:**
 
@@ -195,7 +195,7 @@ Why this matters:
 - It influences **question metadata** (board, year, college, source are relations, not strings).
 - Retrofitting multi-level support later means redesigning the question table.
 
-**Practical rule:** Never store board, year, subject, or topic as free-text strings on a question. Always use separate entities with foreign keys (see [§6](#6-database-design)).
+**Practical rule:** Never store board, college, year, subject, or topic as free-text strings on a question. Always use separate entities with foreign keys (see [§6](#6-database-design)); board and college provenance specifically belongs on `QuestionSource` ([§1.1](#11-domain-scope--hsc--alim-ict-v2)).
 
 ---
 
@@ -451,6 +451,7 @@ QuestionSource            ← many-to-many: a question may appear
 
 - [ ] Use foreign keys for subject / topic / board / year / college — never free-text.
 - [ ] Use a separate `QuestionSource` relation — a question can belong to multiple boards/papers.
+- [ ] Treat `Board` and `College` as **separate** provenance dimensions within `QuestionSource`. The older direct `Board ID` / `Year ID` sketch above is an unresolved blueprint inconsistency ([OD-08](docs/architecture/technology-decisions.md#open-decision-register)), not a reason to merge the two filters or add a free-text `College` field on `Question`.
 - [ ] Keep question content separate from images/attachments (files in object storage, referenced by asset ID).
 - [ ] *(v2)* **`Chapter` is a real entity, not an integer on the question.** It carries `chapterNumber`, `titleBn`, `titleEn`, and the subject FK. Three reasons: chapter titles are bilingual and change with curriculum revision; analytics groups by chapter ([§7.3.5](#735-chapter-level-analytics-chapters-16-v2)); and `chapterNumber` in a column invites the classic "we renumbered the chapters and every filter broke" incident.
 
@@ -543,6 +544,8 @@ When designing the Prisma schema, cover:
 
 Students filter by:
 
+**Board and College are two separate, independent filter dimensions.** A Board choice uses the documented board provenance on `QuestionSource`; a College choice uses the documented college provenance on `QuestionSource`. They are not aliases, not one combined control, and not free-text fields on `Question` ([§1.1](#11-domain-scope--hsc--alim-ict-v2), [§6.2](#62-relationship-design)). They stay separate because a Board and a College are different source organizations with different provenance; merging them would hide which kind of attribution a question has.
+
 | Filter | Example |
 |--------|---------|
 | Education level | HSC / Alim |
@@ -557,6 +560,18 @@ Students filter by:
 | Difficulty | Easy / Medium / Hard |
 | Source | Board / Model Test / Institution / Original |
 
+**Independent Board and College rules (required):**
+
+1. **Two dimensions** — Board and College are two separate filter dimensions and must never be merged into one filter, one shared value, or one selection.
+2. **Board filter** — selecting a Board chooses questions associated with that board through the existing `QuestionSource` provenance relationship. It is not a College selection.
+3. **College filter** — selecting a College chooses questions associated with an actual `College` record through `QuestionSource`. It is not free-text matching against a `Question` field. Selecting a College does **not** require first selecting an `Institution`/`Model Test` **Source** value; the documented architecture establishes no such dependency, and any such restriction would need verification under [OD-08](docs/architecture/technology-decisions.md#open-decision-register)/[OD-17](docs/architecture/technology-decisions.md#open-decision-register).
+4. **No automatic interaction** — selecting, changing, or clearing a Board must not automatically set, clear, disable, or otherwise determine the College filter, and selecting, changing, or clearing a College must not do the same to the Board filter.
+5. **Independently selectable** — a student may use Board alone, College alone, both together, or neither.
+6. **Combinable** — both filters work alongside Education Level, Group, Subject, Chapter, Topic, Subtopic, Year, Question Type, Difficulty, and Source.
+7. **Actual narrowing** — combined filters narrow results according to the documented relationships and the actual available data, not according to assumed equivalences between a board and a college.
+8. **Data-derived facets** — filter options and facet counts come from actual available data, not hardcoded assumptions.
+9. **Server-side execution** — filtering and pagination remain server-side; the browser never downloads the whole bank.
+
 **Dynamic cascade:**
 
 ```
@@ -566,6 +581,7 @@ Students filter by:
 4. Student selects Number System
 5. Question list updates
 6. Student further filters by year and board
+7. Student may select a Board and, independently, a College; neither changes the other
 ```
 
 **Implementation rules:**
@@ -573,6 +589,7 @@ Students filter by:
 - [ ] Server-side filtering + pagination (never download thousands of questions to the browser)
 - [ ] Filter options derived from actual data (counts per facet)
 - [ ] Search across question text (Bengali + English)
+- [ ] Board and College stay separate, independently selectable provenance filters with no automatic cross-effect
 
 #### 7.1.2 Question selection — two methods
 
@@ -624,6 +641,11 @@ For large banks, use efficient sampling strategies rather than sorting the entir
 
 - [ ] Filters cascade correctly (level → subject → topic)
 - [ ] Pagination works with combined filters
+- [ ] A student can filter by Board through the board provenance on `QuestionSource` without selecting a College
+- [ ] A student can filter by College through the college provenance on `QuestionSource` without selecting a Board or an `Institution`/`Model Test` Source value
+- [ ] Selecting, changing, or clearing either the Board or College filter leaves the other filter unchanged
+- [ ] Board and College are independently selectable and combinable with Education Level, Group, Subject, Chapter, Topic, Subtopic, Year, Question Type, Difficulty, and Source; combined results narrow according to actual relationships and data
+- [ ] Board/College options and facet counts are derived from available data; filtering and pagination stay server-side
 - [ ] Random selection validates counts and balances topics
 - [ ] Insufficient-question case shows a clear error, not a partial test
 - [ ] Questions with images/code/Bengali text render correctly
@@ -2281,6 +2303,7 @@ The question text is prominent (Body/H4 weight 500–600); metadata is visually 
 | Education level | HSC / ALIM |
 | Question type | MCQ / CQ |
 | Board | Dhaka, Rajshahi, Cumilla, Chattogram, etc. |
+| College | Available college records (separate from Board and Source) |
 | Year | Available examination years |
 | Subject | ICT |
 | Chapter | Available chapters |
@@ -2289,6 +2312,8 @@ The question text is prominent (Body/H4 weight 500–600); metadata is visually 
 | Source | Board / Model / Institution / Original |
 
 Filter options are derived from actual data, with counts per facet. On mobile, filters open in a drawer; the applied-filter count appears on the trigger.
+
+**Board and College UI behavior:** show a distinct **Board** control and a distinct **College** control (and distinct active-filter chips). A Board selection must not set, clear, or disable College, and a College selection must not set, clear, or disable Board; **clear-all** removes each chip independently. The College control must find and select an actual `College` record through `QuestionSource` provenance — not arbitrary free-text matching against a `Question` field — and must not implicitly select an `Institution`/`Model Test` Source value. **Recommendation (not implemented):** a searchable selector/autocomplete over available college records. Single- versus multi-select per dimension is not established by the documented logical API contract and must be verified under [OD-17](docs/architecture/technology-decisions.md#open-decision-register); do not assume multi-select.
 
 **MCQ row:** question identifier · board and year · chapter and topic · question text · rich content · image/diagram · options · save · view explanation · add to test. **Correct answers stay hidden during active examinations.**
 
