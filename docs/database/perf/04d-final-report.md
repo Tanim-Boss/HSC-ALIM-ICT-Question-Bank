@@ -5,9 +5,9 @@
 | PR | [#19](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/pull/19) — **OPEN**, mergeable, **not merged**; the owner merges manually |
 | Branch | `arena/1e1c7217-hsc-alim-ict-question-bank` |
 | Base | `main` @ `5e9bb6d0a675fa86dd6d0535495613330ddb5a88` (PR #18, phase 04C) |
-| Head | `8a1a228da814dc8301ef3c51de7194b79db97171` — the commit this report describes |
-| Commits | `f4ee30f` (the work), `0d38afe` and `5d37efb` (three defects CI found that local checks could not), `8a1a228` (this report), plus the metadata-only reconciliation commit on top of it |
-| Diff vs base | **26 files, +7,707 / −95** — 25 implementation, test and documentation files plus this report. The reconciliation commit edits only this file, so the file count and the deletion count do not move |
+| Head | the branch tip — not embedded here, because a commit cannot name its own SHA. The tip at the time this table was written was `f163e4b`; every commit after it is documentation-only |
+| Commits | `f4ee30f` (the work), `0d38afe` and `5d37efb` (three defects CI found that local checks could not), `8a1a228` (this report), `f163e4b` (metadata reconciliation), then documentation-only corrections |
+| Diff vs base | **26 files, +7,714 / −95** — 25 implementation, test and documentation files plus this report. Every reconciliation commit edits only this file, so the file count and the deletion count do not move |
 
 This report states what was measured, what was decided, what was rejected and what
 is still open. Every number below comes from a command that was actually run against
@@ -197,18 +197,25 @@ the `search_text` write are unchanged; the projection is written in the same
 
 ## 11. CI — final state
 
-Thirteen checks on `8a1a228`; twelve pass: unit/typecheck/lint/format/repo guard,
+Thirteen checks per push; on the pushes for `8a1a228` and `f163e4b`, twelve pass: unit/typecheck/lint/format/repo guard,
 production build, browser smoke, integration against PostgreSQL 16, V-1, V-2/V-3,
 V-4/V-5, both G-3 gates, Option C prototype, both workflow guards.
 
-**G-1 (composite-FK drift spike) fails.** It is **not** caused by this PR: the
-same job fails identically on `main` itself (run `45982935755`, the 04B merge;
-`G-1 gate failure :: the no-change diff is NOT empty` with the same 18
-`DROP CONSTRAINT` / 3 `DROP INDEX` statements and the same `aborted at line 245`).
-The spike's own header records its status as BLOCKED. Two consequences worth
-stating plainly: the gate is red before this branch, and it is red for a Prisma
-introspection reason that has nothing to do with migration 0003 — the spike builds
-its database from its own SQL, not from `prisma/migrations`.
+**G-1 (composite-FK drift spike) fails — and it is not this PR's failure.** The same
+job is red on `main` itself (run `45982935755`, the 04B merge) and on
+documentation-only commits of this branch. It also does not fail the same way twice,
+which is recorded rather than smoothed over:
+
+| Runs | Signature |
+| --- | --- |
+| `46017379141`, `46017407314`, `46017948536`, `46018608958` (`f4ee30f`, `0d38afe`, `5d37efb`) | step 4, line 245 — "the no-change diff is NOT empty": 18 `DROP CONSTRAINT` and 3 `DROP INDEX` statements |
+| `46019220236`, `46025658047` (`8a1a228`, `f163e4b` — both documentation-only) | step 3b, line 223 — "could not compare the introspected schema with the spike datamodel": the fidelity diff itself did not complete, so step 4 never ran |
+| `45982935755` (`main`, 04B merge) | step 4, line 245, with the same statements as the first row |
+
+Both signatures are Prisma introspection failures inside the spike, which builds its
+database from `docs/database/g1-spike/sql` and never from `prisma/migrations`; the
+spike's own header records its status as BLOCKED. Nothing in migration 0003 can
+reach it, and this PR neither fixes nor worsens it — it needs an owner, separately.
 
 ## 12. Schema inventory — unchanged
 
