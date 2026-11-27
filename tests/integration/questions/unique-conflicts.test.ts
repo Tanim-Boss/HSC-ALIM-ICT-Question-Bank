@@ -122,7 +122,8 @@ describeDb('V-5 database half — real unique violations', () => {
     const rows = (await prisma.$queryRawUnsafe(
       `SELECT count(*)::bigint AS count FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations'`,
     )) as { count: bigint }[];
-    expect(Number(rows[0]?.count)).toBe(18);
+    // 18 Phase 04A tables (0001) + profiles, user_roles, audit_events (0002).
+    expect(Number(rows[0]?.count)).toBe(21);
   });
 
   it('uq_tags_name_lower — exact duplicate of Tag.name is rejected, and maps to TAG_NAME_CONFLICT', async () => {

@@ -7,9 +7,10 @@ import { requireDatabaseUrl } from '@/lib/env';
 /**
  * Database access boundary (approved stack: PostgreSQL + Prisma).
  *
- * - The Prisma schema (prisma/schema.prisma) intentionally defines no domain
- *   models yet — the approved documents leave the physical model open
- *   (OD-08 – OD-13, OD-18–OD-21). Do not add models here.
+ * - The domain models live in prisma/schema.prisma: the Phase 04A question
+ *   bank (migration 0001) and the Phase 04B profiles, roles and audit trail
+ *   (migration 0002). Schema changes follow
+ *   docs/development/database-migrations.md; this file only builds the client.
  * - Prisma 7 requires a driver adapter; `@prisma/adapter-pg` connects to the
  *   PostgreSQL server through `pg`.
  * - Server-only: importing this module from a Client Component fails the

@@ -11,7 +11,7 @@
 ![Architecture](https://img.shields.io/badge/architecture-Modular%20Monolith-green)
 ![AI](https://img.shields.io/badge/AI-Gemini%202.5%20Flash%20(provider--agnostic)-purple)
 
-**Document status:** planning only — **no application code exists in this repository yet.** Nothing described here is deployed.
+**Document status:** the blueprint below is still the plan, but application code now exists: the Phase 03 foundation, the Phase 04A question-bank schema and publish services, and the Phase 04B identity, authorization and audit layer (`server/`, `prisma/`). No product screens exist yet, and nothing is deployed to production.
 
 | Revision | Date | Change |
 |----------|------|--------|

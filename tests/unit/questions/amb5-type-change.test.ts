@@ -175,14 +175,15 @@ describe('the gate is wired into every type-change entry point', () => {
     expect(callsUnconditionally(gate, 'assertLegacyArchiveReviewRequired')).toBe(true);
   });
 
-  it('the service exposes exactly one parameter — there is no options slot', () => {
+  it('the service exposes exactly (actor, input) — there is no options slot', () => {
     // REPLACED (AMB-5 hardening). This used to be a substring check over the
     // service's source text, which constrained what the file could SAY rather
     // than what it could DO — and it punished documenting the hazard. The
     // override flag has since been deleted from the rules helper entirely; the
     // behavioural proof now lives in
-    // `tests/unit/questions/amb5-service-enforcement.test.ts`.
-    expect(changeQuestionType.length).toBe(1);
+    // `tests/unit/questions/amb5-service-enforcement.test.ts`. Phase 04B added
+    // the acting user as the first parameter; there is still no third slot.
+    expect(changeQuestionType.length).toBe(2);
   });
 
   it('the service locks the row before reading it', () => {

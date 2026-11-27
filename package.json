@@ -22,6 +22,7 @@
     "db:migrate": "bash scripts/db/migrate-disabled.sh",
     "db:deploy": "bash scripts/db/deploy-gate.sh deploy",
     "db:verify-history": "bash scripts/db/deploy-gate.sh verify",
+    "db:bootstrap-super-admin": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/db/bootstrap-super-admin.ts",
     "db:studio": "prisma studio"
   },
   "dependencies": {

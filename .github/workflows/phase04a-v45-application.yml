@@ -1,7 +1,8 @@
 name: Phase 04A — V-4 / V-5 application verification
 
-# Runs the V-4 publish-gate and V-5 error-mapping suits against a REAL
-# PostgreSQL 16 with migration 0001 applied.
+# Runs the V-4 publish-gate and V-5 error-mapping suites, and (since Phase 04B)
+# the identity / authorization / audit suites, against a REAL PostgreSQL 16
+# with migrations 0001 and 0002 applied.
 #
 # Why this workflow exists as its own file
 #   The authoring sandbox cannot reach binaries.prisma.sh, so `prisma generate`
@@ -18,7 +19,9 @@ on:
     paths:
       - '.github/workflows/**'
       - 'server/questions/**'
+      - 'server/auth/**'
       - 'tests/unit/questions/**'
+      - 'tests/unit/auth/**'
       - 'tests/integration/**'
       - 'tests/fixtures/questions/**'
       - 'vitest.integration.config.ts'
@@ -36,7 +39,9 @@ on:
     paths:
       - '.github/workflows/**'
       - 'server/questions/**'
+      - 'server/auth/**'
       - 'tests/unit/questions/**'
+      - 'tests/unit/auth/**'
       - 'tests/integration/**'
       - 'tests/fixtures/questions/**'
       - 'vitest.integration.config.ts'
@@ -91,7 +96,12 @@ jobs:
         run: |
           npx prettier --check \
             "server/questions/**/*.ts" \
+            "server/auth/**/*.ts" \
+            "scripts/db/*.ts" \
             "tests/unit/questions/**/*.ts" \
+            "tests/unit/auth/**/*.ts" \
+            "tests/integration/auth/**/*.ts" \
+            "tests/integration/*.ts" \
             "tests/unit/tooling/**/*.ts" \
             "tests/integration/questions/**/*.ts" \
             "tests/fixtures/questions/**/*.ts" || {
@@ -102,24 +112,26 @@ jobs:
       - name: Unit suites — publish rules, error mapping, DTOs, orchestration
         run: npx vitest run tests/unit/questions/ --reporter=verbose
 
+      - name: Unit suites — Phase 04B permission matrix, separation of duties, actor
+        run: npx vitest run tests/unit/auth/ --reporter=verbose
+
       - name: Regression — the pre-existing unit suites still pass
         run: |
           set -uo pipefail
           npx vitest run tests/unit/ --reporter=verbose 2>&1 | tee /tmp/unit.log
           rc=${PIPESTATUS[0]}
           # A floor, not an exact count: adding tests must not fail the build, but
-          # deleting them must. 660 is a margin below the current 692 (19 files)
-          # after the AMB-5 structural suite, the OD-18 authority/mutation suites
-          # and the two deployment-guard suites landed; the earlier floor of 390
-          # pre-dated all of them.
+          # deleting them must. 770 is a margin below the current 788 (24 files)
+          # after the Phase 04B auth suites landed; the earlier floor of 660
+          # pre-dated them.
           count="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/unit.log | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
           echo "unit tests passed=${count:-<none>}"
           if [ -z "${count:-}" ]; then
             echo "::error title=unit::could not read a unit test count"
             exit 1
           fi
-          if [ "$count" -lt 660 ]; then
-            echo "::error title=unit::too few unit cases ran ($count) — expected at least 660"
+          if [ "$count" -lt 770 ]; then
+            echo "::error title=unit::too few unit cases ran ($count) — expected at least 770"
             exit 1
           fi
           exit "$rc"
@@ -156,7 +168,7 @@ jobs:
             exit 1
           fi
           ls prisma/migrations/
-          echo "OK: only the 0001 baseline is present"
+          echo "OK: the V-1 drill's candidate is not committed (committed: 0001 baseline, 0002 identity/audit)"
 
   integration:
     name: Integration suites against real PostgreSQL 16
@@ -211,15 +223,21 @@ jobs:
 
       # apply migration 0001 EXACTLY as the committed file specifies — no
       # `migrate dev`, no `db push`, no `migrate reset` (all prohibited).
-      - name: Apply migration 0001
+      # Phase 04B: 0002 (identity, roles, audit) is applied on top, in order,
+      # exactly as committed. The inventory is asserted, not just printed.
+      - name: Apply migrations 0001 and 0002
         run: |
-          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q \
-            -f prisma/migrations/0001_phase04a_question_bank/migration.sql
-          psql "$DATABASE_URL" -tAc "
+          set -euo pipefail
+          for m in 0001_phase04a_question_bank 0002_identity_audit; do
+            psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
+          done
+          inv="$(psql "$DATABASE_URL" -tAc "
             SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public')
               ||'/'||(SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace)
               ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace)
-              ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%')"
+              ||'/'||(SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%')")"
+          echo "inventory tables/enums/fks/checks = $inv (expected 21/8/33/54)"
+          [ "$inv" = "21/8/33/54" ] || { echo "::error title=04B::inventory is $inv, expected 21/8/33/54"; exit 1; }
 
       # Records what Prisma actually reports for an expression-index violation,
       # so the report can quote reality instead of a guess.
@@ -338,17 +356,17 @@ jobs:
             printf '%s' "$clean" | tail -20
             exit 1
           fi
-          # 47 is the number of cases in the five suites today:
+          # 65 is the number of cases in the six suites today:
           #   change-type-service 18 (incl. the four concurrency tests),
           #   publish-gate 9, publish-service 9, snapshot-transaction 2,
-          #   unique-conflicts 9.
+          #   unique-conflicts 9, identity-audit 18 (Phase 04B).
           # A floor, not an exact count: adding cases must not fail the build, but
           # deleting them — or a broken include pattern — must. The skipped-suite
           # guard in the step above catches "ran nothing because there was no
           # database"; this catches "ran nothing because the tests went away".
-          # The earlier floor of 29 predated the AMB-5 concurrency suite.
-          if [ "$count" -lt 47 ]; then
-            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 47"
+          # Earlier floors: 29 (pre AMB-5 concurrency suite), 47 (pre Phase 04B).
+          if [ "$count" -lt 65 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 65"
             exit 1
           fi
           echo "OK: $count integration cases executed against PostgreSQL"
@@ -395,7 +413,7 @@ jobs:
             echo "Every run posts a fresh comment. This one is authoritative only for the"
             echo "run linked above; earlier comments supersede nothing and expire with this PR."
             echo
-            echo "Integration suites against a real PostgreSQL 16 with migration 0001 applied."
+            echo "Integration suites against a real PostgreSQL 16 with migrations 0001 and 0002 applied."
             echo
             echo '```'
             printf '%s\n' "$clean" | grep -E "✓|×|FAIL " | sed 's/^ *//' | head -60 || echo "no cases recorded"

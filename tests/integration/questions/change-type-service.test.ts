@@ -39,6 +39,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { changeQuestionType } from '@/server/questions/change-type';
 import { DomainError } from '@/server/questions/publish/errors';
 import type { QuestionType, VersionStatus } from '@/server/questions/publish/rules';
+import { actorFor, ensureActorProfiles, publishStamp } from '../auth-fixtures';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 const hasDatabase = typeof DATABASE_URL === 'string' && DATABASE_URL.length > 0;
@@ -103,6 +104,7 @@ async function createQuestion(
           questionId: question.id,
           versionNumber: i + 1,
           status: versionStatuses[i] ?? 'DRAFT',
+          ...(versionStatuses[i] === 'PUBLISHED' ? publishStamp() : {}),
           content: { format: 'rich_blocks', version: 1, blocks: [] },
         },
         select: { id: true },
@@ -126,6 +128,7 @@ async function readType(questionId: string): Promise<string> {
 beforeAll(async () => {
   if (!hasDatabase) return;
   prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: DATABASE_URL ?? '' }) });
+  await ensureActorProfiles(prisma);
 
   const level = await prisma.educationLevel.upsert({
     where: { code: FIXTURE_CODES.level },
@@ -193,7 +196,9 @@ describeDb('AMB-5 · fully archived question — FAIL CLOSED', () => {
   });
 
   it('refuses a type change with the specific review-required code', async () => {
-    await expect(changeQuestionType({ questionId, nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
       invariant: 'I-6',
     });
@@ -202,21 +207,25 @@ describeDb('AMB-5 · fully archived question — FAIL CLOSED', () => {
   it('does NOT report it as an ordinary published-version immutability failure', async () => {
     // The two codes mean different things and lead to different remediation.
     // Collapsing them would hide the missing historical tracking.
-    await expect(changeQuestionType({ questionId, nextType: 'CQ' })).rejects.not.toMatchObject({
+    await expect(
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
+    ).rejects.not.toMatchObject({
       code: 'QUESTION_TYPE_IMMUTABLE',
     });
   });
 
   it('leaves the row untouched — the refusal is not a half-applied write', async () => {
-    await expect(changeQuestionType({ questionId, nextType: 'CQ' })).rejects.toBeInstanceOf(
-      DomainError,
-    );
+    await expect(
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
+    ).rejects.toBeInstanceOf(DomainError);
     expect(await readType(questionId)).toBe('MCQ');
   });
 
   it('refuses several archived versions too, not only a single one', async () => {
     const { questionId: multi } = await createQuestion('MCQ', ['ARCHIVED', 'ARCHIVED', 'ARCHIVED']);
-    await expect(changeQuestionType({ questionId: multi, nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(actorFor('editor'), { questionId: multi, nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
     });
     expect(await readType(multi)).toBe('MCQ');
@@ -225,7 +234,7 @@ describeDb('AMB-5 · fully archived question — FAIL CLOSED', () => {
   it('refuses regardless of the direction of the change', async () => {
     const { questionId: cqArchived } = await createQuestion('CQ', ['ARCHIVED']);
     await expect(
-      changeQuestionType({ questionId: cqArchived, nextType: 'MCQ' }),
+      changeQuestionType(actorFor('editor'), { questionId: cqArchived, nextType: 'MCQ' }),
     ).rejects.toMatchObject({ code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED' });
     expect(await readType(cqArchived)).toBe('CQ');
   });
@@ -233,7 +242,7 @@ describeDb('AMB-5 · fully archived question — FAIL CLOSED', () => {
   it('treats the same-type no-op as allowed — nothing to review', async () => {
     // "Do not treat missing historical evidence as proof of never-published"
     // cuts both ways: it must not manufacture a refusal where no change occurs.
-    const result = await changeQuestionType({ questionId, nextType: 'MCQ' });
+    const result = await changeQuestionType(actorFor('editor'), { questionId, nextType: 'MCQ' });
     expect(result).toMatchObject({ type: 'MCQ', previousType: 'MCQ' });
     expect(await readType(questionId)).toBe('MCQ');
   });
@@ -242,7 +251,9 @@ describeDb('AMB-5 · fully archived question — FAIL CLOSED', () => {
 describeDb('AMB-5 · archived mixed with other statuses', () => {
   it('a question with one PUBLISHED and one ARCHIVED version is refused as IMMUTABLE', async () => {
     const { questionId } = await createQuestion('MCQ', ['PUBLISHED', 'ARCHIVED']);
-    await expect(changeQuestionType({ questionId, nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'QUESTION_TYPE_IMMUTABLE',
       invariant: 'I-6',
     });
@@ -251,7 +262,7 @@ describeDb('AMB-5 · archived mixed with other statuses', () => {
 
   it('a draft-only question is NOT refused by the archived gate', async () => {
     const { questionId } = await createQuestion('MCQ', ['DRAFT']);
-    const result = await changeQuestionType({ questionId, nextType: 'CQ' });
+    const result = await changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' });
     expect(result).toMatchObject({ previousType: 'MCQ', type: 'CQ' });
   });
 });
@@ -259,7 +270,7 @@ describeDb('AMB-5 · archived mixed with other statuses', () => {
 describeDb('AMB-5 · POSITIVE CONTROLS — approved rules still permit the change', () => {
   it('changes a draft-only MCQ to CQ and persists it', async () => {
     const { questionId } = await createQuestion('MCQ', ['DRAFT']);
-    const result = await changeQuestionType({ questionId, nextType: 'CQ' });
+    const result = await changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' });
 
     expect(result).toMatchObject({ questionId, previousType: 'MCQ', type: 'CQ' });
     expect(await readType(questionId)).toBe('CQ');
@@ -269,15 +280,19 @@ describeDb('AMB-5 · POSITIVE CONTROLS — approved rules still permit the chang
     // Nothing was ever published by definition, so there is no unknown to
     // resolve and no review to require.
     const { questionId } = await createQuestion('MCQ', []);
-    const result = await changeQuestionType({ questionId, nextType: 'CQ' });
+    const result = await changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' });
     expect(result.type).toBe('CQ');
     expect(await readType(questionId)).toBe('CQ');
   });
 
   it('changes a question whose only version is a draft, repeated twice', async () => {
     const { questionId } = await createQuestion('MCQ', ['DRAFT']);
-    expect((await changeQuestionType({ questionId, nextType: 'CQ' })).type).toBe('CQ');
-    expect((await changeQuestionType({ questionId, nextType: 'MCQ' })).type).toBe('MCQ');
+    expect(
+      (await changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' })).type,
+    ).toBe('CQ');
+    expect(
+      (await changeQuestionType(actorFor('editor'), { questionId, nextType: 'MCQ' })).type,
+    ).toBe('MCQ');
     expect(await readType(questionId)).toBe('MCQ');
   });
 });
@@ -285,7 +300,7 @@ describeDb('AMB-5 · POSITIVE CONTROLS — approved rules still permit the chang
 describeDb('AMB-5 · bypass analysis', () => {
   it('the service refuses an unknown question instead of creating one', async () => {
     await expect(
-      changeQuestionType({
+      changeQuestionType(actorFor('editor'), {
         questionId: '00000000-0000-4000-8000-00000000dead',
         nextType: 'CQ',
       }),
@@ -313,7 +328,7 @@ describeDb('AMB-5 · bypass analysis', () => {
     // Passing an extra property has no effect: TypeScript rejects it, and the
     // runtime gate is unconditional.
     await expect(
-      changeQuestionType({
+      changeQuestionType(actorFor('editor'), {
         ...input,
         allowLegacyArchivedTypeChange: true,
       } as unknown as typeof input),
@@ -400,9 +415,11 @@ describeDb('AMB-5 · transaction scope and row locking', () => {
 
     // Start the service; it must NOT complete while the lock is held.
     let serviceSettled = false;
-    const call = changeQuestionType({ questionId, nextType: 'CQ' }).finally(() => {
-      serviceSettled = true;
-    });
+    const call = changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }).finally(
+      () => {
+        serviceSettled = true;
+      },
+    );
 
     // Give the service a bounded window in which it must remain blocked.
     await new Promise((resolve) => setTimeout(resolve, 400));
@@ -455,7 +472,7 @@ describeDb('AMB-5 · transaction scope and row locking', () => {
     // so the service is guaranteed to block and therefore to read AFTER the
     // holder's uncommitted UPDATE commits.
     expect(await waitForQuestionLock(), 'the holder never acquired the row lock').toBe(true);
-    const call = changeQuestionType({ questionId, nextType: 'MCQ' });
+    const call = changeQuestionType(actorFor('editor'), { questionId, nextType: 'MCQ' });
     releaseHold();
     await holder;
 
@@ -470,8 +487,8 @@ describeDb('AMB-5 · transaction scope and row locking', () => {
     const { questionId } = await createQuestion('MCQ', ['DRAFT']);
 
     const outcomes = await Promise.allSettled([
-      changeQuestionType({ questionId, nextType: 'CQ' }),
-      changeQuestionType({ questionId, nextType: 'CQ' }),
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
     ]);
 
     const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
@@ -488,7 +505,9 @@ describeDb('AMB-5 · transaction scope and row locking', () => {
   it('a rejected archived change rolls back and leaves no partial state', async () => {
     const { questionId, versionIds } = await createQuestion('MCQ', ['ARCHIVED']);
 
-    await expect(changeQuestionType({ questionId, nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(actorFor('editor'), { questionId, nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
     });
 

@@ -314,13 +314,33 @@ jobs:
       # migration file that has vanished, or an unreadable database all refuse
       # the deploy. Arguments after `--` are forwarded, so the need for
       # `--config` is not a reason to deploy around the gate.
+      #
+      # Phase 04B: the repository now also commits 0002_identity_audit. V-1 is
+      # the drill "a database AT 0001 receives a generated second migration",
+      # so the primary must be at exactly 0001. It is deployed from a copy of
+      # the history holding only the baseline; the checksum gate still verifies
+      # against the real prisma/migrations directory. The committed 0002 itself
+      # is deployed, replayed and verified by the G-3 full-schema gate and the
+      # V-4/V-5 application workflow.
       - name: Deploy migration 0001 through the mandatory checksum gate
         env:
           DATABASE_URL: postgresql://v1:v1pass@localhost:5432/v1_primary
         run: |
           set -euo pipefail
-          bash scripts/db/deploy-gate.sh deploy -- --config prisma.config.ts
-          node_modules/.bin/prisma migrate status --config prisma.config.ts
+          base="$RUNNER_TEMP/v1-baseline"
+          mkdir -p "$base/migrations/0001_phase04a_question_bank"
+          cp prisma/migrations/0001_phase04a_question_bank/migration.sql \
+             "$base/migrations/0001_phase04a_question_bank/migration.sql"
+          cp prisma/migrations/migration_lock.toml "$base/migrations/migration_lock.toml"
+          cat > "$base/prisma.config.ts" <<CFG
+          export default {
+            schema: '$GITHUB_WORKSPACE/prisma/schema.prisma',
+            migrations: { path: '$base/migrations' },
+            datasource: { url: process.env.DATABASE_URL },
+          };
+          CFG
+          bash scripts/db/deploy-gate.sh deploy -- --config "$base/prisma.config.ts"
+          node_modules/.bin/prisma migrate status --config "$base/prisma.config.ts"
 
       # Kept as a regression check, not a diagnostic. The empty-diff defect was
       # caused by a datasource-free config; probe-diff.sh's P1 case is the one

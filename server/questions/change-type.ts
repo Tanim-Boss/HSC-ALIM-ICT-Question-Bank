@@ -37,7 +37,9 @@ import 'server-only';
  *        · `assertTypeChangeAllowed`            — published RIGHT NOW?
  *        · `assertLegacyArchiveReviewRequired`   — publication status UNKNOWABLE?
  *   4. There is NO bypass, and this service exposes no exception parameter. Its
- *      signature is exactly `{ questionId, nextType }` — one object, two fields.
+ *      signature is exactly `(actor, { questionId, nextType, requestId? })`:
+ *      who is acting, and what they asked for. `requestId` only labels the
+ *      audit row; nothing reads it to make a decision.
  *
  *      This used to need a paragraph of qualification, because the rules helper
  *      took an optional `allowLegacyArchivedTypeChange` flag that short-circuited
@@ -61,6 +63,8 @@ import 'server-only';
  */
 
 import { getPrisma } from '@/lib/db';
+import { authorize, type Actor } from '@/server/auth/authorize';
+import { writeAuditEvent } from '@/server/auth/audit';
 import { DomainError } from './publish/errors';
 import { mapUniqueViolation } from './publish/db-errors';
 import { loadQuestionSnapshot, type QuestionReader } from './publish/snapshot';
@@ -89,6 +93,8 @@ interface TypeChangeTransactionClient extends QuestionReader {
 export interface ChangeQuestionTypeInput {
   readonly questionId: string;
   readonly nextType: QuestionType;
+  /** Correlation id recorded on the audit row. Optional; never used for decisions. */
+  readonly requestId?: string;
 }
 
 export interface ChangeQuestionTypeResult {
@@ -119,8 +125,12 @@ export interface ChangeQuestionTypeResult {
  * same shape so callers have one branch, not two.
  */
 export async function changeQuestionType(
+  actor: Actor,
   input: ChangeQuestionTypeInput,
 ): Promise<ChangeQuestionTypeResult> {
+  // Phase 04B: authorization comes before any lock or read.
+  authorize(actor, 'question.change_type');
+
   const prisma = getPrisma();
 
   try {
@@ -164,6 +174,18 @@ export async function changeQuestionType(
       await db.question.update({
         where: { id: input.questionId },
         data: { type: input.nextType },
+      });
+
+      // 5. Audit on the same transaction: if this insert fails, the type change
+      //    rolls back with it. A no-op (above) changed nothing and is not audited.
+      await writeAuditEvent(tx, {
+        actorId: actor.userId,
+        action: 'question.change_type',
+        resourceType: 'question',
+        resourceId: input.questionId,
+        before: { type: currentType, questionStatus: snapshot.status },
+        after: { type: input.nextType, questionStatus: snapshot.status },
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
       });
 
       return {

@@ -1,10 +1,12 @@
 # Authorization
 
-**Purpose and scope.** Specify server-side access-control boundaries for students, administrators, background work and domain data. This is not a complete, approved permission matrix. Authentication proves identity; authorization decides whether that principal may perform an action on a particular resource.
+**Purpose and scope.** Specify server-side access-control boundaries for students, administrators, background work and domain data. Authentication proves identity; authorization decides whether that principal may perform an action on a particular resource. The Question Bank's role → action matrix is decided and implemented (Phase 04B, below); other modules' permissions are still open.
 
 ## Responsibilities and boundaries
 
 Deny by default. Every Server Action, Route Handler, internal service entry and worker-facing operation verifies the actor, action, resource and relevant state on the server. A hidden button, client role, guessed resource ID, shared-cache hit or managed-auth session alone is not authorization. Enforce ownership for personal sessions, answers, results, conversations, saved questions, papers and exports; re-check access when a job runs and when its artifact is retrieved.
+
+The names below come from the blueprint and predate Phase 04B. The implemented roles are the five in the matrix; Content Admin maps to EDITOR/ADMIN, and Exam Manager and Analyst do not exist yet.
 
 | Actor / role named in blueprint | Intended area, not a complete grant |
 |---|---|
@@ -15,15 +17,39 @@ Deny by default. Every Server Action, Route Handler, internal service entry and 
 | Moderator | Review and approval of content within approved scope. |
 | Analyst | Read-only reports within approved scope; access to personal detail is not assumed. |
 
-Roles may be combined only through authorized server-managed assignments. The exact action matrix, least-privilege boundaries, teacher role, assignment/revocation and any institution scope are **OD-16**. Do not assume a multi-tenant model, that every staff member can see every student, or that an admin can bypass a domain invariant. Privileged actions, especially key and role changes, require audit records.
+Roles may be combined only through authorized server-managed assignments. The Question Bank matrix is decided (below); role revocation, the teacher role, other modules' permissions and any institution scope remain **OD-16**. Do not assume a multi-tenant model, that every staff member can see every student, or that an admin can bypass a domain invariant. Privileged actions, especially key and role changes, require audit records.
+
+## Role → action matrix (Phase 04B)
+
+Implemented in `server/auth/permissions.ts`; enforced by the domain services, which take the acting user as their first parameter and call `authorize` before any lock, read or write. Permissions are code, not a table. UI state, `proxy.ts` and RLS are not enforcement points.
+
+| Action | STUDENT | EDITOR | MODERATOR | ADMIN | SUPER_ADMIN |
+|---|:-:|:-:|:-:|:-:|:-:|
+| `question.create` | — | ✓ | ✓ | ✓ | ✓ |
+| `question.edit_draft` | — | ✓ | ✓ | ✓ | ✓ |
+| `question.change_type` | — | ✓ | ✓ | ✓ | ✓ |
+| `question.publish` | — | — | ✓ | ✓ | ✓ |
+| `question.archive` | — | — | ✓ | ✓ | ✓ |
+| `answer_key.verify` | — | — | ✓ | ✓ | ✓ |
+| `taxonomy.manage` | — | — | — | ✓ | ✓ |
+| `role.grant` | — | — | — | — | ✓ |
+
+- **Deny by default.** An action that is not in the matrix is refused for every role, including SUPER_ADMIN.
+- **Roles combine.** A user may hold several roles (`user_roles`); an action is allowed if any held role allows it. A new profile gets STUDENT.
+- **Separation of duties.** The user who last edited a draft version (`updated_by`, else `created_by`) cannot publish it unless they are SUPER_ADMIN. Versions written before migration 0002 have no recorded editor, so the rule cannot apply to them.
+- **Identity.** `requireActor()` (`server/auth/actor.ts`) reads the Supabase-verified user, loads or provisions the profile, and refuses with `UNAUTHENTICATED` (no session) or `INACTIVE` (deactivated profile). `profiles.id` is `auth.users.id`; there is no foreign key into the `auth` schema.
+- **Audit.** Publishing, type changes, profile provisioning and role grants write one `audit_events` row on the same transaction as the change, so a failed audit insert rolls the change back. `audit_events` is append-only in the database (a trigger rejects UPDATE, DELETE and TRUNCATE). Payloads carry ids and status fields only, never answer keys or rubric content.
+- **Bootstrap.** The first SUPER_ADMIN is created with `npm run db:bootstrap-super-admin -- <email>`. It promotes one existing auth user, refuses if any SUPER_ADMIN already exists, and writes an audit row with `actor_id` NULL.
+
+> **TODO — RLS (deferred).** Row-level security is defence in depth, not the enforcement point, and is not implemented yet. Until it is, the Question Bank tables must not be reachable through Supabase's public Data API with the anon or authenticated role. Write the policies in a later migration, with deny-all as the baseline.
 
 ## Resource and release checks
 
 - **Exam:** the server checks that the caller owns the session and the selected item belongs to its frozen snapshot. Evaluation, timestamps and scores cannot be written by a student.
 - **Answer keys:** official keys, correct-option identifiers and rubrics never appear in student-facing exam APIs, including result APIs. They are available only to explicitly authorized server workflows. The README's post-exam review path is open; do not infer permission from finalization alone or allow tutor/search/export to leak active-exam answers.
-- **Question authoring:** publish only validated versions through the Question Bank service. A permitted editor is not automatically a permitted publisher; exact separation is OD-16/OD-27.
+- **Question authoring:** publish only validated versions through the Question Bank service. A permitted editor is not automatically a permitted publisher: see the matrix and separation of duties above. Moderation states beyond DRAFT/PUBLISHED/ARCHIVED remain OD-27.
 - **AI and files:** authorize the question/version and intended context before invoking the adapter or serving assets. Validate upload and export access; object storage URLs must not outlive or bypass the chosen access policy.
-- **Database:** use appropriate database policies and least-privilege credentials as defense in depth. If Prisma connects with a role that bypasses row-level security, server authorization remains mandatory; the RLS design is not yet approved.
+- **Database:** use appropriate database policies and least-privilege credentials as defense in depth. If Prisma connects with a role that bypasses row-level security, server authorization remains mandatory; RLS policies are deferred (see the TODO above).
 
 ## Dependencies
 

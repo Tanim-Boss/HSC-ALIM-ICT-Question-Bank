@@ -66,6 +66,13 @@ const h = vi.hoisted(() => {
     levelSubject: {
       findUnique: () => Promise.resolve({ levelId: 'lvl' }),
     },
+    // Phase 04B: the audit row written on the same transaction as the change.
+    auditEvent: {
+      create: () => {
+        calls.push('audit');
+        return Promise.resolve({});
+      },
+    },
   };
 
   // The pool client. A read through this is defect D2, so it fails loudly
@@ -102,6 +109,13 @@ const h = vi.hoisted(() => {
 vi.mock('@/lib/db', () => ({ getPrisma: () => h.client }));
 
 const { changeQuestionType } = await import('@/server/questions/change-type');
+const { AppRole } = await import('@/lib/generated/prisma/enums');
+
+/** An actor allowed to change a draft question's type (Phase 04B). */
+const editor = {
+  userId: '0b000000-0000-4000-8000-000000000002',
+  roles: new Set([AppRole.EDITOR]),
+};
 const { assertQuestionTypeChangeAllowed } = await import('@/server/questions/publish/gate');
 
 /** A snapshot row of the shape `loadQuestionSnapshot` selects and maps. */
@@ -139,7 +153,9 @@ describe('the production service cannot be talked out of the AMB-5 gate', () => 
   it('refuses an all-archived type change with the review code, not the immutable one', async () => {
     // Both codes exist and mean different things. If the service ever collapsed
     // them, the distinction AMB-5 rests on would be gone.
-    await expect(changeQuestionType({ questionId: 'q-1', nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(editor, { questionId: 'q-1', nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
     });
   });
@@ -152,7 +168,7 @@ describe('the production service cannot be talked out of the AMB-5 gate', () => 
     // A swallowed error inside `$transaction` would let a half-applied change
     // commit. The fake client's `$transaction` simply returns the callback's
     // promise, so a rejected promise here means the same thing for Prisma.
-    const outcome = changeQuestionType({ questionId: 'q-1', nextType: 'CQ' });
+    const outcome = changeQuestionType(editor, { questionId: 'q-1', nextType: 'CQ' });
     await expect(outcome).rejects.toBeInstanceOf(Error);
     expect(h.calls).toEqual(['begin', 'lock', 'read']);
   });
@@ -164,21 +180,32 @@ describe('the production service cannot be talked out of the AMB-5 gate', () => 
       questionId: 'q-1',
       nextType: 'CQ',
       allowLegacyArchivedTypeChange: true,
-    } as unknown as Parameters<typeof changeQuestionType>[0];
+    } as unknown as Parameters<typeof changeQuestionType>[1];
 
-    await expect(changeQuestionType(smuggled)).rejects.toMatchObject({
+    await expect(changeQuestionType(editor, smuggled)).rejects.toMatchObject({
       code: 'QUESTION_TYPE_CHANGE_REVIEW_REQUIRED',
     });
     expect(h.calls).not.toContain('write');
   });
 
-  it('takes exactly one parameter — there is no options slot to pass a flag into', () => {
-    expect(changeQuestionType.length).toBe(1);
+  it('takes exactly (actor, input) — there is no options slot to pass a flag into', () => {
+    expect(changeQuestionType.length).toBe(2);
+  });
+
+  it('refuses an actor without question.change_type before opening a transaction', async () => {
+    h.reset(questionRow('MCQ', ['DRAFT']));
+    const student = { userId: editor.userId, roles: new Set([AppRole.STUDENT]) };
+    await expect(
+      changeQuestionType(student, { questionId: 'q-1', nextType: 'CQ' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(h.calls).toEqual([]);
   });
 
   it('still refuses a currently-published question with QUESTION_TYPE_IMMUTABLE', async () => {
     h.reset(questionRow('MCQ', ['PUBLISHED']));
-    await expect(changeQuestionType({ questionId: 'q-1', nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(editor, { questionId: 'q-1', nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'QUESTION_TYPE_IMMUTABLE',
     });
     expect(h.calls).not.toContain('write');
@@ -186,7 +213,9 @@ describe('the production service cannot be talked out of the AMB-5 gate', () => 
 
   it('permits a draft-only change and returns the new type', async () => {
     h.reset(questionRow('MCQ', ['DRAFT']));
-    await expect(changeQuestionType({ questionId: 'q-1', nextType: 'CQ' })).resolves.toMatchObject({
+    await expect(
+      changeQuestionType(editor, { questionId: 'q-1', nextType: 'CQ' }),
+    ).resolves.toMatchObject({
       questionId: 'q-1',
       previousType: 'MCQ',
       type: 'CQ',
@@ -196,22 +225,22 @@ describe('the production service cannot be talked out of the AMB-5 gate', () => 
 
   it('treats a same-type request as a no-op with no write', async () => {
     h.reset(questionRow('MCQ', ['ARCHIVED']));
-    await expect(changeQuestionType({ questionId: 'q-1', nextType: 'MCQ' })).resolves.toMatchObject(
-      {
-        type: 'MCQ',
-      },
-    );
+    await expect(
+      changeQuestionType(editor, { questionId: 'q-1', nextType: 'MCQ' }),
+    ).resolves.toMatchObject({
+      type: 'MCQ',
+    });
     expect(h.calls).not.toContain('write');
   });
 
   it('locks, reads and writes through ONE transaction client, never the pool', async () => {
     h.reset(questionRow('MCQ', ['DRAFT']));
-    await changeQuestionType({ questionId: 'q-1', nextType: 'CQ' });
+    await changeQuestionType(editor, { questionId: 'q-1', nextType: 'CQ' });
 
     // Every operation the service performs went through the single `tx` object
     // handed to it by `$transaction`; any pool access would have recorded
     // POOL_READ/POOL_WRITE (and thrown).
-    expect(h.calls).toEqual(['begin', 'lock', 'read', 'write']);
+    expect(h.calls).toEqual(['begin', 'lock', 'read', 'write', 'audit']);
   });
 
   it('does not fall back to the pool when the snapshot is missing', async () => {
@@ -219,7 +248,9 @@ describe('the production service cannot be talked out of the AMB-5 gate', () => 
     // `loadQuestionSnapshot` reports a missing question as
     // INACTIVE_ROW_REFERENCED (snapshot.ts:206). That is existing, approved
     // behaviour and is asserted as-is rather than "corrected" here.
-    await expect(changeQuestionType({ questionId: 'q-1', nextType: 'CQ' })).rejects.toMatchObject({
+    await expect(
+      changeQuestionType(editor, { questionId: 'q-1', nextType: 'CQ' }),
+    ).rejects.toMatchObject({
       code: 'INACTIVE_ROW_REFERENCED',
     });
     expect(h.calls).not.toContain('POOL_READ');

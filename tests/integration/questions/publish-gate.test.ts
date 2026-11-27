@@ -23,6 +23,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { evaluatePublishGate, type QuestionSnapshot } from '@/server/questions/publish/rules';
 import { mapUniqueViolation } from '@/server/questions/publish/db-errors';
 import { toStudentQuestion } from '@/server/questions/publish/dto';
+import { ensureActorProfiles, publishStamp, verifyStamp } from '../auth-fixtures';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 const hasDatabase = typeof DATABASE_URL === 'string' && DATABASE_URL.length > 0;
@@ -135,6 +136,7 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
         questionId: question.id,
         versionNumber: 1,
         status: opts.publish === true ? 'PUBLISHED' : 'DRAFT',
+        ...(opts.publish === true ? publishStamp() : {}),
         content: MCQ_CONTENT,
       },
       select: { id: true },
@@ -151,6 +153,7 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
         mcqCorrectOptionKey: 'A',
         isVerified: true,
         verifiedAt: new Date(),
+        ...verifyStamp(),
       },
     });
 
@@ -232,6 +235,8 @@ describeDb('publish gate against real PostgreSQL', () => {
   });
 
   beforeAll(async () => {
+    // Phase 04B: published / verified fixture rows must name a real profile.
+    await ensureActorProfiles(prisma);
     // ONE shared taxonomy, created against the real constraints: the code
     // format is uppercase-only and level_subjects must actually link them.
     // upsert, not create: a run that crashed before its afterAll would
@@ -284,7 +289,8 @@ describeDb('publish gate against real PostgreSQL', () => {
     const rows = (await prisma.$queryRawUnsafe(
       `SELECT count(*)::bigint AS count FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations'`,
     )) as { count: bigint }[];
-    expect(Number(rows[0]?.count)).toBe(18);
+    // 18 Phase 04A tables (0001) + profiles, user_roles, audit_events (0002).
+    expect(Number(rows[0]?.count)).toBe(21);
   });
 
   it('POSITIVE CONTROL: a fixture draft passes the gate before publication', async () => {
@@ -303,7 +309,7 @@ describeDb('publish gate against real PostgreSQL', () => {
       const db = tx as unknown as PrismaTx;
       await db.questionVersion.update({
         where: { id: fixture.versionId },
-        data: { status: 'PUBLISHED' },
+        data: { status: 'PUBLISHED', ...publishStamp() },
       });
       await db.question.update({
         where: { id: fixture.questionId },
@@ -327,6 +333,7 @@ describeDb('publish gate against real PostgreSQL', () => {
         questionId: fixture.questionId,
         versionNumber: 2,
         status: 'PUBLISHED',
+        ...publishStamp(),
         content: MCQ_CONTENT,
       },
     });
@@ -344,6 +351,7 @@ describeDb('publish gate against real PostgreSQL', () => {
         mcqCorrectOptionKey: 'B',
         isVerified: true,
         verifiedAt: new Date(),
+        ...verifyStamp(),
       },
     });
     await expect(attempt).rejects.toThrow();
@@ -361,6 +369,7 @@ describeDb('publish gate against real PostgreSQL', () => {
         mcqCorrectOptionKey: 'Z',
         isVerified: true,
         verifiedAt: new Date(),
+        ...verifyStamp(),
       },
     });
     await expect(attempt).rejects.toThrow();
@@ -386,7 +395,7 @@ describeDb('publish gate against real PostgreSQL', () => {
         const db = tx as unknown as PrismaTx;
         await db.questionVersion.update({
           where: { id: fixture.versionId },
-          data: { status: 'PUBLISHED' },
+          data: { status: 'PUBLISHED', ...publishStamp() },
         });
         await db.question.update({
           where: { id: fixture.questionId },

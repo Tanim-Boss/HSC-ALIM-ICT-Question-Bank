@@ -5,6 +5,7 @@
 ## Current state
 
 - `prisma/schema.prisma` now defines the **Phase 04A Question Bank** schema: 18 tables, 7 enums, 21 single-column foreign keys, 47 `CHECK` constraints and 6 hand-written partial/expression indexes. It is transcribed from — and subordinate to — the approved physical schema proposal (`docs/database/phase-04a-question-bank-physical-schema-proposal.md`, §3 is normative; §11.9 records the audit findings).
+- **Migration 0002 (`0002_identity_audit`, Phase 04B)** adds `profiles`, `user_roles`, `audit_events`, the `AppRole` enum and authorship columns (additive only). Its hand-written part holds 7 CHECKs — two of them `NOT VALID` because rows written before 0002 have no author — and the append-only trigger on `audit_events`. The full inventory is now 21 tables, 8 enums, 33 foreign keys (28 + 5 composite) and 54 CHECKs; the G-3 full-schema gate asserts it.
 - The baseline migration is `prisma/migrations/0001_phase04a_question_bank/`. It is Prisma-generated DDL **plus** reviewed hand-written SQL that Prisma cannot express: the 47 `CHECK`s, the partial/expression indexes, and the **five composite foreign keys** of Request C (§3.11.6).
 - **`prisma migrate dev` is PROHIBITED for this repository.** It generates a migration that drops all five composite foreign keys — measured twice, recorded as gate **G‑1 FAILED** (§11.3.2/§11.3.3 of the proposal). `migrate reset` and `db push` are prohibited for the same reason. The repository guard `docs/database/g1-spike/option-c/repo-guard.sh` enforces this in CI.
 - `negative_marks` and all examination tables are **not** in this schema: negative marking is configurable and deferred (Revision 13), and examination tables are Phase 05.
@@ -270,7 +271,7 @@ reporting success when it cannot parse the npm surface.
 - **One logical change per migration.** Keep migrations small, named descriptively, and reversible where the approved design requires it.
 - **Constraints are a second line of defense.** Database constraints back up service-level authorization and validation; they never replace them (see [database-design.md](../database/database-design.md)).
 - **Never edit applied migrations.** Correct a mistake with a new migration.
-- **Domain services own writes.** Migrations must not introduce triggers or stored procedures that bypass the service layer in `server/`.
+- **Domain services own writes.** Migrations must not introduce triggers or stored procedures that bypass the service layer in `server/`. (The `audit_events` append-only trigger only *refuses* writes; it never makes one.)
 
 ## Access boundaries
 
@@ -282,4 +283,4 @@ reporting success when it cannot parse the npm surface.
 
 [OD-08–OD-13, OD-18–OD-21, OD-28–OD-29](../architecture/technology-decisions.md#open-decision-register) govern the source model, result lifecycle, retention, imports/exports and AI privacy. Migration 0001 exists because the Phase 04A schema was approved; those decisions still govern **future** migrations.
 
-Specifically deferred and **not** to be designed around in a migration yet: negative marking and its configuration (G‑2 deferred / OD‑21 / OD‑NM‑1 — the column was removed in Revision 13, not scheduled), examination tables (Phase 05), users and RLS (OD‑15/OD‑16), and moderation states beyond the three approved values (OD‑27).
+Specifically deferred and **not** to be designed around in a migration yet: negative marking and its configuration (G‑2 deferred / OD‑21 / OD‑NM‑1 — the column was removed in Revision 13, not scheduled), examination tables (Phase 05), RLS policies (OD‑16, deferred — identity and roles landed in 0002), and moderation states beyond the three approved values (OD‑27).

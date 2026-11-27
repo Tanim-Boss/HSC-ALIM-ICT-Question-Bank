@@ -587,15 +587,22 @@ END $$;
 
 -- 28. uq_question_versions_one_published_per_question: two PUBLISHED versions
 --     of one question are rejected.
+--     Since migration 0002 (Phase 04B) a PUBLISHED row must name its publisher
+--     (ck_question_versions_published_has_publisher), so both rows carry one;
+--     otherwise the CHECK would fire first and this case would no longer test
+--     the index.
 DO $$
 DECLARE vid uuid := gen_random_uuid();
+        pid uuid := gen_random_uuid();
 BEGIN
-  UPDATE question_versions SET status = 'PUBLISHED'
+  INSERT INTO profiles (id, display_name, updated_at) VALUES (pid, 'g3f publisher', now());
+  UPDATE question_versions SET status = 'PUBLISHED', published_by = pid, published_at = now()
   WHERE id = '88888888-8888-8888-8888-888888888888';
   BEGIN
-    INSERT INTO question_versions (id, question_id, version_number, status, content, updated_at)
+    INSERT INTO question_versions (id, question_id, version_number, status, content, updated_at,
+                                   published_by, published_at)
     VALUES (vid, '77777777-7777-7777-7777-777777777777', 2, 'PUBLISHED',
-            '{"format":"ict-atlas/1","version":1,"blocks":[]}'::jsonb, now());
+            '{"format":"ict-atlas/1","version":1,"blocks":[]}'::jsonb, now(), pid, now());
     INSERT INTO g3f_results VALUES (28, 'uq-one-published-per-question', 'FAIL: two published versions accepted');
   EXCEPTION WHEN unique_violation THEN
     INSERT INTO g3f_results VALUES (28, 'uq-one-published-per-question',
@@ -603,8 +610,9 @@ BEGIN
            THEN 'PASS' ELSE 'FAIL: wrong constraint: ' || SQLERRM END);
   END;
   DELETE FROM question_versions WHERE id = vid;
-  UPDATE question_versions SET status = 'DRAFT'
+  UPDATE question_versions SET status = 'DRAFT', published_by = NULL, published_at = NULL
   WHERE id = '88888888-8888-8888-8888-888888888888';
+  DELETE FROM profiles WHERE id = pid;
 END $$;
 
 -- 29. a SECOND DRAFT version of the same question must still be allowed
@@ -687,13 +695,15 @@ END $$;
 --     reduced prototype had. A schema where a CHECK silently failed to be
 --     created would otherwise look healthy.
 -- =====================================================================
+--     Phase 04B: 47 from migration 0001 + 7 from 0002_identity_audit = 54.
+--     The case keeps its historical label so earlier evidence stays comparable.
 INSERT INTO g3f_results VALUES (33, 'S10-all-47-checks-present',
   CASE WHEN (SELECT count(*) FROM pg_constraint
              WHERE connamespace = current_schema::regnamespace
                AND contype = 'c'
-               AND conname LIKE 'ck\_%') = 47
+               AND conname LIKE 'ck\_%') = 54
        THEN 'PASS'
-       ELSE 'FAIL: expected 47 ck_ constraints, found '
+       ELSE 'FAIL: expected 54 ck_ constraints (47 + 7), found '
             || (SELECT count(*) FROM pg_constraint
                 WHERE connamespace = current_schema::regnamespace
                   AND contype = 'c' AND conname LIKE 'ck\_%')::text END);
