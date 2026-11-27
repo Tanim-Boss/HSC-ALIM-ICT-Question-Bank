@@ -20,7 +20,6 @@
  *   · Caller-supplied Actor/role/userId/permissions spoofing is rejected — the
  *     boundary always resolves identity from the Supabase session.
  *   · Supabase user_metadata role spoofing is ignored.
- *   · Extra positional arguments produce VALIDATION_FAILED.
  *   · Unexpected infrastructure errors are sanitized.
  *   · DomainError semantics are preserved unchanged.
  */
@@ -374,6 +373,10 @@ describe('Phase 04F — caller-supplied actor/role spoofing', () => {
     };
     const forgedActor = { userId: SPOOFED_USER_ID, roles: new Set([AppRole.SUPER_ADMIN]) };
 
+    // Boundary functions now take (input), not (...args). A caller passing a
+    // forged Actor as the first argument is passing it as the input. The
+    // domain service will call authorize() on the session-resolved actor
+    // (STUDENT), not the forged one, so it will fail with FORBIDDEN.
     const untypedFns = [
       staffCreateQuestion as unknown as (...a: unknown[]) => Promise<unknown>,
       staffSaveDraft as unknown as (...a: unknown[]) => Promise<unknown>,
@@ -381,7 +384,7 @@ describe('Phase 04F — caller-supplied actor/role spoofing', () => {
     ];
 
     for (const fn of untypedFns) {
-      await expect(fn(forgedActor, {})).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      await expect(fn(forgedActor)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }
     expect(h.state.serviceCalls).toHaveLength(0);
   });
@@ -407,53 +410,18 @@ describe('Phase 04F — caller-supplied actor/role spoofing', () => {
     expect(h.state.serviceCalls).toHaveLength(0);
   });
 
-  it('even for authorized staff, strict schemas reject extra actor/role fields as VALIDATION_FAILED', async () => {
-    // The real services call parseInput with strict schemas. Since our mocks
-    // simulate authorization but not schema validation, we verify that
-    // the boundary correctly passes the actor from the session (not from input).
-    // Schema validation is tested in authoring-schemas.test.ts and integration tests.
+  it('the boundary always passes the session-resolved actor, never a caller-supplied identity', async () => {
     h.state.profile = {
       isActive: true,
       roles: [{ role: 'STUDENT' }, { role: 'EDITOR' }],
     };
 
-    // Extra fields in the input: the boundary passes them through to the service.
-    // The real service would reject them via Zod strictObject. Our mock doesn't
-    // do schema validation, but we prove the actor is still from the session.
+    // Even with spoofed fields in the input, the boundary passes the
+    // session-resolved actor to the service.
     await staffCreateQuestion({ ...validCreateInput, userId: SPOOFED_USER_ID } as never);
     expect(h.state.serviceCalls).toHaveLength(1);
     expect(h.state.serviceCalls[0]![1]).toBe(SESSION_USER_ID);
     expect(h.state.serviceCalls[0]![1]).not.toBe(SPOOFED_USER_ID);
-  });
-});
-
-describe('Phase 04F — unexpected arguments', () => {
-  beforeEach(() => h.reset());
-
-  it('when no argument is passed, the boundary passes undefined to the service which triggers VALIDATION_FAILED', async () => {
-    // The boundary detects missing args and passes a sentinel to the service.
-    // In the real service, parseInput would throw VALIDATION_FAILED.
-    // We configure the mock to simulate this.
-    h.services.createQuestion.mockImplementationOnce(async () => {
-      throw new DomainError({ code: 'VALIDATION_FAILED', message: 'questionId: Required' });
-    });
-
-    await expect(staffCreateQuestion(undefined as never)).rejects.toMatchObject({
-      code: 'VALIDATION_FAILED',
-    });
-    expect(h.state.serviceCalls).toHaveLength(0);
-  });
-
-  it('when extra positional arguments are passed, the boundary passes a sentinel to the service which triggers VALIDATION_FAILED', async () => {
-    // Same pattern: the boundary passes __unexpectedArguments to the service.
-    h.services.saveDraft.mockImplementationOnce(async () => {
-      throw new DomainError({ code: 'VALIDATION_FAILED', message: 'Unrecognized key' });
-    });
-
-    const untypedFn = staffSaveDraft as unknown as (...a: unknown[]) => Promise<unknown>;
-    await expect(untypedFn(validSaveDraftInput, { extra: true })).rejects.toMatchObject({
-      code: 'VALIDATION_FAILED',
-    });
   });
 });
 

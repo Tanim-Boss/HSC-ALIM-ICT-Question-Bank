@@ -130,19 +130,11 @@ async function withBoundarySafety<T>(work: () => Promise<T>): Promise<T> {
  * `createQuestion` in `server/questions/authoring/commands.ts`.
  */
 export async function staffCreateQuestion(
-  ...args: [input: CreateQuestionInput]
+  input: CreateQuestionInput,
 ): Promise<CreateQuestionResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return createQuestion(actor, undefined as unknown as CreateQuestionInput);
-    }
-    if (args.length > 1) {
-      return createQuestion(actor, {
-        __unexpectedArguments: true,
-      } as unknown as CreateQuestionInput);
-    }
-    return createQuestion(actor, args[0]);
+    return createQuestion(actor, input);
   });
 }
 
@@ -155,18 +147,10 @@ export async function staffCreateQuestion(
  * writes, verification reset rules, audit and database error mapping to
  * `saveDraft` in `server/questions/authoring/commands.ts`.
  */
-export async function staffSaveDraft(...args: [input: SaveDraftInput]): Promise<SaveDraftResult> {
+export async function staffSaveDraft(input: SaveDraftInput): Promise<SaveDraftResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return saveDraft(actor, undefined as unknown as SaveDraftInput);
-    }
-    if (args.length > 1) {
-      return saveDraft(actor, {
-        __unexpectedArguments: true,
-      } as unknown as SaveDraftInput);
-    }
-    return saveDraft(actor, args[0]);
+    return saveDraft(actor, input);
   });
 }
 
@@ -179,19 +163,11 @@ export async function staffSaveDraft(...args: [input: SaveDraftInput]): Promise<
  * mapping to `createRevision` in `server/questions/authoring/commands.ts`.
  */
 export async function staffCreateRevision(
-  ...args: [input: CreateRevisionInput]
+  input: CreateRevisionInput,
 ): Promise<CreateRevisionResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return createRevision(actor, undefined as unknown as CreateRevisionInput);
-    }
-    if (args.length > 1) {
-      return createRevision(actor, {
-        __unexpectedArguments: true,
-      } as unknown as CreateRevisionInput);
-    }
-    return createRevision(actor, args[0]);
+    return createRevision(actor, input);
   });
 }
 
@@ -205,19 +181,11 @@ export async function staffCreateRevision(
  * to `verifyAnswerKey` in `server/questions/authoring/commands.ts`.
  */
 export async function staffVerifyAnswerKey(
-  ...args: [input: VerifyAnswerKeyInput]
+  input: VerifyAnswerKeyInput,
 ): Promise<VerifyAnswerKeyResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return verifyAnswerKey(actor, undefined as unknown as VerifyAnswerKeyInput);
-    }
-    if (args.length > 1) {
-      return verifyAnswerKey(actor, {
-        __unexpectedArguments: true,
-      } as unknown as VerifyAnswerKeyInput);
-    }
-    return verifyAnswerKey(actor, args[0]);
+    return verifyAnswerKey(actor, input);
   });
 }
 
@@ -229,20 +197,10 @@ export async function staffVerifyAnswerKey(
  * audit and database error mapping to `archiveVersion` in
  * `server/questions/authoring/commands.ts`.
  */
-export async function staffArchiveVersion(
-  ...args: [input: ArchiveVersionInput]
-): Promise<ArchiveResult> {
+export async function staffArchiveVersion(input: ArchiveVersionInput): Promise<ArchiveResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return archiveVersion(actor, undefined as unknown as ArchiveVersionInput);
-    }
-    if (args.length > 1) {
-      return archiveVersion(actor, {
-        __unexpectedArguments: true,
-      } as unknown as ArchiveVersionInput);
-    }
-    return archiveVersion(actor, args[0]);
+    return archiveVersion(actor, input);
   });
 }
 
@@ -254,20 +212,10 @@ export async function staffArchiveVersion(
  * database error mapping to `archiveQuestion` in
  * `server/questions/authoring/commands.ts`.
  */
-export async function staffArchiveQuestion(
-  ...args: [input: ArchiveQuestionInput]
-): Promise<ArchiveResult> {
+export async function staffArchiveQuestion(input: ArchiveQuestionInput): Promise<ArchiveResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return archiveQuestion(actor, undefined as unknown as ArchiveQuestionInput);
-    }
-    if (args.length > 1) {
-      return archiveQuestion(actor, {
-        __unexpectedArguments: true,
-      } as unknown as ArchiveQuestionInput);
-    }
-    return archiveQuestion(actor, args[0]);
+    return archiveQuestion(actor, input);
   });
 }
 
@@ -279,19 +227,11 @@ export async function staffArchiveQuestion(
  * error mapping to `changeQuestionType` in `server/questions/change-type.ts`.
  */
 export async function staffChangeQuestionType(
-  ...args: [input: ChangeQuestionTypeInput]
+  input: ChangeQuestionTypeInput,
 ): Promise<ChangeQuestionTypeResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return changeQuestionType(actor, undefined as unknown as ChangeQuestionTypeInput);
-    }
-    if (args.length > 1) {
-      return changeQuestionType(actor, {
-        __unexpectedArguments: true,
-      } as unknown as ChangeQuestionTypeInput);
-    }
-    return changeQuestionType(actor, args[0]);
+    return changeQuestionType(actor, input);
   });
 }
 
@@ -307,19 +247,9 @@ export async function staffChangeQuestionType(
  * `PublishRejectedError` (which extends `DomainError`) is preserved unchanged
  * by `withBoundarySafety`.
  */
-export async function staffPublishVersion(
-  ...args: [input: PublishVersionInput]
-): Promise<PublishResult> {
+export async function staffPublishVersion(input: PublishVersionInput): Promise<PublishResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length === 0) {
-      return publishVersion(actor, undefined as unknown as PublishVersionInput);
-    }
-    if (args.length > 1) {
-      return publishVersion(actor, {
-        __unexpectedArguments: true,
-      } as unknown as PublishVersionInput);
-    }
-    return publishVersion(actor, args[0]);
+    return publishVersion(actor, input);
   });
 }
