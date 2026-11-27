@@ -15,6 +15,7 @@
 
 import { PrismaClient } from '@/lib/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { ensureActorProfiles, publishStamp, verifyStamp } from '../auth-fixtures';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
 
@@ -39,6 +40,9 @@ let cached: Taxonomy | null = null;
 /** Creates (once per process) and returns the shared taxonomy chain. */
 export async function taxonomy(): Promise<Taxonomy> {
   if (cached !== null) return cached;
+
+  // Phase 04B: published / verified fixture rows name a real profile.
+  await ensureActorProfiles(prisma);
 
   const level = await prisma.educationLevel.upsert({
     where: { code: FIXTURE_CODES.level },
@@ -133,6 +137,7 @@ export async function createMcqFixture(options: FixtureOptions = {}): Promise<{
         questionId: question.id,
         versionNumber: 1,
         status: options.publish === true ? 'PUBLISHED' : 'DRAFT',
+        ...(options.publish === true ? publishStamp() : {}),
         content: MCQ_STEM,
       },
       select: { id: true },
@@ -157,7 +162,7 @@ export async function createMcqFixture(options: FixtureOptions = {}): Promise<{
           versionId: version.id,
           mcqCorrectOptionKey: keys[0] ?? 'A',
           isVerified: options.unverified !== true,
-          ...(options.unverified === true ? {} : { verifiedAt: new Date() }),
+          ...(options.unverified === true ? {} : { verifiedAt: new Date(), ...verifyStamp() }),
         },
       });
     }

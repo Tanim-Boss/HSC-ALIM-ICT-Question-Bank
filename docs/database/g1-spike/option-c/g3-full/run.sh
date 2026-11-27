@@ -12,6 +12,13 @@
 #   * prisma/migrations/0001_phase04a_question_bank/migration.sql — the real,
 #     committed baseline (Prisma-generated DDL + hand-written artifacts)
 #
+# PHASE 04B: the committed history now has a second migration,
+# 0002_identity_audit (profiles, user_roles, audit_events, authorship columns).
+# The gate deploys and replays the WHOLE committed history, so the expected
+# inventory is 21 tables / 8 enums / 33 FKs (28 single + 5 composite) /
+# 54 CHECKs / 6 hand-written Phase 04A indexes. The tamper test's own migration
+# is numbered 0003 so it sorts after the committed history.
+#
 # and by DEPLOYING IT WITH `prisma migrate deploy`. No transcription, no
 # baseline_ddl.py, no hand-applied schema.
 #
@@ -35,13 +42,16 @@ PRISMA_BIN="$REPO_ROOT/node_modules/.bin/prisma"
 GUARD="$OC_DIR/guard.py"
 PROD_SCHEMA="$REPO_ROOT/prisma/schema.prisma"
 MIG_SRC="$REPO_ROOT/prisma/migrations/0001_phase04a_question_bank/migration.sql"
+MIG_ROOT="$REPO_ROOT/prisma/migrations"
+# Every committed migration, in order. The gate tests the history as committed.
+COMMITTED_MIGRATIONS=(0001_phase04a_question_bank 0002_identity_audit)
 
 G3F_EXPECTED_CASES=33
-EXPECTED_TABLES=18
-EXPECTED_ENUMS=7
-EXPECTED_FKS_SINGLE=21
+EXPECTED_TABLES=21          # 18 (0001) + profiles, user_roles, audit_events (0002)
+EXPECTED_ENUMS=8            # 7 (0001) + AppRole (0002)
+EXPECTED_FKS_SINGLE=28      # 21 (0001) + 7 references to profiles(id) (0002)
 EXPECTED_FKS_COMPOSITE=5
-EXPECTED_CHECKS=47
+EXPECTED_CHECKS=54          # 47 (0001) + 7 (0002)
 EXPECTED_HAND_INDEXES=6
 
 # --- helpers ----------------------------------------------------------
@@ -119,10 +129,10 @@ assert_shape() {
   [ "$t" = "$EXPECTED_TABLES" ]           || fail "shape ($label): $t tables, expected $EXPECTED_TABLES"
   [ "$e" = "$EXPECTED_ENUMS" ]            || fail "shape ($label): $e enums, expected $EXPECTED_ENUMS"
   [ "$f" = "$((EXPECTED_FKS_SINGLE + EXPECTED_FKS_COMPOSITE))" ] \
-    || fail "shape ($label): $f foreign keys, expected $((EXPECTED_FKS_SINGLE + EXPECTED_FKS_COMPOSITE)) (21 single + 5 composite)"
+    || fail "shape ($label): $f foreign keys, expected $((EXPECTED_FKS_SINGLE + EXPECTED_FKS_COMPOSITE)) ($EXPECTED_FKS_SINGLE single + $EXPECTED_FKS_COMPOSITE composite)"
   [ "$c" = "$EXPECTED_CHECKS" ]           || fail "shape ($label): $c CHECK constraints, expected $EXPECTED_CHECKS"
   [ "$i" = "$EXPECTED_HAND_INDEXES" ]     || fail "shape ($label): $i hand-written indexes, expected $EXPECTED_HAND_INDEXES"
-  ok "shape ($label): 18 tables, 7 enums, 26 FKs (21+5), 47 CHECKs, 6 hand-written indexes"
+  ok "shape ($label): $EXPECTED_TABLES tables, $EXPECTED_ENUMS enums, $((EXPECTED_FKS_SINGLE + EXPECTED_FKS_COMPOSITE)) FKs ($EXPECTED_FKS_SINGLE+$EXPECTED_FKS_COMPOSITE), $EXPECTED_CHECKS CHECKs, $EXPECTED_HAND_INDEXES hand-written indexes"
 }
 
 # --- arguments --------------------------------------------------------
@@ -157,14 +167,21 @@ step "0. toolchain — pinned Prisma, real schema, real committed migration"
 command -v "$PSQL" >/dev/null || fail "psql not found on PATH"
 [ -f "$GUARD" ] || fail "guard.py missing at $GUARD"
 [ -f "$PROD_SCHEMA" ] || fail "the real schema is missing at $PROD_SCHEMA"
-[ -f "$MIG_SRC" ] || fail "the committed migration is missing at $MIG_SRC"
+for m in "${COMMITTED_MIGRATIONS[@]}"; do
+  [ -f "$MIG_ROOT/$m/migration.sql" ] || fail "the committed migration is missing at $MIG_ROOT/$m"
+done
+# Every directory on disk must be in the list above, or the gate would test
+# less than what is committed.
+on_disk_committed="$(find "$MIG_ROOT" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | tr '\n' ' ')"
+[ "$on_disk_committed" = "$(printf '%s\n' "${COMMITTED_MIGRATIONS[@]}" | sort | tr '\n' ' ')" ] \
+  || fail "committed migrations on disk ($on_disk_committed) differ from the gate's list — update COMMITTED_MIGRATIONS"
 [ -x "$PRISMA_BIN" ] || fail "pinned Prisma CLI missing — run 'npm ci' (npx is deliberately not used)"
 PRISMA_VERSION="$(node -p "require('$REPO_ROOT/node_modules/prisma/package.json').version")"
 [ "$PRISMA_VERSION" = "7.10.1" ] || fail "pinned Prisma is $PRISMA_VERSION, expected 7.10.1"
 PG_VERSION="$("$PSQL" "$URL" -Atc 'SHOW server_version;')"
 ok "prisma $PRISMA_VERSION, node $(node -v), PostgreSQL $PG_VERSION"
 info "schema under test: prisma/schema.prisma (18 models)"
-info "migration under test: prisma/migrations/0001_phase04a_question_bank/migration.sql"
+info "migrations under test: ${COMMITTED_MIGRATIONS[*]}"
 
 step "0b. preconditions — every database must be empty"
 for pair in "primary:$URL" "shadow:$SHADOW_URL"; do
@@ -182,8 +199,11 @@ CATALOG_QUERY="$(python3 -c "import sys;sys.path.insert(0,'$OC_DIR');import guar
 MIGRATIONS="$OUT_DIR/migrations"
 SESS="$OUT_DIR/session"
 MIG_NAME="0001_phase04a_question_bank"
-mkdir -p "$MIGRATIONS/$MIG_NAME" "$SESS"
-cp "$MIG_SRC" "$MIGRATIONS/$MIG_NAME/migration.sql"
+mkdir -p "$SESS"
+for m in "${COMMITTED_MIGRATIONS[@]}"; do
+  mkdir -p "$MIGRATIONS/$m"
+  cp "$MIG_ROOT/$m/migration.sql" "$MIGRATIONS/$m/migration.sql"
+done
 printf 'provider = "postgresql"\n' > "$MIGRATIONS/migration_lock.toml"
 cp "$PROD_SCHEMA" "$SESS/baseline.prisma"
 
@@ -325,8 +345,8 @@ python3 "$GUARD" history "$OUT_DIR/02e-history.json" "$MIGRATIONS" > "$OUT_DIR/0
   || { cat "$OUT_DIR/02e-history.log"; fail "the real applied baseline does not match its recorded checksum"; }
 cat "$OUT_DIR/02e-history.log"
 ok "the checksum control passes on unmodified real history (the control is not vacuous)"
-C2_STATUS="PASS (pending→clean, 1 applied, checksums verified)"
-ci_note "criterion 2: status pending→clean, 1 applied, checksum verified"
+C2_STATUS="PASS (pending→clean, ${#COMMITTED_MIGRATIONS[@]} applied, checksums verified)"
+ci_note "criterion 2: status pending→clean, ${#COMMITTED_MIGRATIONS[@]} applied, checksum verified"
 
 # =====================================================================
 # CRITERION 3 — protected constraint integrity (live catalog)
@@ -575,7 +595,7 @@ info "--- 5b: a migration EDITED AFTER it was applied ---"
 info "Measured in CI run 45262383682: Prisma does NOT detect this. Both"
 info "'migrate deploy' and 'migrate status' exited 0 after the applied file was"
 info "rewritten. So the project supplies its own checksum control."
-EDIT_NAME="0002_g3f_edited"
+EDIT_NAME="0003_g3f_edited"
 EDIT_DIR="$MIGRATIONS/$EDIT_NAME"
 mkdir -p "$EDIT_DIR"
 cat > "$EDIT_DIR/migration.sql" <<'SQL'
@@ -654,8 +674,10 @@ else
   # Replay only the REAL baseline — the tampering artefacts in 5b must not
   # contaminate the reproducibility check.
   REPLAY_MIG="$OUT_DIR/replay-migrations"
-  mkdir -p "$REPLAY_MIG/$MIG_NAME"
-  cp "$MIG_SRC" "$REPLAY_MIG/$MIG_NAME/migration.sql"
+  for m in "${COMMITTED_MIGRATIONS[@]}"; do
+    mkdir -p "$REPLAY_MIG/$m"
+    cp "$MIG_ROOT/$m/migration.sql" "$REPLAY_MIG/$m/migration.sql"
+  done
   printf 'provider = "postgresql"\n' > "$REPLAY_MIG/migration_lock.toml"
   cat > "$SESS/replay.config.ts" <<CFG
 import { defineConfig } from 'prisma/config';
@@ -686,7 +708,7 @@ CFG
   [ "$F" = "0" ] || fail "replay enforcement had ${F:-?} failures"
   REPLAY_STATUS="PASS"
   ok "the independent database replays to a verified state with $P/$G3F_EXPECTED_CASES enforcement"
-  ci_note "criterion 6: independent replay verified (18 tables, 5/5 constraints, $P/$G3F_EXPECTED_CASES enforcement)"
+  ci_note "criterion 6: independent replay verified ($EXPECTED_TABLES tables, 5/5 constraints, $P/$G3F_EXPECTED_CASES enforcement)"
 fi
 
 # =====================================================================
@@ -730,10 +752,10 @@ step "G-3 FULL-SCHEMA VERDICT"
   printf '  5b edited applied migration (checksum) ........ %s\n' "$C5B_STATUS"
   printf 'criterion 6  reproducibility ..................... %s\n' "$REPLAY_STATUS"
   echo
-  echo "Schema under test: prisma/schema.prisma — 18 tables, 7 enums,"
-  echo "21 single-column FKs + 5 composite FKs, 47 CHECK constraints,"
-  echo "6 hand-written partial/expression indexes."
-  echo "Migration under test: prisma/migrations/0001_phase04a_question_bank,"
+  echo "Schema under test: prisma/schema.prisma — $EXPECTED_TABLES tables, $EXPECTED_ENUMS enums,"
+  echo "$EXPECTED_FKS_SINGLE single-column FKs + $EXPECTED_FKS_COMPOSITE composite FKs, $EXPECTED_CHECKS CHECK constraints,"
+  echo "$EXPECTED_HAND_INDEXES hand-written partial/expression indexes."
+  echo "Migrations under test: ${COMMITTED_MIGRATIONS[*]},"
   echo "deployed with 'prisma migrate deploy' — no transcription."
   echo
   echo "G-1 remains FAILED and is not re-scored by this run."

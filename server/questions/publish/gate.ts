@@ -30,6 +30,8 @@ import 'server-only';
  */
 
 import { getPrisma } from '@/lib/db';
+import { authorize, type Actor } from '@/server/auth/authorize';
+import { writeAuditEvent } from '@/server/auth/audit';
 import { DomainError, ViolationCollector } from './errors';
 import { mapUniqueViolation } from './db-errors';
 import {
@@ -108,17 +110,35 @@ export interface PublishResult {
   readonly questionStatus: QuestionStatus;
 }
 
+export interface PublishVersionInput {
+  readonly questionId: string;
+  readonly versionId: string;
+  /** Correlation id recorded on the audit row. Optional; never used for decisions. */
+  readonly requestId?: string;
+}
+
 /**
  * Publishes a version, or refuses with every reason.
  *
  * `ver` is not taken from the caller: the gate reads it from inside the
  * transaction, so a stale caller cannot publish against a snapshot it saw
  * earlier.
+ *
+ * Phase 04B: `actor` must hold `question.publish` (checked before any lock is
+ * taken) and must not be the version's last editor unless SUPER_ADMIN
+ * (separation of duties, checked inside the transaction where the editor id is
+ * read under the lock). The version records `published_by`/`published_at`, and
+ * one `audit_events` row is written on the same transaction, so a failed audit
+ * insert rolls the publish back.
  */
-export async function publishVersion(input: {
-  readonly questionId: string;
-  readonly versionId: string;
-}): Promise<PublishResult> {
+export async function publishVersion(
+  actor: Actor,
+  input: PublishVersionInput,
+): Promise<PublishResult> {
+  // Role check first: an actor who may never publish is refused before a row
+  // lock is taken on their behalf.
+  authorize(actor, 'question.publish');
+
   const prisma = getPrisma();
 
   try {
@@ -160,6 +180,15 @@ export async function publishVersion(input: {
         });
       }
 
+      // Separation of duties, read under the lock through the same client.
+      const authorship = await tx.questionVersion.findUniqueOrThrow({
+        where: { id: input.versionId },
+        select: { createdById: true, updatedById: true },
+      });
+      authorize(actor, 'question.publish', {
+        lastEditorId: authorship.updatedById ?? authorship.createdById,
+      });
+
       // 3. run the gate against the snapshot AS IT WILL BE after this write.
       const prospective: QuestionSnapshot = {
         ...snapshot,
@@ -190,14 +219,35 @@ export async function publishVersion(input: {
       // ours, not the user's — fail loudly rather than write a wrong status.
       if (!rollupCheck.isEmpty) throw rollupCheck.list()[0];
 
-      // 4. write: version status, then the I-3 rollup, then commit.
-      await db.questionVersion.update({
+      // 4. write: version status + publisher, then the I-3 rollup, then the
+      //    audit row, then commit. All on `tx`, so all or nothing.
+      await tx.questionVersion.update({
         where: { id: input.versionId },
-        data: { status: 'PUBLISHED' },
+        data: { status: 'PUBLISHED', publishedById: actor.userId, publishedAt: new Date() },
       });
-      await db.question.update({
+      await tx.question.update({
         where: { id: input.questionId },
         data: { status: questionStatus },
+      });
+      await writeAuditEvent(tx, {
+        actorId: actor.userId,
+        action: 'question.publish',
+        resourceType: 'question_version',
+        resourceId: input.versionId,
+        before: {
+          questionId: input.questionId,
+          versionNumber: target.versionNumber,
+          status: target.status,
+          questionStatus: snapshot.status,
+        },
+        after: {
+          questionId: input.questionId,
+          versionNumber: target.versionNumber,
+          status: 'PUBLISHED',
+          questionStatus,
+          publishedBy: actor.userId,
+        },
+        ...(input.requestId === undefined ? {} : { requestId: input.requestId }),
       });
 
       return {

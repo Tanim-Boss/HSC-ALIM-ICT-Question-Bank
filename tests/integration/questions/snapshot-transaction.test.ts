@@ -35,6 +35,7 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { loadQuestionSnapshot } from '@/server/questions/publish/snapshot';
+import { publishStamp } from '../auth-fixtures';
 import { cleanupFixtures, createMcqFixture, prisma as fixturePrisma } from './publish-fixtures-db';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -90,7 +91,7 @@ describeDb('D2 — the gate reads through the transaction that holds the lock', 
         // 2. an uncommitted write that must be visible to a reader on THIS connection
         await db.questionVersion.update({
           where: { id: fixture.draftVersionId },
-          data: { status: 'PUBLISHED' },
+          data: { status: 'PUBLISHED', ...publishStamp() },
         });
 
         // 3. THE ASSERTION: the snapshot comes back through the transaction.

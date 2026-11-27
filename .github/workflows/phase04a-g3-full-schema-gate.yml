@@ -57,7 +57,8 @@ jobs:
         run: |
           set -euo pipefail
           python3 docs/database/g1-spike/option-c/guard.py sql \
-            prisma/migrations/0001_phase04a_question_bank/migration.sql
+            prisma/migrations/0001_phase04a_question_bank/migration.sql \
+            prisma/migrations/0002_identity_audit/migration.sql
 
   g3-full:
     name: G-3 full-schema gate (node ${{ matrix.node }}, postgres 16)
@@ -218,9 +219,10 @@ jobs:
                       (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace) || '/' ||
                       (SELECT count(*) FROM pg_constraint WHERE contype='f' AND connamespace='public'::regnamespace) || '/' ||
                       (SELECT count(*) FROM pg_constraint WHERE contype='c' AND connamespace='public'::regnamespace AND conname LIKE 'ck\_%');")"
-            echo "--- inventory tables/enums/fks/checks = $inv (expected 18/7/26/47)"
-            if [ "$inv" != "18/7/26/47" ]; then
-              echo "::error::$db inventory is $inv, expected 18/7/26/47"
+            # Phase 04B: 0001 (18/7/26/47) + 0002 (+3 tables, +1 enum, +7 FKs, +7 CHECKs).
+            echo "--- inventory tables/enums/fks/checks = $inv (expected 21/8/33/54)"
+            if [ "$inv" != "21/8/33/54" ]; then
+              echo "::error::$db inventory is $inv, expected 21/8/33/54"
               rc=1
             fi
           done
@@ -270,8 +272,8 @@ jobs:
             echo "| Node | ${{ matrix.node }} |"
             echo "| Prisma (pinned) | $PRISMA_VERSION |"
             echo "| PostgreSQL | 16 |"
-            echo "| Schema | \`prisma/schema.prisma\` (18 tables, real) |"
-            echo "| Migration | \`prisma/migrations/0001_phase04a_question_bank\` |"
+            echo "| Schema | \`prisma/schema.prisma\` (21 tables: 0001 + 0002) |"
+            echo "| Migrations | \`0001_phase04a_question_bank\`, \`0002_identity_audit\` |"
             echo "| Result | ${{ job.status }} |"
             echo
             echo "G-1 remains **FAILED** and is not re-scored by this workflow."

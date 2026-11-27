@@ -27,6 +27,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { PublishRejectedError, publishVersion } from '@/server/questions/publish/gate';
 import { DomainError } from '@/server/questions/publish/errors';
+import { actorFor, publishStamp } from '../auth-fixtures';
 import {
   cleanupFixtures,
   countQuestions,
@@ -80,7 +81,7 @@ describeDb('publishVersion — the real service', () => {
     const before = await readState(questionId, versionId);
     expect(before).toEqual({ questionStatus: 'DRAFT', versionStatus: 'DRAFT' });
 
-    const result = await publishVersion({ questionId, versionId });
+    const result = await publishVersion(actorFor('moderator'), { questionId, versionId });
 
     // The reported outcome...
     expect(result.questionId).toBe(questionId);
@@ -101,7 +102,7 @@ describeDb('publishVersion — the real service', () => {
     const before = await readState(questionId, versionId);
     expect(before).toEqual({ questionStatus: 'DRAFT', versionStatus: 'DRAFT' });
 
-    const error = await publishVersion({ questionId, versionId }).then(
+    const error = await publishVersion(actorFor('moderator'), { questionId, versionId }).then(
       () => null,
       (e: unknown) => e,
     );
@@ -121,7 +122,9 @@ describeDb('publishVersion — the real service', () => {
 
   it('rejects an unverified answer key (I-13 / §7.7 rule 5) and writes nothing', async () => {
     const { questionId, versionId } = await createMcqFixture({ unverified: true });
-    const error = await publishVersion({ questionId, versionId }).catch((e: unknown) => e);
+    const error = await publishVersion(actorFor('moderator'), { questionId, versionId }).catch(
+      (e: unknown) => e,
+    );
 
     expect(error).toBeInstanceOf(PublishRejectedError);
     expect((error as PublishRejectedError).violations.map((v) => v.code)).toContain(
@@ -135,7 +138,9 @@ describeDb('publishVersion — the real service', () => {
 
   it('rejects a missing answer key and writes nothing', async () => {
     const { questionId, versionId } = await createMcqFixture({ omitAnswerKey: true });
-    const error = await publishVersion({ questionId, versionId }).catch((e: unknown) => e);
+    const error = await publishVersion(actorFor('moderator'), { questionId, versionId }).catch(
+      (e: unknown) => e,
+    );
 
     expect(error).toBeInstanceOf(PublishRejectedError);
     expect((error as PublishRejectedError).violations.map((v) => v.code)).toContain(
@@ -150,7 +155,9 @@ describeDb('publishVersion — the real service', () => {
   it('refuses to publish an already-published version (I-5), leaving it published', async () => {
     const { questionId, versionId } = await createMcqFixture({ publish: true });
 
-    const error = await publishVersion({ questionId, versionId }).catch((e: unknown) => e);
+    const error = await publishVersion(actorFor('moderator'), { questionId, versionId }).catch(
+      (e: unknown) => e,
+    );
     expect(error).toBeInstanceOf(DomainError);
     expect((error as DomainError).code).toBe('PUBLISHED_VERSION_IMMUTABLE');
 
@@ -165,9 +172,10 @@ describeDb('publishVersion — the real service', () => {
     const a = await createMcqFixture();
     const b = await createMcqFixture();
 
-    const error = await publishVersion({ questionId: a.questionId, versionId: b.versionId }).catch(
-      (e: unknown) => e,
-    );
+    const error = await publishVersion(actorFor('moderator'), {
+      questionId: a.questionId,
+      versionId: b.versionId,
+    }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(DomainError);
     expect((error as DomainError).code).toBe('CONTENT_PROFILE_INVALID');
 
@@ -202,7 +210,7 @@ describeDb('publishVersion — the real service', () => {
         const db = tx as unknown as PrismaClient;
         await db.questionVersion.update({
           where: { id: versionId },
-          data: { status: 'PUBLISHED' },
+          data: { status: 'PUBLISHED', ...publishStamp() },
         });
         // A deliberately invalid rollup write.
         await db.question.update({
@@ -229,8 +237,8 @@ describeDb('publishVersion — the real service', () => {
     const { questionId, versionId } = await createMcqFixture();
 
     const outcomes = await Promise.allSettled([
-      publishVersion({ questionId, versionId }),
-      publishVersion({ questionId, versionId }),
+      publishVersion(actorFor('moderator'), { questionId, versionId }),
+      publishVersion(actorFor('moderator'), { questionId, versionId }),
     ]);
 
     const fulfilled = outcomes.filter((o) => o.status === 'fulfilled');
@@ -251,7 +259,7 @@ describeDb('publishVersion — the real service', () => {
   it('does not create or delete questions as a side effect', async () => {
     const before = await countQuestions();
     const { questionId, versionId } = await createMcqFixture();
-    await publishVersion({ questionId, versionId });
+    await publishVersion(actorFor('moderator'), { questionId, versionId });
     const after = await countQuestions();
     // Exactly the one row the fixture created; the publish added nothing.
     expect(after).toBe(before + 1);

@@ -49,6 +49,14 @@
 //   * A Group entity — OD-09 rejected it; levels come from level_subjects.
 //
 // The committed baseline is prisma/migrations/0001_phase04a_question_bank.
+//
+// PHASE 04B (migration 0002_identity_audit) adds identity, roles and audit:
+// profiles, user_roles, audit_events, the AppRole enum, and authorship columns
+// on question_versions / answer_keys. What Prisma cannot express lives in that
+// migration's hand-written part: two NOT VALID CHECKs on legacy tables, the
+// format CHECKs on the new tables, and the append-only trigger on audit_events.
+// profiles.id equals auth.users.id by convention; there is deliberately NO
+// foreign key into Supabase's auth schema (it does not exist outside Supabase).
 
 generator client {
   provider = "prisma-client"
@@ -96,6 +104,16 @@ enum VersionStatus {
   DRAFT
   PUBLISHED
   ARCHIVED
+}
+
+/// Phase 04B — application roles. Permissions are code (server/auth/permissions.ts),
+/// not data: this enum is only "which hats does a user wear".
+enum AppRole {
+  STUDENT
+  EDITOR
+  MODERATOR
+  ADMIN
+  SUPER_ADMIN
 }
 
 enum SourceType {
@@ -281,11 +299,19 @@ model QuestionVersion {
   content       Json
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  // Phase 04B authorship. NULL only on rows that pre-date migration 0002.
+  createdById   String?       @map("created_by") @db.Uuid
+  updatedById   String?       @map("updated_by") @db.Uuid
+  publishedById String?       @map("published_by") @db.Uuid
+  publishedAt   DateTime?     @map("published_at") @db.Timestamptz(3)
 
-  question  Question              @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  options   QuestionOption[]
-  answerKey AnswerKey?
-  assets    QuestionVersionAsset[]
+  question    Question               @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy   Profile?               @relation("VersionCreatedBy", fields: [createdById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  updatedBy   Profile?               @relation("VersionUpdatedBy", fields: [updatedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  publishedBy Profile?               @relation("VersionPublishedBy", fields: [publishedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  options     QuestionOption[]
+  answerKey   AnswerKey?
+  assets      QuestionVersionAsset[]
 
   @@unique([questionId, versionNumber], map: "uq_question_versions_question_number")
   // Listed by §3.3.8 although its prefix is covered by the unique above; kept
@@ -295,6 +321,8 @@ model QuestionVersion {
   @@index([questionId, status], map: "ix_question_versions_question_id_status")
   // "One published version per question" is the hand-written partial unique
   // index uq_question_versions_one_published_per_question in the migration SQL.
+  // "PUBLISHED implies published_by/published_at" is the hand-written NOT VALID
+  // CHECK ck_question_versions_published_has_publisher (migration 0002).
   @@map("question_versions")
 }
 
@@ -326,11 +354,15 @@ model AnswerKey {
   cqRubric            Json?     @map("cq_rubric")
   isVerified          Boolean   @default(false) @map("is_verified")
   verifiedAt          DateTime? @map("verified_at") @db.Timestamptz(3)
+  // Phase 04B. NULL only on rows that pre-date migration 0002; a verified key
+  // must name its verifier (NOT VALID CHECK ck_answer_keys_verified_has_verifier).
+  verifiedById        String?   @map("verified_by") @db.Uuid
   notes               String?
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt           DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  version QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  version    QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  verifiedBy Profile?        @relation("AnswerKeyVerifiedBy", fields: [verifiedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
 
   // C-5 — FOREIGN KEY (version_id, mcq_correct_option_key)
   //            REFERENCES question_options (version_id, key)
@@ -482,4 +514,67 @@ model QuestionSource {
   // De-duplication is uq_question_sources_identity with NULLS NOT DISTINCT
   // (hand-written SQL, §3.10) — Prisma cannot express NULLS NOT DISTINCT.
   @@map("question_sources")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Phase 04B — identity, roles, audit (migration 0002_identity_audit)
+// ─────────────────────────────────────────────────────────────────────────
+
+/// One row per Supabase auth user. `id` IS auth.users.id; the link is checked
+/// at runtime by server/auth/actor.ts, never by a foreign key into `auth`.
+/// Profiles are deactivated, never deleted: every reference to one is RESTRICT.
+model Profile {
+  id          String   @id @db.Uuid
+  displayName String   @map("display_name")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  roles             UserRole[]        @relation("UserRoleUser")
+  rolesGranted      UserRole[]        @relation("UserRoleGrantedBy")
+  versionsCreated   QuestionVersion[] @relation("VersionCreatedBy")
+  versionsUpdated   QuestionVersion[] @relation("VersionUpdatedBy")
+  versionsPublished QuestionVersion[] @relation("VersionPublishedBy")
+  keysVerified      AnswerKey[]       @relation("AnswerKeyVerifiedBy")
+  auditEvents       AuditEvent[]
+
+  @@map("profiles")
+}
+
+/// Role membership. A user may hold several roles. `granted_by` is NULL for
+/// system grants (default STUDENT at provisioning, the bootstrap SUPER_ADMIN).
+model UserRole {
+  userId      String   @map("user_id") @db.Uuid
+  role        AppRole
+  grantedById String?  @map("granted_by") @db.Uuid
+  grantedAt   DateTime @default(now()) @map("granted_at") @db.Timestamptz(3)
+
+  user      Profile  @relation("UserRoleUser", fields: [userId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+  grantedBy Profile? @relation("UserRoleGrantedBy", fields: [grantedById], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@id([userId, role])
+  @@index([role], map: "ix_user_roles_role")
+  @@map("user_roles")
+}
+
+/// Append-only audit trail. UPDATE, DELETE and TRUNCATE are rejected by the
+/// trigger trg_audit_events_append_only (hand-written SQL, migration 0002).
+/// `before`/`after` carry ids and status fields only — never answer keys or
+/// rubric content.
+model AuditEvent {
+  id           String   @id @default(uuid()) @db.Uuid
+  occurredAt   DateTime @default(now()) @map("occurred_at") @db.Timestamptz(3)
+  actorId      String?  @map("actor_id") @db.Uuid
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String   @map("resource_id") @db.Uuid
+  before       Json?
+  after        Json?
+  requestId    String?  @map("request_id")
+
+  actor Profile? @relation(fields: [actorId], references: [id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@index([resourceType, resourceId, occurredAt], map: "ix_audit_events_resource")
+  @@index([actorId, occurredAt], map: "ix_audit_events_actor")
+  @@map("audit_events")
 }

@@ -26,7 +26,11 @@ SPIKE_DIR="$(cd "$OC_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SPIKE_DIR/../../.." && pwd)"
 PSQL="${PSQL:-psql}"
 GUARD="$OC_DIR/guard.py"
-MIG="$REPO_ROOT/prisma/migrations/0001_phase04a_question_bank/migration.sql"
+# The committed history, in order (Phase 04B added 0002_identity_audit).
+MIGS=(
+  "$REPO_ROOT/prisma/migrations/0001_phase04a_question_bank/migration.sql"
+  "$REPO_ROOT/prisma/migrations/0002_identity_audit/migration.sql"
+)
 
 fail() { printf '\n[local] FAIL: %s\n' "$*" >&2; exit 1; }
 ok()   { printf '[local] ok: %s\n' "$*"; }
@@ -51,11 +55,13 @@ objs="$("$PSQL" "$URL" -Atc "SELECT count(*) FROM pg_class c JOIN pg_namespace n
 [ "$objs" = "0" ] || fail "the database is not empty ($objs objects)"
 
 printf '\n=== 1. apply the committed migration SQL ===\n'
-"$PSQL" "$URL" -v ON_ERROR_STOP=1 -q -f "$MIG" > "$OUT/apply.log" 2>&1 \
-  || { cat "$OUT/apply.log"; fail "the committed migration failed to apply"; }
+for MIG in "${MIGS[@]}"; do
+  "$PSQL" "$URL" -v ON_ERROR_STOP=1 -q -f "$MIG" >> "$OUT/apply.log" 2>&1 \
+    || { cat "$OUT/apply.log"; fail "the committed migration $MIG failed to apply"; }
+done
 ok "migration applies cleanly to PostgreSQL $("$PSQL" "$URL" -Atc 'SHOW server_version;' | cut -d' ' -f1)"
 
-printf '\n=== 2. schema shape (18 / 7 / 26 / 47 / 6) ===\n'
+printf '\n=== 2. schema shape (21 / 8 / 33 / 54 / 6) ===\n'
 shape="$("$PSQL" "$URL" -Atc "
 SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> '_prisma_migrations') || '/' ||
        (SELECT count(*) FROM pg_type WHERE typtype='e' AND typnamespace='public'::regnamespace) || '/' ||
@@ -66,8 +72,8 @@ SELECT (SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <
            'uq_topics_chapter_order','uq_tags_name_lower','uq_colleges_name_lower',
            'ix_question_assets_checksum'));")"
 info "tables/enums/fks/checks/hand_indexes = $shape"
-[ "$shape" = "18/7/26/47/6" ] || fail "shape is $shape, expected 18/7/26/47/6"
-ok "shape is exactly 18 tables / 7 enums / 26 FKs (21+5) / 47 CHECKs / 6 hand indexes"
+[ "$shape" = "21/8/33/54/6" ] || fail "shape is $shape, expected 21/8/33/54/6"
+ok "shape is exactly 21 tables / 8 enums / 33 FKs (28+5) / 54 CHECKs / 6 hand indexes"
 
 printf '\n=== 3. live-catalog assertion, positive and negative ===\n'
 Q="$(python3 -c "import sys;sys.path.insert(0,'$OC_DIR');import guard;print(guard.CATALOG_QUERY)")"
@@ -103,12 +109,14 @@ F="$(grep -oE 'G3F_FAIL= *[0-9]+' "$OUT/enforce.log" | head -1 | sed 's/.*= *//'
 info "TOTAL=${T:-?} PASS=${P:-?} FAIL=${F:-?}"
 [ "$T" = "33" ] || fail "the enforcement suite ran ${T:-0} cases, expected 33"
 [ "$F" = "0" ] || { grep '|' "$OUT/enforce.log" | grep FAIL || true; fail "the enforcement suite had ${F:-?} failures"; }
-ok "33/33 enforcement cases PASS on the real 18-table schema"
+ok "33/33 enforcement cases PASS on the real schema (0001 + 0002)"
 
 printf '\n=== 5. textual guard: the real baseline, plus negative tests ===\n'
-python3 "$GUARD" sql "$MIG" > "$OUT/guard-baseline.log" 2>&1 \
-  || { cat "$OUT/guard-baseline.log"; fail "the guard rejected the committed baseline"; }
-ok "the guard accepts the committed baseline (no false positive)"
+for MIG in "${MIGS[@]}"; do
+  python3 "$GUARD" sql "$MIG" >> "$OUT/guard-baseline.log" 2>&1 \
+    || { cat "$OUT/guard-baseline.log"; fail "the guard rejected the committed migration $MIG"; }
+done
+ok "the guard accepts every committed migration (no false positive)"
 
 mkdir -p "$OUT/tamper"
 cat > "$OUT/tamper/drop-only.sql" <<'SQL'

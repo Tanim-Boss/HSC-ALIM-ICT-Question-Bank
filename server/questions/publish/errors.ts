@@ -64,6 +64,10 @@ export type DomainErrorCode =
   // is kept distinct from the form-level conflicts above rather than reusing one
   // of their messages.
   | 'REFERENCE_TARGET_CONFLICT'
+  // ── Phase 04B: identity and authorization (server/auth/) ─────────────────
+  | 'UNAUTHENTICATED' // no verified Supabase session
+  | 'INACTIVE' // the profile exists but is deactivated
+  | 'FORBIDDEN' // the actor's roles do not permit the action (incl. separation of duties)
   // Generic, deliberately last: an unmapped unique violation is a conflict the
   // user can act on ("that value is already taken") without learning which
   // index it was. Never silently coerced into a specific field (V-5 requirement).
