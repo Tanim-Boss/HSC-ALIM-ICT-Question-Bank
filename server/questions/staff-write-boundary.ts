@@ -134,11 +134,13 @@ export async function staffCreateQuestion(
 ): Promise<CreateQuestionResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return createQuestion(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return createQuestion(actor, undefined as unknown as CreateQuestionInput);
+    }
+    if (args.length > 1) {
+      return createQuestion(actor, {
+        __unexpectedArguments: true,
+      } as unknown as CreateQuestionInput);
     }
     return createQuestion(actor, args[0]);
   });
@@ -156,11 +158,13 @@ export async function staffCreateQuestion(
 export async function staffSaveDraft(...args: [input: SaveDraftInput]): Promise<SaveDraftResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return saveDraft(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return saveDraft(actor, undefined as unknown as SaveDraftInput);
+    }
+    if (args.length > 1) {
+      return saveDraft(actor, {
+        __unexpectedArguments: true,
+      } as unknown as SaveDraftInput);
     }
     return saveDraft(actor, args[0]);
   });
@@ -179,11 +183,13 @@ export async function staffCreateRevision(
 ): Promise<CreateRevisionResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return createRevision(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return createRevision(actor, undefined as unknown as CreateRevisionInput);
+    }
+    if (args.length > 1) {
+      return createRevision(actor, {
+        __unexpectedArguments: true,
+      } as unknown as CreateRevisionInput);
     }
     return createRevision(actor, args[0]);
   });
@@ -203,11 +209,13 @@ export async function staffVerifyAnswerKey(
 ): Promise<VerifyAnswerKeyResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return verifyAnswerKey(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return verifyAnswerKey(actor, undefined as unknown as VerifyAnswerKeyInput);
+    }
+    if (args.length > 1) {
+      return verifyAnswerKey(actor, {
+        __unexpectedArguments: true,
+      } as unknown as VerifyAnswerKeyInput);
     }
     return verifyAnswerKey(actor, args[0]);
   });
@@ -226,11 +234,13 @@ export async function staffArchiveVersion(
 ): Promise<ArchiveResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return archiveVersion(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return archiveVersion(actor, undefined as unknown as ArchiveVersionInput);
+    }
+    if (args.length > 1) {
+      return archiveVersion(actor, {
+        __unexpectedArguments: true,
+      } as unknown as ArchiveVersionInput);
     }
     return archiveVersion(actor, args[0]);
   });
@@ -249,11 +259,13 @@ export async function staffArchiveQuestion(
 ): Promise<ArchiveResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return archiveQuestion(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return archiveQuestion(actor, undefined as unknown as ArchiveQuestionInput);
+    }
+    if (args.length > 1) {
+      return archiveQuestion(actor, {
+        __unexpectedArguments: true,
+      } as unknown as ArchiveQuestionInput);
     }
     return archiveQuestion(actor, args[0]);
   });
@@ -271,11 +283,13 @@ export async function staffChangeQuestionType(
 ): Promise<ChangeQuestionTypeResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return changeQuestionType(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return changeQuestionType(actor, undefined as unknown as ChangeQuestionTypeInput);
+    }
+    if (args.length > 1) {
+      return changeQuestionType(actor, {
+        __unexpectedArguments: true,
+      } as unknown as ChangeQuestionTypeInput);
     }
     return changeQuestionType(actor, args[0]);
   });
@@ -298,11 +312,13 @@ export async function staffPublishVersion(
 ): Promise<PublishResult> {
   return withBoundarySafety(async () => {
     const actor = await requireActor();
-    if (args.length !== 1) {
-      return publishVersion(
-        actor,
-        (args.length === 0 ? undefined : { __unexpectedArguments: true }) as never,
-      );
+    if (args.length === 0) {
+      return publishVersion(actor, undefined as unknown as PublishVersionInput);
+    }
+    if (args.length > 1) {
+      return publishVersion(actor, {
+        __unexpectedArguments: true,
+      } as unknown as PublishVersionInput);
     }
     return publishVersion(actor, args[0]);
   });

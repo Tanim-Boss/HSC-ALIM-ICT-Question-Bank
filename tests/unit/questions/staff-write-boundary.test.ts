@@ -82,10 +82,10 @@ const h = vi.hoisted(() => {
    * The action string matches the real service's authorization action.
    */
   function authorizedServiceMock(name: string, action: string) {
-    return vi.fn(async (actor: { userId: string; roles: Set<string> }, input: unknown) => {
+    return vi.fn(async (actor: { userId: string; roles: ReadonlySet<string> }, input: unknown) => {
       // Lazy import to avoid circular deps at module load time.
       const { authorize } = await import('@/server/auth/authorize');
-      authorize(actor, action);
+      authorize(actor as unknown as Parameters<typeof authorize>[0], action);
 
       state.serviceCalls.push([name, actor.userId, input]);
       if (state.serviceErrors[name] !== undefined) {

@@ -268,9 +268,13 @@ describeDb('Phase 04F — staff write application boundary (real PostgreSQL)', (
         },
       });
 
-      expect(result.questionId).toBe(created.questionId);
       expect(result.versionId).toBe(created.versionId);
       expect(result.versionUpdatedAt).toBeInstanceOf(Date);
+      expect(result.changedFields).toBeDefined();
+      expect(Array.isArray(result.changedFields)).toBe(true);
+      expect(
+        typeof result.answerKeyVerified === 'boolean' || result.answerKeyVerified === null,
+      ).toBe(true);
     });
 
     it('MODERATOR verifies answer key via staffVerifyAnswerKey (different from last editor)', async () => {
@@ -290,10 +294,11 @@ describeDb('Phase 04F — staff write application boundary (real PostgreSQL)', (
     });
 
     it('separation-of-duties: last editor CANNOT verify their own answer key (FORBIDDEN)', async () => {
-      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editor);
+      // editorModerator has EDITOR (can create) + MODERATOR (can verify).
+      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editorModerator);
       const created = await staffCreateQuestion(mcqInput());
 
-      // Editor is the last editor → verify must fail with FORBIDDEN (separation-of-duties).
+      // editorModerator is the last editor → verify must fail with FORBIDDEN (separation-of-duties).
       await expect(
         staffVerifyAnswerKey({
           questionId: created.questionId,
@@ -342,18 +347,19 @@ describeDb('Phase 04F — staff write application boundary (real PostgreSQL)', (
     });
 
     it('separation-of-duties: last editor CANNOT publish their own version (FORBIDDEN)', async () => {
-      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editor);
+      // editorModerator has EDITOR (can create) + MODERATOR (can publish).
+      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editorModerator);
       const created = await staffCreateQuestion(mcqInput());
 
-      // Verify the key first.
+      // Verify the key first with a different moderator.
       sessionState.currentUser = asSupabaseUser(ACTOR_IDS.moderator2);
       await staffVerifyAnswerKey({
         questionId: created.questionId,
         versionId: created.versionId,
       });
 
-      // Editor is the last editor → publish must fail with FORBIDDEN.
-      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editor);
+      // editorModerator is the last editor → publish must fail with FORBIDDEN.
+      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editorModerator);
       await expect(
         staffPublishVersion({
           questionId: created.questionId,
@@ -470,7 +476,9 @@ describeDb('Phase 04F — staff write application boundary (real PostgreSQL)', (
     });
 
     it('returns NOT_FOUND for missing questions', async () => {
-      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.editor);
+      // MODERATOR has `question.archive` permission, so the request passes
+      // authorization and reaches the resource lookup.
+      sessionState.currentUser = asSupabaseUser(ACTOR_IDS.moderator);
 
       await expect(
         staffArchiveQuestion({ questionId: '0c000000-0000-4000-8000-00000000dead' }),
