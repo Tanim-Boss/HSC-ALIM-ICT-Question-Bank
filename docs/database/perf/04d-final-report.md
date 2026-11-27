@@ -7,7 +7,7 @@
 | Base | `main` @ `5e9bb6d0a675fa86dd6d0535495613330ddb5a88` (PR #18, phase 04C) |
 | Head | the branch tip — not embedded here, because a commit cannot name its own SHA. The tip at the time this table was written was `f163e4b`; every commit after it is documentation-only |
 | Commits | `f4ee30f` (the work), `0d38afe` and `5d37efb` (three defects CI found that local checks could not), `8a1a228` (this report), `f163e4b` (metadata reconciliation), then documentation-only corrections |
-| Diff vs base | **26 files, +7,714 / −95** — 25 implementation, test and documentation files plus this report. Every reconciliation commit edits only this file, so the file count and the deletion count do not move |
+| Diff vs base | **26 files, +7,724 / −95** — 25 implementation, test and documentation files plus this report. Every reconciliation commit edits only this file, so the file count and the deletion count do not move |
 
 This report states what was measured, what was decided, what was rejected and what
 is still open. Every number below comes from a command that was actually run against
@@ -206,11 +206,21 @@ job is red on `main` itself (run `45982935755`, the 04B merge) and on
 documentation-only commits of this branch. It also does not fail the same way twice,
 which is recorded rather than smoothed over:
 
-| Runs | Signature |
-| --- | --- |
-| `46017379141`, `46017407314`, `46017948536`, `46018608958` (`f4ee30f`, `0d38afe`, `5d37efb`) | step 4, line 245 — "the no-change diff is NOT empty": 18 `DROP CONSTRAINT` and 3 `DROP INDEX` statements |
-| `46019220236`, `46025658047` (`8a1a228`, `f163e4b` — both documentation-only) | step 3b, line 223 — "could not compare the introspected schema with the spike datamodel": the fidelity diff itself did not complete, so step 4 never ran |
-| `45982935755` (`main`, 04B merge) | step 4, line 245, with the same statements as the first row |
+| Run | Commit | Signature |
+| --- | --- | --- |
+| `45982935755` | `main`, 04B merge | step 4, line 245 — "the no-change diff is NOT empty": 18 `DROP CONSTRAINT` and 3 `DROP INDEX` statements |
+| `46017379141`, `46017407314` | `f4ee30f` | step 4, line 245, same statements |
+| `46017948536` | `0d38afe` | step 4, line 245, same statements |
+| `46018608958` | `5d37efb` | step 4, line 245, same statements |
+| `46019220236` | `8a1a228` | step 3b, line 223 — "could not compare the introspected schema with the spike datamodel": the fidelity diff did not complete, so step 4 never ran |
+| `46025658047` | `f163e4b` | step 3b, line 223, same |
+| `46026181152` | `0784187` | step 4, line 245 |
+
+The signature is **not a function of the tree**: `8a1a228`, `f163e4b` and `0784187`
+differ from each other only inside `docs/database/perf/`, which the spike never reads,
+and two of them failed at step 3b while the third failed at step 4. So the gate is
+non-deterministic as well as red, which is a second reason not to read its result as
+a verdict on any migration in this PR.
 
 Both signatures are Prisma introspection failures inside the spike, which builds its
 database from `docs/database/g1-spike/sql` and never from `prisma/migrations`; the
