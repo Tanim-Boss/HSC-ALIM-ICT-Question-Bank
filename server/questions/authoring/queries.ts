@@ -1,12 +1,17 @@
 import 'server-only';
 
 /**
- * Staff read model (Phase 04C). Action `question.read_staff` — EDITOR and up.
+ * Staff read model (Phase 04C; filters extended by Phase 04D). Action
+ * `question.read_staff` — EDITOR and up.
  *
  *   · listQuestionsForStaff — filtered, keyset-paginated on (created_at, id),
  *     newest first, at most 50 per page. Its projection is an explicit `select`
  *     with NO answer key, rubric, option or content field: the list can never
- *     carry an answer, whatever a caller does with it.
+ *     carry an answer, whatever a caller does with it. `searchText` is a filter
+ *     target and is deliberately NOT selected: the list does not return the
+ *     indexed text either.
+ *   · The filter tree itself is built in ./list-filters.ts, so the performance
+ *     harness renders exactly the predicates this function sends to Prisma.
  *   · getQuestionForStaff — one question with every version, its options, its
  *     answer key and verification, sources, tags and asset links. The ONLY read
  *     that returns answer keys, and it is staff-only.
@@ -18,47 +23,37 @@ import type { Prisma } from '@/lib/generated/prisma/client';
 import { getPrisma } from '@/lib/db';
 import { authorize, type Actor } from '@/server/auth/authorize';
 import { DomainError } from '@/server/shared/errors';
+import { encodeCursor, decodeCursor as decodeCursorPure, InvalidCursorError } from './cursor';
+import { buildListFilter, toPrismaWhere } from './list-filters';
 import {
   getQuestionInputSchema,
-  listQuestionsInputSchema,
   parseInput,
   type GetQuestionInput,
   type ListQuestionsInput,
 } from './schemas';
 
-/* ------------------------------------------------------------------------- */
-/* Cursor                                                                    */
-/* ------------------------------------------------------------------------- */
+/**
+ * Cursor helpers. Re-exported from ./cursor.ts — the format is unchanged from
+ * Phase 04C; only the module moved, so the filter builder and the perf harness
+ * can use one implementation.
+ */
+export { encodeCursor };
+export type { CursorPosition } from './cursor';
 
-interface CursorPosition {
-  readonly createdAt: Date;
-  readonly id: string;
-}
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/** Opaque to callers: base64url of `<ISO timestamp>|<uuid>`. */
-export function encodeCursor(position: CursorPosition): string {
-  return Buffer.from(`${position.createdAt.toISOString()}|${position.id}`, 'utf8').toString(
-    'base64url',
-  );
-}
-
-export function decodeCursor(cursor: string): CursorPosition {
-  const invalid = () =>
-    new DomainError({
-      code: 'VALIDATION_FAILED',
-      message: 'cursor: not a cursor returned by this list',
-      field: 'cursor',
-    });
-  const text = Buffer.from(cursor, 'base64url').toString('utf8');
-  const [iso, id, extra] = text.split('|');
-  if (iso === undefined || id === undefined || extra !== undefined || !UUID.test(id)) {
-    throw invalid();
+/** Phase 04C contract: an unusable cursor is a `VALIDATION_FAILED` domain error. */
+export function decodeCursor(cursor: string): ReturnType<typeof decodeCursorPure> {
+  try {
+    return decodeCursorPure(cursor);
+  } catch (error) {
+    if (error instanceof InvalidCursorError) {
+      throw new DomainError({
+        code: 'VALIDATION_FAILED',
+        message: 'cursor: not a cursor returned by this list',
+        field: 'cursor',
+      });
+    }
+    throw error;
   }
-  const createdAt = new Date(iso);
-  if (Number.isNaN(createdAt.getTime()) || createdAt.toISOString() !== iso) throw invalid();
-  return { createdAt, id };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -121,47 +116,18 @@ export async function listQuestionsForStaff(
   input: ListQuestionsInput = {},
 ): Promise<StaffQuestionPage> {
   authorize(actor, 'question.read_staff');
-  const f = parseInput(listQuestionsInputSchema, input);
-
-  const and: Prisma.QuestionWhereInput[] = [];
-  if (f.educationLevelId !== undefined) and.push({ educationLevelId: f.educationLevelId });
-  if (f.subjectId !== undefined) and.push({ subjectId: f.subjectId });
-  if (f.chapterId !== undefined) and.push({ chapterId: f.chapterId });
-  if (f.topicId !== undefined) and.push({ topicId: f.topicId });
-  if (f.type !== undefined) and.push({ type: f.type });
-  if (f.status !== undefined) and.push({ status: f.status });
-  if (f.difficulty !== undefined) and.push({ difficulty: f.difficulty });
-  if (f.tagId !== undefined) and.push({ tags: { some: { tagId: f.tagId } } });
-  // Board and year match the SAME source row: "from board X in year Y".
-  if (f.boardId !== undefined || f.academicYearId !== undefined) {
-    and.push({
-      sources: {
-        some: {
-          ...(f.boardId === undefined ? {} : { boardId: f.boardId }),
-          ...(f.academicYearId === undefined ? {} : { academicYearId: f.academicYearId }),
-        },
-      },
-    });
-  }
-  if (f.cursor !== undefined) {
-    const after = decodeCursor(f.cursor);
-    // Newest first: the next page is strictly "older" in (created_at, id).
-    and.push({
-      OR: [
-        { createdAt: { lt: after.createdAt } },
-        { createdAt: after.createdAt, id: { lt: after.id } },
-      ],
-    });
-  }
+  // Validation (including the `q` bounds) and the provenance/staleness rules
+  // live in ./list-filters.ts; this function only executes them.
+  const spec = buildListFilter(input);
 
   const rows = await getPrisma().question.findMany({
-    where: { AND: and },
+    where: toPrismaWhere(spec),
     orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-    take: f.limit + 1,
+    take: spec.limit + 1,
     select: LIST_SELECT,
   });
 
-  const page = rows.slice(0, f.limit);
+  const page = rows.slice(0, spec.limit);
   const last = page[page.length - 1];
   return {
     items: page.map((row) => ({
@@ -181,7 +147,7 @@ export async function listQuestionsForStaff(
       updatedAt: row.updatedAt,
     })),
     nextCursor:
-      rows.length > f.limit && last !== undefined
+      rows.length > spec.limit && last !== undefined
         ? encodeCursor({ createdAt: last.createdAt, id: last.id })
         : null,
   };

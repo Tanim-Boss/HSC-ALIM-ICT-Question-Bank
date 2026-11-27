@@ -227,11 +227,16 @@ jobs:
       # apply migration 0001 EXACTLY as the committed file specifies — no
       # `migrate dev`, no `db push`, no `migrate reset` (all prohibited).
       # Phase 04B: 0002 (identity, roles, audit) is applied on top, in order,
-      # exactly as committed. The inventory is asserted, not just printed.
-      - name: Apply migrations 0001 and 0002
+      # exactly as committed. Phase 04D: 0003 (staff-list indexes + the search
+      # projection and its pg_trgm GIN index) is applied last, because the
+      # authoring service now writes `question_versions.search_text` and the
+      # search tests require the function the migration defines. The inventory
+      # is asserted, not just printed — 0003 adds no table, enum, FK or CHECK,
+      # so the 21/8/33/54 assertion below is unchanged by it.
+      - name: Apply migrations 0001, 0002 and 0003
         run: |
           set -euo pipefail
-          for m in 0001_phase04a_question_bank 0002_identity_audit; do
+          for m in 0001_phase04a_question_bank 0002_identity_audit 0003_staff_list_search_performance; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
           done
           inv="$(psql "$DATABASE_URL" -tAc "

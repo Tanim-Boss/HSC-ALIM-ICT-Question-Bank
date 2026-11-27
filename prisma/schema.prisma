@@ -287,6 +287,12 @@ model Question {
   @@index([subjectId, chapterId, topicId], map: "ix_questions_subject_id_chapter_id_topic_id")
   @@index([type, status], map: "ix_questions_type_status")
   @@index([status, type, difficulty], map: "ix_questions_status_type_difficulty")
+  // Phase 04D (migration 0003). The staff list is keyset-paginated on
+  // (created_at DESC, id DESC); without this index PostgreSQL sorts all
+  // 50,000 question rows to answer the first page (measured: 24.90 ms -> 0.70
+  // ms on the 50,000-question dataset). DESC in the index matches the ORDER BY
+  // so the scan is already ordered. See docs/database/perf/04d-after.md.
+  @@index([createdAt(sort: Desc), id(sort: Desc)], map: "ix_questions_created_at_id")
   @@map("questions")
 }
 
@@ -297,6 +303,14 @@ model QuestionVersion {
   versionNumber Int           @default(1) @map("version_number")
   status        VersionStatus @default(DRAFT)
   content       Json
+  /// Phase 04D (migration 0003). A maintained, normalised plain-text projection
+  /// of `content` plus this version's option documents: what staff content
+  /// search runs against (GIN trigram index ix_question_versions_search_text_trgm).
+  /// Derived data — the authoring service writes it in the same transaction as
+  /// `content` (server/questions/authoring/search-text.ts), and migration 0003
+  /// backfills it with the identical rule in SQL (ict_version_search_text).
+  /// It never contains answer keys or CQ rubrics.
+  searchText    String        @default("") @map("search_text")
   createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
   // Phase 04B authorship. NULL only on rows that pre-date migration 0002.

@@ -44,7 +44,9 @@ PROD_SCHEMA="$REPO_ROOT/prisma/schema.prisma"
 MIG_SRC="$REPO_ROOT/prisma/migrations/0001_phase04a_question_bank/migration.sql"
 MIG_ROOT="$REPO_ROOT/prisma/migrations"
 # Every committed migration, in order. The gate tests the history as committed.
-COMMITTED_MIGRATIONS=(0001_phase04a_question_bank 0002_identity_audit)
+# Phase 04D added 0003_staff_list_search_performance. The gate fails if this
+# list and the directory disagree, so a new migration must be added here.
+COMMITTED_MIGRATIONS=(0001_phase04a_question_bank 0002_identity_audit 0003_staff_list_search_performance)
 
 G3F_EXPECTED_CASES=33
 EXPECTED_TABLES=21          # 18 (0001) + profiles, user_roles, audit_events (0002)

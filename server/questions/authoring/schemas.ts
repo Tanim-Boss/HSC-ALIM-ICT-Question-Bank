@@ -39,6 +39,14 @@ export type OptionKey = (typeof OPTION_KEYS)[number];
 export const PAGE_SIZE_MAX = 50;
 export const PAGE_SIZE_DEFAULT = 20;
 
+/**
+ * Bounds on the staff search box (Phase 04D). 120 characters is comfortably
+ * more than a question stem's distinguishing phrase and small enough that a
+ * query can never become a payload; at most five tokens are honoured
+ * (../list-filters.ts), so the predicate count is bounded too.
+ */
+export const SEARCH_QUERY_MAX = 120;
+
 const id = z.uuid();
 const requestId = z.string().trim().min(1).max(128).optional();
 const json = z.json();
@@ -160,9 +168,17 @@ export const listQuestionsInputSchema = z.strictObject({
   type: z.enum(QuestionType).optional(),
   status: z.enum(QuestionStatus).optional(),
   difficulty: z.enum(QuestionDifficulty).optional(),
+  /**
+   * Board and College are INDEPENDENT provenance dimensions (README §7.1.1):
+   * both may be selected, and neither implies, clears or disables the other.
+   * Each is matched through question_sources, never by free text.
+   */
   boardId: id.optional(),
+  collegeId: id.optional(),
   academicYearId: id.optional(),
   tagId: id.optional(),
+  /** Question-content search over Bangla and English (Phase 04D). */
+  q: z.string().trim().min(1).max(SEARCH_QUERY_MAX).optional(),
   limit: z.number().int().min(1).max(PAGE_SIZE_MAX).default(PAGE_SIZE_DEFAULT),
   cursor: z.string().min(1).max(200).optional(),
 });
