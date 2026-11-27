@@ -10,7 +10,8 @@
  *   - Staff roles are cumulative: EDITOR ⊂ MODERATOR ⊂ ADMIN ⊂ SUPER_ADMIN.
  *     EDITOR creates and edits drafts but cannot publish; MODERATOR adds
  *     publish / archive / verify; ADMIN adds taxonomy.manage; only SUPER_ADMIN
- *     grants roles.
+ *     grants roles. `question.read_staff` (the staff read model, which includes
+ *     answer keys on the detail view) is EDITOR and up.
  *   - STUDENT holds no question-bank permission.
  *   - Separation of duties is NOT in this table: it depends on the resource (who
  *     last edited the version), so it is checked by `authorize` with context.
@@ -22,6 +23,7 @@
 import { AppRole } from '@/lib/generated/prisma/enums';
 
 export const ACTIONS = [
+  'question.read_staff',
   'question.create',
   'question.edit_draft',
   'question.change_type',
@@ -50,6 +52,7 @@ const SUPER_ADMIN_ONLY: readonly AppRole[] = [AppRole.SUPER_ADMIN];
 
 /** Action → the roles allowed to perform it. `satisfies` makes a missing action a type error. */
 export const PERMISSIONS = {
+  'question.read_staff': EDITOR_AND_UP,
   'question.create': EDITOR_AND_UP,
   'question.edit_draft': EDITOR_AND_UP,
   'question.change_type': EDITOR_AND_UP,

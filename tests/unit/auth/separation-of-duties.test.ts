@@ -2,15 +2,16 @@
  * Phase 04B — separation of duties: the user who last edited a draft version
  * cannot publish it unless they are SUPER_ADMIN.
  *
- * Tested twice: the pure rule in rules.ts, and `authorize` for
- * `question.publish`, which is how the service reaches it.
+ * Tested twice: the pure rule in server/auth/separation-of-duties.ts, and
+ * `authorize` for `question.publish` / `answer_key.verify`, which is how the
+ * services reach it.
  */
 
 import { describe, expect, it } from 'vitest';
 
 import { AppRole } from '@/lib/generated/prisma/enums';
 import { authorize, type Actor } from '@/server/auth/authorize';
-import { assertSeparationOfDuties } from '@/server/questions/publish/rules';
+import { assertSeparationOfDuties } from '@/server/auth/separation-of-duties';
 
 const ME = '0b000000-0000-4000-8000-0000000000aa';
 const OTHER = '0b000000-0000-4000-8000-0000000000bb';
@@ -86,7 +87,28 @@ describe('authorize(question.publish) applies separation of duties', () => {
     ).toThrow(expect.objectContaining({ code: 'FORBIDDEN', invariant: undefined }));
   });
 
-  it('separation of duties applies only to publishing', () => {
+  it('applies to answer_key.verify too: the last editor cannot verify their own key', () => {
+    expect(() =>
+      authorize(actor(AppRole.MODERATOR), 'answer_key.verify', { lastEditorId: ME }),
+    ).toThrow(expect.objectContaining({ invariant: 'separation-of-duties' }));
+    expect(() =>
+      authorize(actor(AppRole.MODERATOR), 'answer_key.verify', { lastEditorId: OTHER }),
+    ).not.toThrow();
+    expect(() =>
+      authorize(actor(AppRole.SUPER_ADMIN), 'answer_key.verify', { lastEditorId: ME }),
+    ).not.toThrow();
+  });
+
+  it('the verify refusal says "verify", not "publish"', () => {
+    try {
+      authorize(actor(AppRole.MODERATOR), 'answer_key.verify', { lastEditorId: ME });
+      expect.unreachable();
+    } catch (error) {
+      expect((error as Error).message).toMatch(/verify its answer key/);
+    }
+  });
+
+  it('separation of duties applies only to publishing and verifying', () => {
     expect(() =>
       authorize(actor(AppRole.EDITOR), 'question.edit_draft', { lastEditorId: ME }),
     ).not.toThrow();

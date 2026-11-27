@@ -46,6 +46,11 @@ export interface PrismaKnownErrorShape {
     readonly constraint?: unknown;
     readonly modelName?: unknown;
     readonly field_name?: unknown;
+    /**
+     * Prisma 7 with a driver adapter (measured, P2003 via @prisma/adapter-pg):
+     * `{ cause: { originalCode: '23503', constraint: { index: '<name>' } } }`.
+     */
+    readonly driverAdapterError?: unknown;
   } | null;
 }
 
@@ -332,4 +337,166 @@ export function describeForLog(error: unknown): string {
   const names = isUniqueViolation(error) ? extractConstraintNames(error) : [];
   const state = sqlStateOf(error);
   return [`sqlstate=${state ?? 'unknown'}`, `constraints=${names.join(',') || 'none'}`].join(' ');
+}
+
+/* ------------------------------------------------------------------------- */
+/* Phase 04C — foreign-key violations (SQLSTATE 23503, Prisma P2003)          */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * FK constraint name → stable code. Measured shape (Prisma 7.10.1 +
+ * @prisma/adapter-pg, PostgreSQL 16): `code: 'P2003'`,
+ * `meta.driverAdapterError.cause.originalCode: '23503'`,
+ * `meta.driverAdapterError.cause.constraint.index: '<constraint name>'`, and the
+ * message ends "…on the constraint: `<constraint name>`".
+ *
+ * Same invariants as the unique map: one name → one code, an unknown name
+ * becomes the generic FOREIGN_KEY_CONFLICT, and no raw database text escapes.
+ */
+export const FOREIGN_KEY_MAP: Readonly<Record<string, Mapping>> = {
+  // The composite taxonomy-chain FKs (C-1…C-4).
+  fk_questions_level_subject: {
+    code: 'TAXONOMY_CHAIN_INVALID',
+    message: 'That subject is not offered at the selected education level.',
+    field: 'subjectId',
+  },
+  fk_questions_chapter_subject: {
+    code: 'TAXONOMY_CHAIN_INVALID',
+    message: 'That chapter does not belong to the selected subject.',
+    field: 'chapterId',
+  },
+  fk_questions_topic_chapter: {
+    code: 'TAXONOMY_CHAIN_INVALID',
+    message: 'That topic does not belong to the selected chapter.',
+    field: 'topicId',
+  },
+  fk_questions_subtopic_topic: {
+    code: 'TAXONOMY_CHAIN_INVALID',
+    message: 'That subtopic does not belong to the selected topic.',
+    field: 'subtopicId',
+  },
+  // C-5: the answer key names an option the version does not have.
+  fk_answer_keys_options_of_version: {
+    code: 'ANSWER_KEY_OPTION_MISSING',
+    message: 'The correct answer must be one of this question’s options.',
+    field: 'answerKey',
+  },
+  // Single-column references that simply do not exist.
+  questions_education_level_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'That education level does not exist.',
+    field: 'educationLevelId',
+  },
+  questions_subject_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'That subject does not exist.',
+    field: 'subjectId',
+  },
+  questions_chapter_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'That chapter does not exist.',
+    field: 'chapterId',
+  },
+  questions_topic_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'That topic does not exist.',
+    field: 'topicId',
+  },
+  questions_subtopic_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'That subtopic does not exist.',
+    field: 'subtopicId',
+  },
+  question_tags_tag_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'One of the selected tags does not exist.',
+    field: 'tagIds',
+  },
+  question_sources_board_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'The selected board does not exist.',
+    field: 'sources',
+  },
+  question_sources_college_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'The selected college does not exist.',
+    field: 'sources',
+  },
+  question_sources_academic_year_id_fkey: {
+    code: 'REFERENCE_NOT_FOUND',
+    message: 'The selected academic year does not exist.',
+    field: 'sources',
+  },
+} as const;
+
+function driverAdapterCause(error: PrismaKnownErrorShape): {
+  readonly originalCode?: unknown;
+  readonly constraint?: unknown;
+} | null {
+  const adapter = error.meta?.driverAdapterError;
+  if (typeof adapter !== 'object' || adapter === null) return null;
+  const cause = (adapter as { cause?: unknown }).cause;
+  return typeof cause === 'object' && cause !== null ? cause : null;
+}
+
+/** True for Prisma's FK code, or a 23503 reachable on the driver error or its cause chain. */
+export function isForeignKeyViolation(error: unknown): error is PrismaKnownErrorShape {
+  if (typeof error !== 'object' || error === null) return false;
+  const shape = error as PrismaKnownErrorShape;
+  if (shape.code === 'P2003') return true;
+  if (driverAdapterCause(shape)?.originalCode === '23503') return true;
+  return sqlStateOf(error) === '23503';
+}
+
+/** Every FK constraint name the error carries (adapter metadata, meta, message, cause chain). */
+export function extractForeignKeyNames(error: PrismaKnownErrorShape): string[] {
+  const names = new Set<string>(extractConstraintNames(error));
+  const constraint = driverAdapterCause(error)?.constraint;
+  if (typeof constraint === 'object' && constraint !== null) {
+    const index = (constraint as { index?: unknown }).index;
+    if (typeof index === 'string' && index.length > 0) names.add(index);
+  }
+  const fkQuoted = /foreign key constraint\s+"([A-Za-z0-9_]+)"/gi;
+  for (const text of [error.message ?? '', ...causeMessages(error)]) {
+    for (let m = fkQuoted.exec(text); m !== null; m = fkQuoted.exec(text)) {
+      const name = m[1];
+      if (name !== undefined) names.add(name);
+    }
+  }
+  return [...names];
+}
+
+function causeMessages(error: unknown, depth = 0): string[] {
+  if (typeof error !== 'object' || error === null || depth > 4) return [];
+  const cause = (error as { cause?: unknown }).cause;
+  if (typeof cause !== 'object' || cause === null) return [];
+  const message = (cause as { message?: unknown }).message;
+  return [...(typeof message === 'string' ? [message] : []), ...causeMessages(cause, depth + 1)];
+}
+
+/** Maps an FK violation to a `DomainError`; returns null for anything else. */
+export function mapForeignKeyViolation(error: unknown): DomainError | null {
+  if (!isForeignKeyViolation(error)) return null;
+  const names = extractForeignKeyNames(error);
+  for (const name of names) {
+    const mapping = FOREIGN_KEY_MAP[name];
+    if (mapping !== undefined) {
+      return new DomainError({
+        code: mapping.code,
+        message: mapping.message,
+        ...(mapping.field === undefined ? {} : { field: mapping.field }),
+        constraintNames: [name],
+      });
+    }
+  }
+  return new DomainError({
+    code: 'FOREIGN_KEY_CONFLICT',
+    message: 'A referenced record does not exist or is still in use. Please check and try again.',
+    constraintNames: names,
+  });
+}
+
+/** Unique and FK violations, in that order. Null when the error is neither. */
+export function mapDatabaseError(error: unknown): DomainError | null {
+  return mapUniqueViolation(error) ?? mapForeignKeyViolation(error);
 }

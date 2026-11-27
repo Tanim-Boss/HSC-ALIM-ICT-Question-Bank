@@ -25,6 +25,7 @@ Implemented in `server/auth/permissions.ts`; enforced by the domain services, wh
 
 | Action | STUDENT | EDITOR | MODERATOR | ADMIN | SUPER_ADMIN |
 |---|:-:|:-:|:-:|:-:|:-:|
+| `question.read_staff` | — | ✓ | ✓ | ✓ | ✓ |
 | `question.create` | — | ✓ | ✓ | ✓ | ✓ |
 | `question.edit_draft` | — | ✓ | ✓ | ✓ | ✓ |
 | `question.change_type` | — | ✓ | ✓ | ✓ | ✓ |
@@ -36,9 +37,10 @@ Implemented in `server/auth/permissions.ts`; enforced by the domain services, wh
 
 - **Deny by default.** An action that is not in the matrix is refused for every role, including SUPER_ADMIN.
 - **Roles combine.** A user may hold several roles (`user_roles`); an action is allowed if any held role allows it. A new profile gets STUDENT.
-- **Separation of duties.** The user who last edited a draft version (`updated_by`, else `created_by`) cannot publish it unless they are SUPER_ADMIN. Versions written before migration 0002 have no recorded editor, so the rule cannot apply to them.
+- **Separation of duties.** The user who last edited a draft version (`updated_by`, else `created_by`) can neither verify its answer key nor publish it, unless they are SUPER_ADMIN. The authoring commands (`server/questions/authoring/`, Phase 04C) record `created_by`/`updated_by`, so the rule applies to every version written through them. Versions written before migration 0002 have no recorded editor, so the rule cannot apply to them.
+- **Staff read model.** `listQuestionsForStaff` and `getQuestionForStaff` require `question.read_staff`. Only the detail view returns answer keys and rubrics; the list projection has no answer, option or content field.
 - **Identity.** `requireActor()` (`server/auth/actor.ts`) reads the Supabase-verified user, loads or provisions the profile, and refuses with `UNAUTHENTICATED` (no session) or `INACTIVE` (deactivated profile). `profiles.id` is `auth.users.id`; there is no foreign key into the `auth` schema.
-- **Audit.** Publishing, type changes, profile provisioning and role grants write one `audit_events` row on the same transaction as the change, so a failed audit insert rolls the change back. `audit_events` is append-only in the database (a trigger rejects UPDATE, DELETE and TRUNCATE). Payloads carry ids and status fields only, never answer keys or rubric content.
+- **Audit.** Creating a question, saving a draft, creating a revision, verifying a key, archiving, publishing, type changes, profile provisioning and role grants each write one `audit_events` row on the same transaction as the change, so a failed audit insert rolls the change back. `audit_events` is append-only in the database (a trigger rejects UPDATE, DELETE and TRUNCATE). Payloads carry ids and status fields only, never answer keys or rubric content.
 - **Bootstrap.** The first SUPER_ADMIN is created with `npm run db:bootstrap-super-admin -- <email>`. It promotes one existing auth user, refuses if any SUPER_ADMIN already exists, and writes an audit row with `actor_id` NULL.
 
 > **TODO — RLS (deferred).** Row-level security is defence in depth, not the enforcement point, and is not implemented yet. Until it is, the Question Bank tables must not be reachable through Supabase's public Data API with the anon or authenticated role. Write the policies in a later migration, with deny-all as the baseline.
