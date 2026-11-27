@@ -74,6 +74,30 @@ function draftOptions(texts: readonly string[]): DraftOption[] {
   }));
 }
 
+/** A draft from explicit (key, text) pairs — `validateDraft` derives sort_order from the index. */
+function draftFrom(
+  pairs: readonly { key: (typeof KEYS)[number]; text: string }[],
+  answerKey: DraftInputShape['answerKey'] = { mcqCorrectOptionKey: 'A' },
+): DraftInputShape {
+  return {
+    content: {
+      format: 'rich_blocks',
+      version: 1,
+      blocks: [{ type: 'paragraph', data: { text: 'নিচের কোনটি ইনপুট ডিভাইস?', lang: 'bn' } }],
+    } as Json,
+    options: pairs.map((pair) => ({ key: pair.key, content: optionDocFor(pair.text) })),
+    answerKey,
+  };
+}
+
+function optionDocFor(text: string): Json {
+  return {
+    format: 'rich_blocks',
+    version: 1,
+    blocks: [{ type: 'paragraph', data: { text, lang: 'bn' } }],
+  } as Json;
+}
+
 function draft(
   texts: readonly string[],
   answerKey: DraftInputShape['answerKey'] = { mcqCorrectOptionKey: 'A' },
@@ -217,22 +241,31 @@ describeDb('Phase 04D — saveDraft persistence (real PostgreSQL)', () => {
     expect(await searchTextOf(versionId)).toContain('মনিটর (সংশোধিত)');
   });
 
-  it('a reorder keeps every id and only rewrites sort_order', async () => {
+  it('a reorder keeps every id and re-points sort_order', async () => {
     const { questionId, versionId } = await newQuestion();
     const before = await optionRows(versionId);
 
-    // Send the options in B, A, C, D order: validateDraft derives sort_order from
-    // the array index, so this is a pure reorder of the same four identities.
+    // The same four identities, sent in B, A, C, D order: `validateDraft` derives
+    // sort_order from the array index, so this reorders the display without
+    // changing which row is which.
     await save(
       questionId,
       versionId,
-      draft(['মনিটর', 'কিবোর্ড', 'প্রিন্টার', 'স্পিকার']),
+      draftFrom([
+        { key: 'B', text: 'মনিটর' },
+        { key: 'A', text: 'কিবোর্ড' },
+        { key: 'C', text: 'প্রিন্টার' },
+        { key: 'D', text: 'স্পিকার' },
+      ]),
     );
 
     const after = await optionRows(versionId);
     expect(after.map((row) => row.id).sort()).toEqual(before.map((row) => row.id).sort());
     expect(after.map((row) => row.key)).toEqual(['B', 'A', 'C', 'D']);
     expect(after.map((row) => row.order)).toEqual([0, 1, 2, 3]);
+    // Content still belongs to its key, not to its position.
+    expect(JSON.stringify(after[0]?.content)).toContain('মনিটর');
+    expect(JSON.stringify(after[1]?.content)).toContain('কিবোর্ড');
   });
 
   it('removing an option deletes only that row', async () => {

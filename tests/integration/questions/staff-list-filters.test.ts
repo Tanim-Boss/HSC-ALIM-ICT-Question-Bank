@@ -297,17 +297,36 @@ describeDb('Phase 04D — College filter and renderer equivalence', () => {
       { name: 'search + board + year', input: { boardId: tax.boardId, academicYearId: tax.yearId, q: 'বোর্ড' } },
     ];
 
+    /** Ids in one list but not the other, so a failure says WHICH row disagreed. */
+    function difference(rendered: string[], service: string[]) {
+      const inRendered = new Set(rendered);
+      const inService = new Set(service);
+      return {
+        renderedOnly: rendered.filter((id) => !inService.has(id)),
+        serviceOnly: service.filter((id) => !inRendered.has(id)),
+        renderedCount: rendered.length,
+        serviceCount: service.length,
+      };
+    }
+
+    async function expectAgreement(input: ListQuestionsInput): Promise<void> {
+      const rendered = await renderedIds(input);
+      const service = await serviceIds(input);
+      expect(rendered, `renderer vs service: ${JSON.stringify(difference(rendered, service))}`).toEqual(
+        service,
+      );
+    }
+
     for (const testCase of cases) {
       it(`agrees for: ${testCase.name}`, async () => {
-        expect(await renderedIds(testCase.input)).toEqual(await serviceIds(testCase.input));
+        await expectAgreement(testCase.input);
       });
     }
 
     it('agrees on a cursor page', async () => {
       const first = await listQuestionsForStaff(actorFor('editor'), { limit: 2 });
       const cursor = first.nextCursor ?? '';
-      const input = { limit: 2, cursor };
-      expect(await renderedIds(input)).toEqual(await serviceIds(input));
+      await expectAgreement({ limit: 2, cursor });
     });
   });
 });

@@ -473,7 +473,9 @@ describeDb('Phase 04D — staff search (real PostgreSQL)', () => {
       versionId: created.versionId,
       expectedUpdatedAt: version.updatedAt,
       draft: {
-        content: version.content,
+        // The row's stored document, re-sent unchanged: Prisma types it as
+        // JsonValue, the draft input as JSONType.
+        content: version.content as unknown as Json,
         options: [
           { key: 'A', content: option('এক') },
           { key: 'B', content: option('নতুন টেক্সট') },
