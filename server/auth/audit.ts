@@ -13,9 +13,18 @@
 import type { Prisma } from '@/lib/generated/prisma/client';
 
 export type AuditAction =
-  'question.publish' | 'question.change_type' | 'profile.provision' | 'role.grant';
+  | 'question.create'
+  | 'question.save_draft'
+  | 'question.create_revision'
+  | 'question.publish'
+  | 'question.change_type'
+  | 'question.archive'
+  | 'answer_key.verify'
+  | 'profile.provision'
+  | 'role.grant';
 
-export type AuditResourceType = 'question' | 'question_version' | 'profile' | 'user_role';
+export type AuditResourceType =
+  'question' | 'question_version' | 'answer_key' | 'profile' | 'user_role';
 
 export type AuditValue = string | number | boolean | null | readonly string[];
 export type AuditState = Readonly<Record<string, AuditValue>>;

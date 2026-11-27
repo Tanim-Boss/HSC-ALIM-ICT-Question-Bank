@@ -15,7 +15,7 @@ import 'server-only';
  */
 
 import type { AppRole } from '@/lib/generated/prisma/enums';
-import { DomainError } from '@/server/questions/publish/errors';
+import { DomainError } from '@/server/shared/errors';
 import type { Actor } from './authorize';
 import type { ProfileIdentity, ProfileState } from './profiles';
 

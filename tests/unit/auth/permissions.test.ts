@@ -20,8 +20,9 @@ const A = AppRole.ADMIN;
 const SA = AppRole.SUPER_ADMIN;
 const ALL_ROLES = [S, E, M, A, SA] as const;
 
-/** The approved matrix (Phase 04B decision 3). */
+/** The approved matrix (Phase 04B decision 3; `question.read_staff` added in Phase 04C). */
 const EXPECTED: Record<(typeof ACTIONS)[number], readonly AppRole[]> = {
+  'question.read_staff': [E, M, A, SA],
   'question.create': [E, M, A, SA],
   'question.edit_draft': [E, M, A, SA],
   'question.change_type': [E, M, A, SA],
@@ -38,7 +39,7 @@ const actorWith = (...roles: AppRole[]): Actor => ({
 });
 
 describe('the matrix covers exactly the approved actions', () => {
-  it('lists the eight Phase 04B actions, no more and no fewer', () => {
+  it('lists the nine approved actions, no more and no fewer', () => {
     expect([...ACTIONS].sort()).toEqual(Object.keys(EXPECTED).sort());
     expect(Object.keys(PERMISSIONS).sort()).toEqual(Object.keys(EXPECTED).sort());
   });
@@ -71,6 +72,13 @@ describe('the rules stated in the decision', () => {
     expect(() => authorize(editor, 'question.create')).not.toThrow();
     expect(() => authorize(editor, 'question.edit_draft')).not.toThrow();
     expect(() => authorize(editor, 'question.publish')).toThrow(DomainError);
+  });
+
+  it('the staff read model is EDITOR and up — never STUDENT', () => {
+    expect(isAllowed(new Set([S]), 'question.read_staff')).toBe(false);
+    for (const role of [E, M, A, SA]) {
+      expect(isAllowed(new Set([role]), 'question.read_staff')).toBe(true);
+    }
   });
 
   it('only SUPER_ADMIN can grant roles', () => {

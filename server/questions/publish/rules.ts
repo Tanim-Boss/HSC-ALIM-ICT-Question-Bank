@@ -1380,35 +1380,3 @@ export function assertTypeChangeAllowed(
     });
   }
 }
-
-/** ------------------------------------------------------------------ */
-/** Phase 04B — separation of duties                                    */
-/** ------------------------------------------------------------------ */
-
-/**
- * The user who last edited a draft version cannot publish it, unless they are
- * SUPER_ADMIN.
- *
- * `lastEditorId` is the version's `updated_by`, falling back to `created_by`
- * (a version nobody has edited since creation was last edited by its author).
- * When both are NULL the version pre-dates migration 0002 and has no recorded
- * author; there is no identity to compare against, so the rule cannot fire.
- *
- * Pure: the caller reads the ids inside its own transaction and passes them in.
- */
-export function assertSeparationOfDuties(input: {
-  readonly actorId: string;
-  readonly actorIsSuperAdmin: boolean;
-  readonly lastEditorId: string | null;
-}): void {
-  if (input.actorIsSuperAdmin) return;
-  if (input.lastEditorId === null) return;
-  if (input.lastEditorId !== input.actorId) return;
-  throw new DomainError({
-    code: 'FORBIDDEN',
-    invariant: 'separation-of-duties',
-    message:
-      'You were the last person to edit this version, so someone else must publish it. ' +
-      'Ask another moderator to review and publish it.',
-  });
-}

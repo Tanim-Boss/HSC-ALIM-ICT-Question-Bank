@@ -20,6 +20,7 @@ on:
       - '.github/workflows/**'
       - 'server/questions/**'
       - 'server/auth/**'
+      - 'server/shared/**'
       - 'tests/unit/questions/**'
       - 'tests/unit/auth/**'
       - 'tests/integration/**'
@@ -40,6 +41,7 @@ on:
       - '.github/workflows/**'
       - 'server/questions/**'
       - 'server/auth/**'
+      - 'server/shared/**'
       - 'tests/unit/questions/**'
       - 'tests/unit/auth/**'
       - 'tests/integration/**'
@@ -97,6 +99,7 @@ jobs:
           npx prettier --check \
             "server/questions/**/*.ts" \
             "server/auth/**/*.ts" \
+            "server/shared/**/*.ts" \
             "scripts/db/*.ts" \
             "tests/unit/questions/**/*.ts" \
             "tests/unit/auth/**/*.ts" \
@@ -121,17 +124,17 @@ jobs:
           npx vitest run tests/unit/ --reporter=verbose 2>&1 | tee /tmp/unit.log
           rc=${PIPESTATUS[0]}
           # A floor, not an exact count: adding tests must not fail the build, but
-          # deleting them must. 770 is a margin below the current 788 (24 files)
-          # after the Phase 04B auth suites landed; the earlier floor of 660
-          # pre-dated them.
+          # deleting them must. 840 is a margin below the current 856 (27 files)
+          # after the Phase 04C authoring suites landed; earlier floors were 660
+          # (pre-04B) and 770 (pre-04C).
           count="$(sed 's/\x1b\[[0-9;]*m//g' /tmp/unit.log | grep -oE "Tests +[0-9]+ passed" | grep -oE '[0-9]+' | head -1)"
           echo "unit tests passed=${count:-<none>}"
           if [ -z "${count:-}" ]; then
             echo "::error title=unit::could not read a unit test count"
             exit 1
           fi
-          if [ "$count" -lt 770 ]; then
-            echo "::error title=unit::too few unit cases ran ($count) — expected at least 770"
+          if [ "$count" -lt 840 ]; then
+            echo "::error title=unit::too few unit cases ran ($count) — expected at least 840"
             exit 1
           fi
           exit "$rc"
@@ -356,17 +359,18 @@ jobs:
             printf '%s' "$clean" | tail -20
             exit 1
           fi
-          # 65 is the number of cases in the six suites today:
+          # 85 is the number of cases in the seven suites today:
           #   change-type-service 18 (incl. the four concurrency tests),
           #   publish-gate 9, publish-service 9, snapshot-transaction 2,
-          #   unique-conflicts 9, identity-audit 18 (Phase 04B).
+          #   unique-conflicts 9, identity-audit 18 (Phase 04B),
+          #   authoring-service 20 (Phase 04C).
           # A floor, not an exact count: adding cases must not fail the build, but
           # deleting them — or a broken include pattern — must. The skipped-suite
           # guard in the step above catches "ran nothing because there was no
           # database"; this catches "ran nothing because the tests went away".
-          # Earlier floors: 29 (pre AMB-5 concurrency suite), 47 (pre Phase 04B).
-          if [ "$count" -lt 65 ]; then
-            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 65"
+          # Earlier floors: 29 (pre AMB-5), 47 (pre Phase 04B), 65 (pre Phase 04C).
+          if [ "$count" -lt 85 ]; then
+            echo "::error title=V-4/5::too few integration cases ran ($count) — expected at least 85"
             exit 1
           fi
           echo "OK: $count integration cases executed against PostgreSQL"

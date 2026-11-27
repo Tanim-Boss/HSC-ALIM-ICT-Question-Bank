@@ -8,9 +8,9 @@
  */
 
 import { AppRole } from '@/lib/generated/prisma/enums';
-import { DomainError } from '@/server/questions/publish/errors';
-import { assertSeparationOfDuties } from '@/server/questions/publish/rules';
+import { DomainError } from '@/server/shared/errors';
 import { isAllowed, isKnownAction } from './permissions';
+import { assertSeparationOfDuties } from './separation-of-duties';
 
 /** Who is acting. Built by `requireActor`; never from client-supplied data. */
 export interface Actor {
@@ -21,9 +21,9 @@ export interface Actor {
 /**
  * Resource facts some decisions depend on.
  *
- * `lastEditorId` — the publishing version's `updated_by ?? created_by`. Passing
- * it is what turns on the separation-of-duties check for `question.publish`;
- * `publishVersion` always passes it.
+ * `lastEditorId` — the version's `updated_by ?? created_by`. Passing it turns on
+ * the separation-of-duties check for `question.publish` and
+ * `answer_key.verify`; both services always pass it.
  */
 export interface AuthorizationContext {
   readonly lastEditorId?: string | null;
@@ -42,11 +42,13 @@ export function authorize(actor: Actor, action: string, context?: AuthorizationC
     });
   }
 
-  if (action === 'question.publish' && context?.lastEditorId !== undefined) {
+  if (context?.lastEditorId === undefined) return;
+  if (action === 'question.publish' || action === 'answer_key.verify') {
     assertSeparationOfDuties({
       actorId: actor.userId,
       actorIsSuperAdmin: actor.roles.has(AppRole.SUPER_ADMIN),
       lastEditorId: context.lastEditorId,
+      duty: action === 'question.publish' ? 'publish' : 'verify',
     });
   }
 }
