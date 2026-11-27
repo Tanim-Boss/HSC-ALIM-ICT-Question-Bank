@@ -200,9 +200,7 @@ describe('saveDraft — a changed option', () => {
 
     const calls = childCalls();
     expect(calls.filter((c) => c.startsWith('questionOption.update'))).toHaveLength(1);
-    expect(calls.filter((c) => c.startsWith('questionOption.update'))[0]).toContain(
-      `"key":"B"`,
-    );
+    expect(calls.filter((c) => c.startsWith('questionOption.update'))[0]).toContain(`"key":"B"`);
     expect(calls.some((c) => c.includes('deleteMany') && c.startsWith('questionOption'))).toBe(
       false,
     );
@@ -300,9 +298,15 @@ describe('saveDraft — the answer key', () => {
   });
 
   it('recreates a CHANGED key unverified', async () => {
-    await saveDraft(EDITOR, draftOf(OPTIONS.map((o) => ({ key: o.key, content: o.content })), {
-      mcqCorrectOptionKey: 'C',
-    }));
+    await saveDraft(
+      EDITOR,
+      draftOf(
+        OPTIONS.map((o) => ({ key: o.key, content: o.content })),
+        {
+          mcqCorrectOptionKey: 'C',
+        },
+      ),
+    );
 
     const create = childCalls().find((c) => c.startsWith('answerKey.create'));
     expect(create).toContain('"mcqCorrectOptionKey":"C"');
@@ -312,9 +316,12 @@ describe('saveDraft — the answer key', () => {
 
     const result = await saveDraft(
       EDITOR,
-      draftOf(OPTIONS.map((o) => ({ key: o.key, content: o.content })), {
-        mcqCorrectOptionKey: 'C',
-      }),
+      draftOf(
+        OPTIONS.map((o) => ({ key: o.key, content: o.content })),
+        {
+          mcqCorrectOptionKey: 'C',
+        },
+      ),
     );
     expect(result.changedFields).toContain('answerKey');
     expect(result.answerKeyVerified).toBe(false);
@@ -334,7 +341,10 @@ describe('saveDraft — the answer key', () => {
   it('deletes the key when the draft drops it, and creates nothing', async () => {
     const result = await saveDraft(
       EDITOR,
-      draftOf(OPTIONS.map((o) => ({ key: o.key, content: o.content })), null),
+      draftOf(
+        OPTIONS.map((o) => ({ key: o.key, content: o.content })),
+        null,
+      ),
     );
 
     expect(childCalls().filter((c) => c.startsWith('answerKey.'))).toEqual([
@@ -342,7 +352,6 @@ describe('saveDraft — the answer key', () => {
     ]);
     expect(result.answerKeyVerified).toBeNull();
   });
-
 });
 
 describe('saveDraft — the projection never carries a secret', () => {
@@ -368,16 +377,22 @@ describe('saveDraft — guards are unchanged', () => {
   it('refuses to edit a PUBLISHED version', async () => {
     versionRow['status'] = 'PUBLISHED';
     await expect(
-      saveDraft(EDITOR, draftOf(OPTIONS.map((o) => ({ key: o.key, content: o.content }))),),
+      saveDraft(EDITOR, draftOf(OPTIONS.map((o) => ({ key: o.key, content: o.content })))),
     ).rejects.toMatchObject({ code: 'PUBLISHED_VERSION_IMMUTABLE' });
     expect(childCalls()).toEqual([]);
   });
 
   it('refuses a correct option that is not among the options', async () => {
     await expect(
-      saveDraft(EDITOR, draftOf(OPTIONS.slice(0, 2).map((o) => ({ key: o.key, content: o.content })), {
-        mcqCorrectOptionKey: 'D',
-      })),
+      saveDraft(
+        EDITOR,
+        draftOf(
+          OPTIONS.slice(0, 2).map((o) => ({ key: o.key, content: o.content })),
+          {
+            mcqCorrectOptionKey: 'D',
+          },
+        ),
+      ),
     ).rejects.toMatchObject({ code: 'ANSWER_KEY_OPTION_MISSING' });
     expect(childCalls()).toEqual([]);
   });

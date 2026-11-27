@@ -187,7 +187,9 @@ describe('toPrismaWhere — search and paging', () => {
     expect(andOf(where)).toEqual([
       {
         versions: {
-          some: { AND: [{ searchText: { contains: 'html' } }, { searchText: { contains: 'ওয়েব' } }] },
+          some: {
+            AND: [{ searchText: { contains: 'html' } }, { searchText: { contains: 'ওয়েব' } }],
+          },
         },
       },
     ]);

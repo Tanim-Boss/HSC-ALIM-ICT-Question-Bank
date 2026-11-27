@@ -46,7 +46,10 @@ describe('buildVersionSearchText — what is indexed', () => {
           headerRow: true,
           lang: 'bn',
           rows: [
-            [{ text: 'কলাম', header: true }, { text: 'মান', header: true }],
+            [
+              { text: 'কলাম', header: true },
+              { text: 'মান', header: true },
+            ],
             [{ text: 'ঘর-এক' }, { text: '১' }],
             [{ text: 'ঘর-দুই' }, { text: '২' }],
           ],

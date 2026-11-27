@@ -80,8 +80,10 @@ function whereTerms(spec: ListFilterSpec, params: Params): string[] {
   if (spec.educationLevelId !== undefined) {
     terms.push(`q.education_level_id = ${params.push(spec.educationLevelId)}::uuid`);
   }
-  if (spec.subjectId !== undefined) terms.push(`q.subject_id = ${params.push(spec.subjectId)}::uuid`);
-  if (spec.chapterId !== undefined) terms.push(`q.chapter_id = ${params.push(spec.chapterId)}::uuid`);
+  if (spec.subjectId !== undefined)
+    terms.push(`q.subject_id = ${params.push(spec.subjectId)}::uuid`);
+  if (spec.chapterId !== undefined)
+    terms.push(`q.chapter_id = ${params.push(spec.chapterId)}::uuid`);
   if (spec.topicId !== undefined) terms.push(`q.topic_id = ${params.push(spec.topicId)}::uuid`);
   if (spec.type !== undefined) terms.push(`q.type = ${params.push(spec.type)}::"QuestionType"`);
   if (spec.status !== undefined) {
@@ -139,7 +141,9 @@ function whereTerms(spec: ListFilterSpec, params: Params): string[] {
   if (spec.cursor !== undefined) {
     const ts = params.push(spec.cursor.createdAt.toISOString());
     const id = params.push(spec.cursor.id);
-    terms.push(`(q.created_at < ${ts}::timestamptz OR (q.created_at = ${ts}::timestamptz AND q.id < ${id}::uuid))`);
+    terms.push(
+      `(q.created_at < ${ts}::timestamptz OR (q.created_at = ${ts}::timestamptz AND q.id < ${id}::uuid))`,
+    );
   }
 
   return terms;
@@ -163,7 +167,11 @@ export function renderMainStatement(spec: ListFilterSpec): RenderedStatement {
 
 export function renderTagStatement(questionIds: readonly string[]): RenderedStatement {
   if (questionIds.length === 0) {
-    return { label: 'tag load', sql: 'SELECT question_id, tag_id FROM question_tags WHERE false', values: [] };
+    return {
+      label: 'tag load',
+      sql: 'SELECT question_id, tag_id FROM question_tags WHERE false',
+      values: [],
+    };
   }
   const params = new Params();
   const list = questionIds.map((id) => `${params.push(id)}::uuid`).join(', ');
@@ -178,8 +186,7 @@ export function renderVersionStatement(questionIds: readonly string[]): Rendered
   if (questionIds.length === 0) {
     return {
       label: 'version load',
-      sql:
-        'SELECT question_id, id, version_number, status, updated_at FROM question_versions WHERE false',
+      sql: 'SELECT question_id, id, version_number, status, updated_at FROM question_versions WHERE false',
       values: [],
     };
   }
@@ -195,7 +202,10 @@ export function renderVersionStatement(questionIds: readonly string[]): Rendered
   };
 }
 
-export function renderListQuery(spec: ListFilterSpec, questionIds: readonly string[] = []): RenderedListQuery {
+export function renderListQuery(
+  spec: ListFilterSpec,
+  questionIds: readonly string[] = [],
+): RenderedListQuery {
   return {
     main: renderMainStatement(spec),
     tags: renderTagStatement(questionIds),

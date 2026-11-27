@@ -49,7 +49,12 @@ import {
   renderVersionStatement,
   type RenderedStatement,
 } from './list-query-sql.ts';
-import { describePerfTarget, resolvePerfTarget, verifyPerfDatabase, PERF_BENCH_OPT_IN } from './perf-guard.ts';
+import {
+  describePerfTarget,
+  resolvePerfTarget,
+  verifyPerfDatabase,
+  PERF_BENCH_OPT_IN,
+} from './perf-guard.ts';
 
 const { Client } = pg;
 
@@ -217,12 +222,19 @@ function parsePlan(plan: string): PlanFacts {
       sharedRead += Number(buffers[2] ?? 0);
     }
   }
-  const scanNodes = plan.match(/(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan|Bitmap Index Scan) on [\w.]+/g) ?? [];
+  const scanNodes =
+    plan.match(
+      /(Seq Scan|Index Only Scan|Index Scan|Bitmap Heap Scan|Bitmap Index Scan) on [\w.]+/g,
+    ) ?? [];
   const indexes = new Set([
     // "Index Scan using ix_x on …" / "Index Only Scan using ix_x on …"
-    ...(plan.match(/using [a-z0-9_]+ on /g) ?? []).map((m) => m.replace(/^using /, '').replace(/ on $/, '')),
+    ...(plan.match(/using [a-z0-9_]+ on /g) ?? []).map((m) =>
+      m.replace(/^using /, '').replace(/ on $/, ''),
+    ),
     // "Bitmap Index Scan on ix_x" (PostgreSQL omits "using" for bitmap scans)
-    ...(plan.match(/Bitmap Index Scan on [a-z0-9_]+/g) ?? []).map((m) => m.replace('Bitmap Index Scan on ', '')),
+    ...(plan.match(/Bitmap Index Scan on [a-z0-9_]+/g) ?? []).map((m) =>
+      m.replace('Bitmap Index Scan on ', ''),
+    ),
   ]);
   return {
     executionMs: execution === null ? null : Number(execution[1]),
@@ -232,7 +244,10 @@ function parsePlan(plan: string): PlanFacts {
     sharedHit,
     sharedRead,
     sorts: (plan.match(/Sort Method:/g) ?? []).length,
-    scans: scanNodes.length === 0 ? '—' : [...new Set(scanNodes.map((s) => s.split(' on ')[0] ?? s))].join(', '),
+    scans:
+      scanNodes.length === 0
+        ? '—'
+        : [...new Set(scanNodes.map((s) => s.split(' on ')[0] ?? s))].join(', '),
     indexNames: indexes.size === 0 ? '—' : [...indexes].join(', '),
   };
 }
@@ -273,8 +288,10 @@ async function measureStatement(
   const sortedByExecution = [...factsPerRun].sort(
     (a, b) => (a.executionMs ?? 0) - (b.executionMs ?? 0),
   );
-  const representative = sortedByExecution[Math.floor(sortedByExecution.length / 2)] ?? factsPerRun[0];
-  const representativeIndex = representative === undefined ? 0 : factsPerRun.indexOf(representative);
+  const representative =
+    sortedByExecution[Math.floor(sortedByExecution.length / 2)] ?? factsPerRun[0];
+  const representativeIndex =
+    representative === undefined ? 0 : factsPerRun.indexOf(representative);
 
   const wallMs: number[] = [];
   for (let i = 0; i < repetitions; i += 1) {
@@ -286,18 +303,17 @@ async function measureStatement(
   return {
     statement,
     plan: plans[representativeIndex] ?? '',
-    facts:
-      representative ?? {
-        executionMs: null,
-        planningMs: null,
-        scanEstimated: '?',
-        scanActual: '?',
-        sharedHit: 0,
-        sharedRead: 0,
-        sorts: 0,
-        scans: '—',
-        indexNames: '—',
-      },
+    facts: representative ?? {
+      executionMs: null,
+      planningMs: null,
+      scanEstimated: '?',
+      scanActual: '?',
+      sharedHit: 0,
+      sharedRead: 0,
+      sorts: 0,
+      scans: '—',
+      indexNames: '—',
+    },
     wallMs,
   };
 }
@@ -311,9 +327,7 @@ async function loadFixtures(client: pg.Client): Promise<Fixtures> {
     if (row === undefined) throw new Error(`fixture query returned no row: ${sql}`);
     return row;
   };
-  const level = await one<{ id: string }>(
-    `SELECT id FROM education_levels ORDER BY code LIMIT 1`,
-  );
+  const level = await one<{ id: string }>(`SELECT id FROM education_levels ORDER BY code LIMIT 1`);
   const subject = await one<{ id: string }>(`SELECT id FROM subjects ORDER BY code LIMIT 1`);
   // Chapter 3 is the biggest in the dataset (≈25%): the least selective chapter.
   const chapter = await one<{ id: string }>(
@@ -323,12 +337,8 @@ async function loadFixtures(client: pg.Client): Promise<Fixtures> {
     `SELECT tag_id AS id FROM question_tags GROUP BY tag_id ORDER BY count(*) DESC LIMIT 1`,
   );
   // Dhaka is the largest board; 2023 is a mid-range year.
-  const board = await one<{ id: string }>(
-    `SELECT id FROM boards WHERE code = 'DHAKA'`,
-  );
-  const year = await one<{ id: string }>(
-    `SELECT id FROM academic_years WHERE label = '2023'`,
-  );
+  const board = await one<{ id: string }>(`SELECT id FROM boards WHERE code = 'DHAKA'`);
+  const year = await one<{ id: string }>(`SELECT id FROM academic_years WHERE label = '2023'`);
   const college = await one<{ id: string }>(
     `SELECT college_id AS id FROM question_sources
       WHERE college_id IS NOT NULL
@@ -404,7 +414,10 @@ function caseSection(
     );
   }
   for (const result of results) {
-    lines.push(`<details><summary>EXPLAIN (ANALYZE, BUFFERS) — ${result.statement.label}</summary>`, '');
+    lines.push(
+      `<details><summary>EXPLAIN (ANALYZE, BUFFERS) — ${result.statement.label}</summary>`,
+      '',
+    );
     lines.push('```sql');
     lines.push(result.statement.sql.trim());
     if (result.statement.values.length > 0) {
@@ -449,7 +462,9 @@ async function main(): Promise<number> {
 
   try {
     const identity = await verifyPerfDatabase(client, target);
-    console.log(`Benchmarking ${describePerfTarget(target)} (PostgreSQL ${String(identity.serverVersionNum)})`);
+    console.log(
+      `Benchmarking ${describePerfTarget(target)} (PostgreSQL ${String(identity.serverVersionNum)})`,
+    );
 
     // Statistics are the planner's input; a stale ANALYZE would be measuring
     // yesterday's data distribution. ANALYZE writes no table rows.
@@ -462,20 +477,26 @@ async function main(): Promise<number> {
                       'default_statistics_target','max_parallel_workers_per_gather')
         ORDER BY name`,
     );
-    const dbFacts = await client.query<{ datcollate: string; size: string; questions: string; versions: string }>(
+    const dbFacts = await client.query<{
+      datcollate: string;
+      size: string;
+      questions: string;
+      versions: string;
+    }>(
       `SELECT datcollate,
               pg_size_pretty(pg_database_size(current_database())) AS size,
               (SELECT count(*) FROM questions) AS questions,
               (SELECT count(*) FROM question_versions) AS versions
          FROM pg_database WHERE datname = current_database()`,
     );
-    const hasSearchColumn = (
-      await client.query<{ present: boolean }>(
-        `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+    const hasSearchColumn =
+      (
+        await client.query<{ present: boolean }>(
+          `SELECT EXISTS (SELECT 1 FROM information_schema.columns
                          WHERE table_schema='public' AND table_name='question_versions'
                            AND column_name='search_text') AS present`,
-      )
-    ).rows[0]?.present === true;
+        )
+      ).rows[0]?.present === true;
 
     const indexes = await client.query<{ indexname: string; definition: string; size: string }>(
       `SELECT i.indexname,
@@ -491,12 +512,12 @@ async function main(): Promise<number> {
     );
 
     const environment: Record<string, string> = {
-      'PostgreSQL': settings.rows.find((r) => r.name === 'server_version')?.setting ?? '?',
-      'Database': `${target.databaseName} @ ${target.host}:${String(target.port)} (disposable, loopback)`,
+      PostgreSQL: settings.rows.find((r) => r.name === 'server_version')?.setting ?? '?',
+      Database: `${target.databaseName} @ ${target.host}:${String(target.port)} (disposable, loopback)`,
       'Database size': dbFacts.rows[0]?.size ?? '?',
       'Collation (lc_collate)': dbFacts.rows[0]?.datcollate ?? '?',
-      'Rows': `questions=${dbFacts.rows[0]?.questions ?? '?'}, question_versions=${dbFacts.rows[0]?.versions ?? '?'}`,
-      'Dataset': 'scripts/db/seed-perf.ts, fixed seed 0x04d2026 (50,000 questions, ~3 versions each)',
+      Rows: `questions=${dbFacts.rows[0]?.questions ?? '?'}, question_versions=${dbFacts.rows[0]?.versions ?? '?'}`,
+      Dataset: 'scripts/db/seed-perf.ts, fixed seed 0x04d2026 (50,000 questions, ~3 versions each)',
       'search_text column': hasSearchColumn ? 'present' : 'absent (migration 0003 not applied)',
     };
     for (const row of settings.rows) {
@@ -554,7 +575,9 @@ async function main(): Promise<number> {
       const summary =
         `Driving scan: ${main.facts.scans}, estimated ${main.facts.scanEstimated} rows, ` +
         `actual ${main.facts.scanActual} rows.`;
-      sections.push(caseSection(benchCase, [main, tags, versions], mainMedian, totalMedian, spec, summary));
+      sections.push(
+        caseSection(benchCase, [main, tags, versions], mainMedian, totalMedian, spec, summary),
+      );
       console.log(
         `  ${benchCase.id}: page ${mainMedian.toFixed(2)} ms, full path ${totalMedian.toFixed(2)} ms`,
       );

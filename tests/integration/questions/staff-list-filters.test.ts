@@ -271,9 +271,7 @@ describeDb('Phase 04D — College filter and renderer equivalence', () => {
       });
       const seen = [first, second, third].flatMap((page) => page.items.map((i) => i.id));
       expect(new Set(seen).size).toBe(3);
-      expect(seen.sort()).toEqual(
-        [ids['collegeA'], ids['collegeANoYear'], ids['both']].sort(),
-      );
+      expect(seen.sort()).toEqual([ids['collegeA'], ids['collegeANoYear'], ids['both']].sort());
     });
 
     it('is refused to a STUDENT, before any row is read', async () => {
@@ -284,17 +282,34 @@ describeDb('Phase 04D — College filter and renderer equivalence', () => {
   });
 
   describe('the perf harness renders the same rows as the service', () => {
-    const cases: { name: string; input: ListQuestionsInput }[] = [
-      { name: 'no filter', input: {} },
-      { name: 'college only', input: { collegeId: tax.collegeA } },
-      { name: 'board only', input: { boardId: tax.boardId } },
-      { name: 'board + college', input: { boardId: tax.boardId, collegeId: tax.collegeA } },
-      { name: 'college + year', input: { collegeId: tax.collegeA, academicYearId: tax.yearId } },
-      { name: 'year only', input: { academicYearId: tax.yearId } },
-      { name: 'chapter + college', input: { collegeId: tax.collegeA, chapterId: tax.chapterId } },
-      { name: 'unknown college', input: { collegeId: UNKNOWN } },
-      { name: 'search + college', input: { collegeId: tax.collegeA, q: 'কলেজ' } },
-      { name: 'search + board + year', input: { boardId: tax.boardId, academicYearId: tax.yearId, q: 'বোর্ড' } },
+    // `build`, not a ready-made input: this table is read while the file is
+    // being collected, but the taxonomy ids only exist after `beforeAll`.
+    const cases: { name: string; build: () => ListQuestionsInput }[] = [
+      { name: 'no filter', build: () => ({}) },
+      { name: 'college only', build: () => ({ collegeId: tax.collegeA }) },
+      { name: 'board only', build: () => ({ boardId: tax.boardId }) },
+      {
+        name: 'board + college',
+        build: () => ({ boardId: tax.boardId, collegeId: tax.collegeA }),
+      },
+      {
+        name: 'college + year',
+        build: () => ({ collegeId: tax.collegeA, academicYearId: tax.yearId }),
+      },
+      { name: 'year only', build: () => ({ academicYearId: tax.yearId }) },
+      {
+        name: 'chapter + college',
+        build: () => ({ collegeId: tax.collegeA, chapterId: tax.chapterId }),
+      },
+      { name: 'unknown college', build: () => ({ collegeId: UNKNOWN }) },
+      {
+        name: 'search + college',
+        build: () => ({ collegeId: tax.collegeA, q: 'কলেজ' }),
+      },
+      {
+        name: 'search + board + year',
+        build: () => ({ boardId: tax.boardId, academicYearId: tax.yearId, q: 'বোর্ড' }),
+      },
     ];
 
     /** Ids in one list but not the other, so a failure says WHICH row disagreed. */
@@ -312,14 +327,15 @@ describeDb('Phase 04D — College filter and renderer equivalence', () => {
     async function expectAgreement(input: ListQuestionsInput): Promise<void> {
       const rendered = await renderedIds(input);
       const service = await serviceIds(input);
-      expect(rendered, `renderer vs service: ${JSON.stringify(difference(rendered, service))}`).toEqual(
-        service,
-      );
+      expect(
+        rendered,
+        `renderer vs service: ${JSON.stringify(difference(rendered, service))}`,
+      ).toEqual(service);
     }
 
     for (const testCase of cases) {
       it(`agrees for: ${testCase.name}`, async () => {
-        await expectAgreement(testCase.input);
+        await expectAgreement(testCase.build());
       });
     }
 

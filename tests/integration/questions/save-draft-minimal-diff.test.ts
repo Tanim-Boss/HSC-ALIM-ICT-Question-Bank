@@ -302,7 +302,11 @@ describeDb('Phase 04D — saveDraft persistence (real PostgreSQL)', () => {
       true,
     );
 
-    const changed = await save(questionId, versionId, draft(OPTION_TEXTS, { mcqCorrectOptionKey: 'C' }));
+    const changed = await save(
+      questionId,
+      versionId,
+      draft(OPTION_TEXTS, { mcqCorrectOptionKey: 'C' }),
+    );
     expect(changed.answerKeyVerified).toBe(false);
     const afterChange = await prisma.answerKey.findUniqueOrThrow({ where: { versionId } });
     expect(afterChange).toMatchObject({
@@ -313,11 +317,15 @@ describeDb('Phase 04D — saveDraft persistence (real PostgreSQL)', () => {
     });
 
     await verifyAnswerKey(actorFor('moderator2'), { questionId, versionId });
-    const noop = await save(questionId, versionId, draft(OPTION_TEXTS, { mcqCorrectOptionKey: 'C' }));
+    const noop = await save(
+      questionId,
+      versionId,
+      draft(OPTION_TEXTS, { mcqCorrectOptionKey: 'C' }),
+    );
     expect(noop.answerKeyVerified).toBe(true);
-    expect(
-      (await prisma.answerKey.findUniqueOrThrow({ where: { versionId } })).isVerified,
-    ).toBe(true);
+    expect((await prisma.answerKey.findUniqueOrThrow({ where: { versionId } })).isVerified).toBe(
+      true,
+    );
   });
 
   it('C-5 survives the save that deletes the option the old key named', async () => {
@@ -389,9 +397,9 @@ describeDb('Phase 04D — saveDraft persistence (real PostgreSQL)', () => {
   it('search follows the save: new text is findable, removed text is not', async () => {
     const { questionId, versionId } = await newQuestion();
     const find = async (q: string) =>
-      (
-        await listQuestionsForStaff(actorFor('editor'), { q, chapterId: tax.chapterId })
-      ).items.map((item) => item.id);
+      (await listQuestionsForStaff(actorFor('editor'), { q, chapterId: tax.chapterId })).items.map(
+        (item) => item.id,
+      );
 
     expect(await find('স্পিকার')).toContain(questionId);
     await save(questionId, versionId, draft(['কিবোর্ড', 'মনিটর', 'প্রিন্টার', 'হেডফোন']));

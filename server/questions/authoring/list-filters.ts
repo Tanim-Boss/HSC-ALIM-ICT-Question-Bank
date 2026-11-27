@@ -78,7 +78,10 @@ export const SEARCH_TOKENS_MAX = 5;
  * Returns `[]` for a blank query, which the caller treats as "no search".
  */
 export function normalizeSearchQuery(query: string): string[] {
-  const normalized = query.normalize('NFC').toLowerCase().replace(/[%_\\]/g, ' ');
+  const normalized = query
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[%_\\]/g, ' ');
   const tokens = normalized.split(/\s+/u).filter((token) => token.length > 0);
   return tokens.slice(0, SEARCH_TOKENS_MAX);
 }

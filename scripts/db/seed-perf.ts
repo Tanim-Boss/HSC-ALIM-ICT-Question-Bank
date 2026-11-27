@@ -86,12 +86,32 @@ interface ChapterSeed {
 }
 
 const CHAPTERS: readonly ChapterSeed[] = [
-  { number: 1, titleBn: 'তথ্য ও যোগাযোগ প্রযুক্তি: বিশ্ব ও বাংলাদেশ প্রেক্ষিত', titleEn: 'ICT: World and Bangladesh Perspective', weight: 10 },
-  { number: 2, titleBn: 'কমিউনিকেশন সিস্টেমস ও নেটওয়ার্কিং', titleEn: 'Communication Systems and Networking', weight: 17 },
-  { number: 3, titleBn: 'সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস', titleEn: 'Number Systems and Digital Devices', weight: 25 },
+  {
+    number: 1,
+    titleBn: 'তথ্য ও যোগাযোগ প্রযুক্তি: বিশ্ব ও বাংলাদেশ প্রেক্ষিত',
+    titleEn: 'ICT: World and Bangladesh Perspective',
+    weight: 10,
+  },
+  {
+    number: 2,
+    titleBn: 'কমিউনিকেশন সিস্টেমস ও নেটওয়ার্কিং',
+    titleEn: 'Communication Systems and Networking',
+    weight: 17,
+  },
+  {
+    number: 3,
+    titleBn: 'সংখ্যা পদ্ধতি ও ডিজিটাল ডিভাইস',
+    titleEn: 'Number Systems and Digital Devices',
+    weight: 25,
+  },
   { number: 4, titleBn: 'ওয়েব ডিজাইন পরিচিতি ও HTML', titleEn: 'Web Design and HTML', weight: 23 },
   { number: 5, titleBn: 'প্রোগ্রামিং ভাষা', titleEn: 'Programming Language', weight: 14 },
-  { number: 6, titleBn: 'ডেটাবেস ম্যানেজমেন্ট সিস্টেম', titleEn: 'Database Management System', weight: 11 },
+  {
+    number: 6,
+    titleBn: 'ডেটাবেস ম্যানেজমেন্ট সিস্টেম',
+    titleEn: 'Database Management System',
+    weight: 11,
+  },
 ];
 
 interface BoardSeed {
@@ -121,8 +141,20 @@ const BOARDS: readonly BoardSeed[] = [
   { code: 'DINAJPUR', nameEn: 'Dinajpur', nameBn: 'দিনাজপুর', type: 'GENERAL', weight: 80 },
   { code: 'MYMENSINGH', nameEn: 'Mymensingh', nameBn: 'ময়মনসিংহ', type: 'GENERAL', weight: 75 },
   { code: 'FARIDPUR', nameEn: 'Faridpur', nameBn: 'ফরিদপুর', type: 'GENERAL', weight: 60 },
-  { code: 'MADRASAH', nameEn: 'Bangladesh Madrasah Education Board', nameBn: 'মাদ্রাসা শিক্ষা বোর্ড', type: 'MADRASAH', weight: 70 },
-  { code: 'BTEB', nameEn: 'Bangladesh Technical Education Board', nameBn: 'কারিগরি শিক্ষা বোর্ড', type: 'TECHNICAL', weight: 50 },
+  {
+    code: 'MADRASAH',
+    nameEn: 'Bangladesh Madrasah Education Board',
+    nameBn: 'মাদ্রাসা শিক্ষা বোর্ড',
+    type: 'MADRASAH',
+    weight: 70,
+  },
+  {
+    code: 'BTEB',
+    nameEn: 'Bangladesh Technical Education Board',
+    nameBn: 'কারিগরি শিক্ষা বোর্ড',
+    type: 'TECHNICAL',
+    weight: 50,
+  },
 ];
 
 /** 15 academic years; recent years carry more questions (the bank grows). */
@@ -172,13 +204,38 @@ const TAG_NAMES: readonly { readonly name: string; readonly slug: string }[] = [
 ];
 
 const COLLEGE_NAME_HEAD = [
-  'Dhaka', 'Rajshahi', 'Cumilla', 'Chattogram', 'Jashore', 'Sylhet', 'Barishal',
-  'Dinajpur', 'Mymensingh', 'Faridpur', 'Bogura', 'Pabna', 'Kushtia', 'Tangail',
-  'Noakhali', 'Feni', 'Rangpur', 'Khulna', 'Jamalpur', 'Narsingdi',
+  'Dhaka',
+  'Rajshahi',
+  'Cumilla',
+  'Chattogram',
+  'Jashore',
+  'Sylhet',
+  'Barishal',
+  'Dinajpur',
+  'Mymensingh',
+  'Faridpur',
+  'Bogura',
+  'Pabna',
+  'Kushtia',
+  'Tangail',
+  'Noakhali',
+  'Feni',
+  'Rangpur',
+  'Khulna',
+  'Jamalpur',
+  'Narsingdi',
 ] as const;
 const COLLEGE_NAME_TAIL = [
-  'College', 'Model College', 'Govt. College', 'City College', 'Adarsha College',
-  'Mahila College', 'Degree College', 'Technical College', 'Ideal College', 'Academy',
+  'College',
+  'Model College',
+  'Govt. College',
+  'City College',
+  'Adarsha College',
+  'Mahila College',
+  'Degree College',
+  'Technical College',
+  'Ideal College',
+  'Academy',
 ] as const;
 
 /** The sentinel that must never appear in a staff search projection. */
@@ -382,7 +439,8 @@ const TEMPLATES: readonly QuestionTemplate[] = [
   {
     chapter: 5,
     lang: 'en',
-    stem: () => 'The operating system manages the memory of a computer. Which of these is volatile memory?',
+    stem: () =>
+      'The operating system manages the memory of a computer. Which of these is volatile memory?',
     options: ['RAM', 'ROM', 'Hard disk', 'Flash drive'],
     correct: () => 0,
     tags: [11, 17, 21],
@@ -454,7 +512,8 @@ const TEMPLATES: readonly QuestionTemplate[] = [
   {
     chapter: 1,
     lang: 'en',
-    stem: () => 'Cyber crime is a growing concern. Which of these protects a network from intrusion?',
+    stem: () =>
+      'Cyber crime is a growing concern. Which of these protects a network from intrusion?',
     options: ['Firewall', 'Scanner', 'Plotter', 'Joystick'],
     correct: () => 0,
     tags: [22, 38],
@@ -519,7 +578,11 @@ function stemDocument(lang: 'bn' | 'en', text: string, variant: number): unknown
 }
 
 function optionDocument(lang: 'bn' | 'en', text: string): unknown {
-  return { format: 'rich_blocks', version: 1, blocks: [{ type: 'paragraph', data: { text, lang } }] };
+  return {
+    format: 'rich_blocks',
+    version: 1,
+    blocks: [{ type: 'paragraph', data: { text, lang } }],
+  };
 }
 
 function rubricDocument(childCount: number): unknown {
@@ -602,9 +665,8 @@ async function refusesUnlessEmpty(client: PerfIdentityClient): Promise<void> {
             (SELECT count(*) FROM question_tags) AS tags`,
   );
   const row = result.rows[0];
-  const nonEmpty = row === undefined
-    ? []
-    : Object.entries(row).filter(([, value]) => Number(value) > 0);
+  const nonEmpty =
+    row === undefined ? [] : Object.entries(row).filter(([, value]) => Number(value) > 0);
   if (nonEmpty.length > 0) {
     throw new Error(
       `REFUSED: the target already holds question data (${nonEmpty
@@ -651,10 +713,7 @@ async function main(): Promise<number> {
     const levelId = uuid(rngFor(1, 0));
     const subjectId = uuid(rngFor(2, 0));
     const chapterIds = CHAPTERS.map((_, i) => uuid(rngFor(3, i)));
-    const topicIds = CHAPTERS.map((_, i) => [
-      uuid(rngFor(4, i * 2)),
-      uuid(rngFor(4, i * 2 + 1)),
-    ]);
+    const topicIds = CHAPTERS.map((_, i) => [uuid(rngFor(4, i * 2)), uuid(rngFor(4, i * 2 + 1))]);
     const boardIds = BOARDS.map((_, i) => uuid(rngFor(5, i)));
     const yearIds = YEARS.map((_, i) => uuid(rngFor(6, i)));
     const collegeIds = Array.from({ length: COLLEGE_COUNT }, (_, i) => uuid(rngFor(7, i)));
@@ -723,7 +782,9 @@ async function main(): Promise<number> {
     }
     for (const [i, id] of collegeIds.entries()) {
       const head = COLLEGE_NAME_HEAD[i % COLLEGE_NAME_HEAD.length] ?? 'Dhaka';
-      const tail = COLLEGE_NAME_TAIL[Math.floor(i / COLLEGE_NAME_HEAD.length) % COLLEGE_NAME_TAIL.length] ?? 'College';
+      const tail =
+        COLLEGE_NAME_TAIL[Math.floor(i / COLLEGE_NAME_HEAD.length) % COLLEGE_NAME_TAIL.length] ??
+        'College';
       await client.query(`INSERT INTO colleges (id, name, code, updated_at) VALUES ($1,$2,$3,$4)`, [
         id,
         `${head} ${tail} ${String(i + 1)}`,
@@ -762,10 +823,22 @@ async function main(): Promise<number> {
       ...(searchColumn ? ['search_text'] : []),
     ];
     const questions = batchWriter(client, 'questions', [
-      'id', 'type', 'status', 'difficulty', 'created_via', 'education_level_id', 'subject_id',
-      'chapter_id', 'topic_id', 'marks', 'created_at', 'updated_at',
+      'id',
+      'type',
+      'status',
+      'difficulty',
+      'created_via',
+      'education_level_id',
+      'subject_id',
+      'chapter_id',
+      'topic_id',
+      'marks',
+      'created_at',
+      'updated_at',
     ]);
-    const versions = batchWriter(client, 'question_versions', versionColumns, () => questions.flush());
+    const versions = batchWriter(client, 'question_versions', versionColumns, () =>
+      questions.flush(),
+    );
     const options = batchWriter(
       client,
       'question_options',
@@ -776,22 +849,33 @@ async function main(): Promise<number> {
       client,
       'answer_keys',
       [
-        'id', 'version_id', 'mcq_correct_option_key', 'cq_rubric', 'is_verified', 'verified_by',
-        'verified_at', 'updated_at',
+        'id',
+        'version_id',
+        'mcq_correct_option_key',
+        'cq_rubric',
+        'is_verified',
+        'verified_by',
+        'verified_at',
+        'updated_at',
       ],
       () => options.flush(),
     );
     const sources = batchWriter(
       client,
       'question_sources',
-      ['id', 'question_id', 'source_type', 'board_id', 'college_id', 'academic_year_id', 'source_name'],
+      [
+        'id',
+        'question_id',
+        'source_type',
+        'board_id',
+        'college_id',
+        'academic_year_id',
+        'source_name',
+      ],
       () => questions.flush(),
     );
-    const questionTags = batchWriter(
-      client,
-      'question_tags',
-      ['question_id', 'tag_id'],
-      () => questions.flush(),
+    const questionTags = batchWriter(client, 'question_tags', ['question_id', 'tag_id'], () =>
+      questions.flush(),
     );
 
     const OPTION_KEYS = ['A', 'B', 'C', 'D'] as const;
@@ -808,14 +892,15 @@ async function main(): Promise<number> {
     for (let i = 0; i < QUESTION_COUNT; i += 1) {
       const rng = rngFor(100, i);
       const template = TEMPLATES[Math.floor(rng() * TEMPLATES.length)] ?? TEMPLATES[0];
-      const chapterIndex = template === undefined ? 0 : (template.chapter - 1);
+      const chapterIndex = template === undefined ? 0 : template.chapter - 1;
       const chapterId = chapterIds[chapterIndex];
       const isMcq = rng() < 0.7;
       const statusRoll = rng();
       const status = statusRoll < 0.8 ? 'PUBLISHED' : statusRoll < 0.92 ? 'DRAFT' : 'ARCHIVED';
       const questionId = uuid(rngFor(101, i));
       const createdAt = new Date(
-        NEWEST_CREATED_AT - Math.floor(((QUESTION_COUNT - i) / QUESTION_COUNT) * SPAN_DAYS * 86_400_000) +
+        NEWEST_CREATED_AT -
+          Math.floor(((QUESTION_COUNT - i) / QUESTION_COUNT) * SPAN_DAYS * 86_400_000) +
           Math.floor(rng() * 3_600_000),
       );
       const topicId = rng() < 0.6 ? (topicIds[chapterIndex]?.[0] ?? null) : null;
@@ -879,10 +964,7 @@ async function main(): Promise<number> {
         if (searchColumn) {
           const result = await client.query<{ text: string }>(
             `SELECT ict_version_search_text($1::jsonb, $2::jsonb) AS text`,
-            [
-              JSON.stringify(content),
-              JSON.stringify(versionOptions.map((o) => o.content)),
-            ],
+            [JSON.stringify(content), JSON.stringify(versionOptions.map((o) => o.content))],
           );
           searchText = result.rows[0]?.text ?? '';
         }
@@ -931,10 +1013,19 @@ async function main(): Promise<number> {
 
       /* provenance: board and college are independent dimensions */
       const provenanceRoll = rng();
-      const yearId = yearIds[weightedIndex(rng, YEARS.map((_, k) => 10 + k))];
+      const yearId =
+        yearIds[
+          weightedIndex(
+            rng,
+            YEARS.map((_, k) => 10 + k),
+          )
+        ];
       const boardRow = async (sourceType: 'BOARD' | 'COLLEGE' | 'MODEL_TEST' | 'ORIGINAL') => {
         if (sourceType === 'BOARD') {
-          const boardIndex = weightedIndex(rng, BOARDS.map((b) => b.weight));
+          const boardIndex = weightedIndex(
+            rng,
+            BOARDS.map((b) => b.weight),
+          );
           await sources.add([
             uuid(rngFor(400, sourceSeq)),
             questionId,

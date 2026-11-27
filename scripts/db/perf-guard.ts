@@ -153,7 +153,10 @@ export function resolvePerfTarget(env: NodeJS.ProcessEnv, optIn = PERF_SEED_OPT_
   const databaseName = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
   const lowerName = databaseName.toLowerCase();
 
-  if (PROTECTED_DATABASE_NAMES.has(lowerName) || PROTECTED_WORDS.some((w) => lowerName.includes(w))) {
+  if (
+    PROTECTED_DATABASE_NAMES.has(lowerName) ||
+    PROTECTED_WORDS.some((w) => lowerName.includes(w))
+  ) {
     throw new PerfSafetyError(
       'PROTECTED_IDENTIFIER',
       `Database "${databaseName}" is a protected identifier (application database, admin ` +
@@ -179,10 +182,7 @@ export function resolvePerfTarget(env: NodeJS.ProcessEnv, optIn = PERF_SEED_OPT_
 
 /** The minimum surface of `pg`'s Client this module needs; keeps it testable. */
 export interface PerfIdentityClient {
-  query<R extends Record<string, unknown>>(
-    sql: string,
-    values?: unknown[],
-  ): Promise<{ rows: R[] }>;
+  query<R extends Record<string, unknown>>(sql: string, values?: unknown[]): Promise<{ rows: R[] }>;
 }
 
 const QUESTION_BANK_TABLES = [

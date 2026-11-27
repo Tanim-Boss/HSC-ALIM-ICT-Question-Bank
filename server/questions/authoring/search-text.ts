@@ -83,10 +83,7 @@ export type TextBearingKey = (typeof TEXT_BEARING_KEYS)[number];
 /** Longest projection written to the column; matches the CHECK in migration 0003. */
 export const SEARCH_TEXT_MAX = 20_000;
 
-function collect(
-  value: unknown,
-  buckets: Map<TextBearingKey, string[]>,
-): void {
+function collect(value: unknown, buckets: Map<TextBearingKey, string[]>): void {
   if (Array.isArray(value)) {
     for (const item of value) collect(item, buckets);
     return;

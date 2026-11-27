@@ -45,7 +45,15 @@ const OPTION_CANARY = 'zzoptioncanaryzz';
 
 let prisma: PrismaClient;
 let db: PrismaClient;
-const tax = { levelId: '', subjectId: '', chapterId: '', topicId: '', tagId: '', boardId: '', yearId: '' };
+const tax = {
+  levelId: '',
+  subjectId: '',
+  chapterId: '',
+  topicId: '',
+  tagId: '',
+  boardId: '',
+  yearId: '',
+};
 
 /* ── documents ───────────────────────────────────────────────────────────── */
 
@@ -203,7 +211,10 @@ describeDb('Phase 04D — staff search (real PostgreSQL)', () => {
         content: envelope([
           { type: 'heading', data: { text: 'শিরোনাম', level: 1, lang: 'bn' } },
           para('অনুচ্ছেদ'),
-          { type: 'list', data: { ordered: true, items: [{ text: 'প্রথম' }, { text: 'দ্বিতীয়' }], lang: 'bn' } },
+          {
+            type: 'list',
+            data: { ordered: true, items: [{ text: 'প্রথম' }, { text: 'দ্বিতীয়' }], lang: 'bn' },
+          },
           {
             type: 'table',
             data: {
@@ -211,13 +222,24 @@ describeDb('Phase 04D — staff search (real PostgreSQL)', () => {
               lang: 'bn',
               caption: 'সারণির ক্যাপশন',
               rows: [
-                [{ text: 'শিরোনাম ঘর', header: true }, { text: 'মান', header: true }],
+                [
+                  { text: 'শিরোনাম ঘর', header: true },
+                  { text: 'মান', header: true },
+                ],
                 [{ text: 'ঘর-এক' }, { text: '১' }],
               ],
             },
           },
           { type: 'code', data: { language: 'sql', code: 'SELECT 1', caption: 'কোড ক্যাপশন' } },
-          { type: 'image', data: { assetId: tax.levelId, alt: 'বিকল্প টেক্সট', longDescription: 'দীর্ঘ বর্ণনা', caption: 'ছবির ক্যাপশন' } },
+          {
+            type: 'image',
+            data: {
+              assetId: tax.levelId,
+              alt: 'বিকল্প টেক্সট',
+              longDescription: 'দীর্ঘ বর্ণনা',
+              caption: 'ছবির ক্যাপশন',
+            },
+          },
           { type: 'callout', data: { kind: 'info', text: 'সতর্কতা', lang: 'bn' } },
         ]),
         options: [option('কিবোর্ড'), option('মনিটর')],
@@ -257,7 +279,10 @@ describeDb('Phase 04D — staff search (real PostgreSQL)', () => {
               part: 'ক',
               maxMarks: 1,
               blocks: [
-                { type: 'list', data: { ordered: false, items: [{ text: 'উপ-তালিকা' }], lang: 'bn' } },
+                {
+                  type: 'list',
+                  data: { ordered: false, items: [{ text: 'উপ-তালিকা' }], lang: 'bn' },
+                },
               ],
             },
           },
@@ -359,10 +384,12 @@ describeDb('Phase 04D — staff search (real PostgreSQL)', () => {
     let mixedId = '';
 
     beforeAll(async () => {
-      englishId = (await createMcq('Which device is an input device?', ['Keyboard', 'Monitor'])).questionId;
+      englishId = (await createMcq('Which device is an input device?', ['Keyboard', 'Monitor']))
+        .questionId;
       banglaId = (await createMcq('কম্পিউটারের প্রধান অংশ কোনটি?', ['কিবোর্ড', 'মনিটর'])).questionId;
       conjunctId = (await createMcq('শিক্ষার মূল উদ্দেশ্য কী?', ['জ্ঞান অর্জন', 'পরীক্ষা'])).questionId;
-      optionId = (await createMcq('নিচের কোনটি সঠিক?', ['কিবোর্ড', `মনিটর ${OPTION_CANARY}`])).questionId;
+      optionId = (await createMcq('নিচের কোনটি সঠিক?', ['কিবোর্ড', `মনিটর ${OPTION_CANARY}`]))
+        .questionId;
       rubricId = (await createCq('উদ্দীপক: কম্পিউটার নেটওয়ার্ক', RUBRIC_CANARY)).questionId;
       mixedId = (await createMcq('HTML ওয়েব পেজ তৈরি করে', ['ট্যাগ', 'অ্যাট্রিবিউট'])).questionId;
     });
@@ -419,9 +446,9 @@ describeDb('Phase 04D — staff search (real PostgreSQL)', () => {
       await expect(listQuestionsForStaff(actorFor('editor'), { q: '%%%' })).rejects.toMatchObject({
         code: 'VALIDATION_FAILED',
       });
-      await expect(listQuestionsForStaff(actorFor('editor'), { q: 'x'.repeat(121) })).rejects.toMatchObject(
-        { code: 'VALIDATION_FAILED' },
-      );
+      await expect(
+        listQuestionsForStaff(actorFor('editor'), { q: 'x'.repeat(121) }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
       await expect(listQuestionsForStaff(actorFor('editor'), { q: '   ' })).rejects.toMatchObject({
         code: 'VALIDATION_FAILED',
       });
