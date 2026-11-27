@@ -48,8 +48,11 @@ import {
   type ValidDraft,
   type VerifyAnswerKeyInput,
 } from './schemas';
+import { buildVersionSearchText } from './search-text';
 import {
+  canonicalJson,
   changedFields,
+  keyPayloadEquals,
   verificationAfterSave,
   type ChangedField,
   type KeyPayload,
@@ -133,37 +136,131 @@ function draftKeyPayload(draft: ValidDraft): KeyPayload | null {
 }
 
 /**
- * Replaces a version's options and answer key. The key is deleted first:
- * C-5 (`fk_answer_keys_options_of_version`) is ON DELETE RESTRICT, so the
- * options a key points at cannot be removed while it exists.
+ * What a version already holds, as far as options and the answer key go.
+ * `null` on the create paths, where there is nothing to diff against.
+ */
+interface ExistingChildren {
+  readonly options: readonly {
+    readonly key: string;
+    readonly content: unknown;
+    readonly order: number;
+  }[];
+  readonly answerKey: {
+    readonly mcqCorrectOptionKey: string | null;
+    readonly cqRubric: Prisma.JsonValue;
+  } | null;
+}
+
+const NO_CHILDREN: ExistingChildren = { options: [], answerKey: null };
+
+/**
+ * Writes a version's options and answer key as a MINIMAL DIFF.
+ *
+ * Phase 04C deleted every option row and every answer-key row on each save and
+ * recreated them. That was correct but wasteful, and it destroyed row identity
+ * (a question_option id survived no edit) for no reason. Phase 04D upserts
+ * against the identity the schema already defines:
+ *
+ *   · question_options  UNIQUE (version_id, key)  → update in place, insert the
+ *     genuinely new keys, delete only the removed ones, and write `sort_order`
+ *     so a reorder is a set of UPDATEs (there is no unique constraint on
+ *     sort_order, so a reorder cannot collide part-way through).
+ *   · answer_keys       UNIQUE (version_id)       → at most one row per version.
+ *     An unchanged payload is left ALONE (no statement at all), which also
+ *     preserves is_verified/verified_by/verified_at exactly.
+ *
+ * ORDERING IS A CORRECTNESS REQUIREMENT, not a style choice. C-5,
+ * `fk_answer_keys_options_of_version`, is ON DELETE RESTRICT, so an option the
+ * answer key names cannot be deleted while the key exists. The sequence below
+ * therefore is:
+ *
+ *   1. drop the key row when it is going away or its payload changes
+ *      (a payload that changes may name an option that is about to be inserted,
+ *      so it must be re-created after the options exist);
+ *   2. update existing options, insert new ones, delete removed ones;
+ *   3. create the key row when the draft has one and the old row is gone.
+ *
+ * Because `validateDraft` refuses a correct option that is not among the
+ * draft's options, a *retained* key can never name a deleted option; the
+ * ordering above makes that safe by construction rather than by argument.
+ *
+ * Observable behaviour is unchanged: same transaction, same audit row, same
+ * DomainError mapping, and the same verification state from
+ * `verificationAfterSave` (the caller computes it, this function applies it).
  */
 async function writeChildren(
   tx: Prisma.TransactionClient,
   versionId: string,
   draft: ValidDraft,
   verification: VerificationState | null,
+  existing: ExistingChildren = NO_CHILDREN,
 ): Promise<void> {
-  await tx.answerKey.deleteMany({ where: { versionId } });
-  await tx.questionOption.deleteMany({ where: { versionId } });
-  if (draft.options.length > 0) {
+  // The caller reads the key row inside the same transaction (it needs it for
+  // the audit row and the verification decision); this function never re-reads.
+  const existingKeyRow = existing.answerKey;
+  const existingPayload = existingKeyRow === null ? null : keyPayloadOf(existingKeyRow);
+  const nextPayload = draftKeyPayload(draft);
+  const keyChanged = !keyPayloadEquals(existingPayload, nextPayload);
+
+  // 1. Retire the key row when it changes. An unchanged key is not touched at
+  //    all — no statement, no new row, no reset of the verification columns.
+  if (keyChanged && existingKeyRow !== null) {
+    await tx.answerKey.deleteMany({ where: { versionId } });
+  }
+
+  // 2. Options: update in place, insert new, delete removed.
+  const byKey = new Map<string, ExistingChildren['options'][number]>(
+    existing.options.map((option) => [option.key, option]),
+  );
+  const wanted = new Set<string>(draft.options.map((option) => option.key));
+  /** Options the version does not have yet. */
+  const inserting: { key: string; content: Prisma.InputJsonObject; sortOrder: number }[] = [];
+
+  for (const option of draft.options) {
+    const current = byKey.get(option.key);
+    if (current === undefined) {
+      inserting.push(option);
+      continue;
+    }
+    const unchanged =
+      current.order === option.sortOrder &&
+      canonicalJson(current.content) === canonicalJson(option.content);
+    if (unchanged) continue;
+    await tx.questionOption.update({
+      where: { versionId_key: { versionId, key: option.key } },
+      data: { content: option.content, order: option.sortOrder },
+    });
+  }
+
+  const removedKeys = existing.options
+    .filter((option) => !wanted.has(option.key))
+    .map((option) => option.key);
+  if (removedKeys.length > 0) {
+    await tx.questionOption.deleteMany({ where: { versionId, key: { in: removedKeys } } });
+  }
+
+  if (inserting.length > 0) {
     await tx.questionOption.createMany({
-      data: draft.options.map((o) => ({
+      data: inserting.map((option) => ({
         versionId,
-        key: o.key,
-        content: o.content,
-        order: o.sortOrder,
+        key: option.key,
+        content: option.content,
+        order: option.sortOrder,
       })),
     });
   }
-  const key = draft.answerKey;
-  if (key === null) return;
+
+  // 3. Re-create the key row when the draft has one and the old row is gone.
+  const nextKey = draft.answerKey;
+  if (nextKey === null) return;
+  if (existingKeyRow !== null && !keyChanged) return; // untouched
   const state = verification ?? { isVerified: false, verifiedById: null, verifiedAt: null };
   await tx.answerKey.create({
     data: {
       versionId,
-      ...(key.kind === 'mcq'
-        ? { mcqCorrectOptionKey: key.mcqCorrectOptionKey }
-        : { cqRubric: key.cqRubric }),
+      ...(nextKey.kind === 'mcq'
+        ? { mcqCorrectOptionKey: nextKey.mcqCorrectOptionKey }
+        : { cqRubric: nextKey.cqRubric }),
       isVerified: state.isVerified,
       verifiedById: state.verifiedById,
       verifiedAt: state.verifiedAt,
@@ -263,6 +360,12 @@ export async function createQuestion(
         versionNumber: 1,
         status: VersionStatus.DRAFT,
         content: draft.content,
+        // The staff search projection, derived from the same documents that are
+        // written below (content + ordered option documents).
+        searchText: buildVersionSearchText(
+          draft.content,
+          draft.options.map((option) => option.content),
+        ),
         createdById: actor.userId,
         updatedById: actor.userId,
       },
@@ -339,7 +442,10 @@ export async function saveDraft(actor: Actor, input: SaveDraftInput): Promise<Sa
         status: true,
         content: true,
         updatedAt: true,
-        options: { select: { key: true, content: true }, orderBy: { order: 'asc' } },
+        options: {
+          select: { key: true, content: true, order: true },
+          orderBy: { order: 'asc' },
+        },
         answerKey: {
           select: {
             mcqCorrectOptionKey: true,
@@ -386,12 +492,21 @@ export async function saveDraft(actor: Actor, input: SaveDraftInput): Promise<Sa
       where: { id: version.id },
       data: {
         content: draft.content,
+        // Kept in step with `content` in the SAME statement: the projection is
+        // derived data and must never lag the document it projects.
+        searchText: buildVersionSearchText(
+          draft.content,
+          draft.options.map((option) => option.content),
+        ),
         updatedById: actor.userId,
         updatedAt: nextUpdatedAt(version.updatedAt),
       },
       select: { updatedAt: true },
     });
-    await writeChildren(tx, version.id, draft, verification);
+    await writeChildren(tx, version.id, draft, verification, {
+      options: version.options,
+      answerKey: version.answerKey,
+    });
 
     const wasVerified = version.answerKey?.isVerified ?? null;
     const isVerified = verification?.isVerified ?? null;
@@ -478,12 +593,20 @@ export async function createRevision(
     });
     const versionNumber = Math.max(...versions.map((v) => v.versionNumber)) + 1;
 
+    const publishedOptions = [...published.options].sort(
+      (a, b) => a.order - b.order || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+    );
     const revision = await tx.questionVersion.create({
       data: {
         questionId: data.questionId,
         versionNumber,
         status: VersionStatus.DRAFT,
         content: toInputObject(published.content),
+        // A copy of the published document gets a copy of its projection.
+        searchText: buildVersionSearchText(
+          published.content,
+          publishedOptions.map((option) => option.content),
+        ),
         createdById: actor.userId,
         updatedById: actor.userId,
       },
