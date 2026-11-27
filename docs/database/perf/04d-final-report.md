@@ -1,10 +1,13 @@
 # Phase 04D — final report
 
-**Branch:** `arena/1e1c7217-hsc-alim-ict-question-bank` (base `main` `5e9bb6d`)
-**PR:** [#19](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/pull/19) — open, not merged
-**Commits on the branch:** `f4ee30f` (the work), `0d38afe` and `5d37efb` (three defects CI
-found that local checks could not)
-**Size:** 25 files, +7,426 / −95
+| | |
+| --- | --- |
+| PR | [#19](https://github.com/Tanim-Boss/HSC-ALIM-ICT-Question-Bank/pull/19) — **OPEN**, mergeable, **not merged**; the owner merges manually |
+| Branch | `arena/1e1c7217-hsc-alim-ict-question-bank` |
+| Base | `main` @ `5e9bb6d0a675fa86dd6d0535495613330ddb5a88` (PR #18, phase 04C) |
+| Head | `8a1a228da814dc8301ef3c51de7194b79db97171` — the commit this report describes |
+| Commits | `f4ee30f` (the work), `0d38afe` and `5d37efb` (three defects CI found that local checks could not), `8a1a228` (this report), plus the metadata-only reconciliation commit on top of it |
+| Diff vs base | **26 files, +7,707 / −95** — 25 implementation, test and documentation files plus this report. The reconciliation commit edits only this file, so the file count and the deletion count do not move |
 
 This report states what was measured, what was decided, what was rejected and what
 is still open. Every number below comes from a command that was actually run against
@@ -194,7 +197,7 @@ the `search_text` write are unchanged; the projection is written in the same
 
 ## 11. CI — final state
 
-Thirteen checks on `5d37efb`; twelve pass: unit/typecheck/lint/format/repo guard,
+Thirteen checks on `8a1a228`; twelve pass: unit/typecheck/lint/format/repo guard,
 production build, browser smoke, integration against PostgreSQL 16, V-1, V-2/V-3,
 V-4/V-5, both G-3 gates, Option C prototype, both workflow guards.
 
