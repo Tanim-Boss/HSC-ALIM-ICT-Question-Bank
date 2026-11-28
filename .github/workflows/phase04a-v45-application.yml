@@ -21,6 +21,9 @@ on:
       - 'server/questions/**'
       - 'server/auth/**'
       - 'server/shared/**'
+      # lib/ holds the content-block validation (tests/unit/validation), the
+      # database client and env parsing that every suite here depends on.
+      - 'lib/**'
       - 'tests/unit/questions/**'
       - 'tests/unit/auth/**'
       - 'tests/integration/**'
@@ -42,6 +45,7 @@ on:
       - 'server/questions/**'
       - 'server/auth/**'
       - 'server/shared/**'
+      - 'lib/**'
       - 'tests/unit/questions/**'
       - 'tests/unit/auth/**'
       - 'tests/integration/**'
