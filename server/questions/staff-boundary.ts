@@ -19,8 +19,13 @@ import 'server-only';
  *      stack traces or answer-key internals never cross the application boundary,
  *      while preserving `DomainError` semantics unchanged.
  *
- * OD-17 (public API paths, HTTP methods, status mappings and wire envelopes)
- * remains open; this module defines no routes, HTTP contracts or UI.
+ * OD-17 (public API paths, HTTP methods, status mappings and wire envelopes) is
+ * finalized; Phase 04G implements its first slice — `GET /api/v1/staff/questions`
+ * and `GET /api/v1/staff/questions/[id]` — as thin adapters over this module
+ * (`app/api/v1/staff/questions/`, transport concerns in
+ * `server/questions/read-api/`). This boundary still defines no routes, HTTP
+ * contracts, status codes or cache behaviour of its own: it stays
+ * transport-neutral so the same functions can serve a Server Component.
  */
 
 import { requireActor } from '@/server/auth/actor';
