@@ -97,6 +97,7 @@ Two databases are required, not one:
 | 1 | All five composite FKs exist in `pg_constraint` right after creation |
 | 2 | Exactly **14** enforcement cases ran, **0** failed, and every expected case name is present |
 | 3 | `prisma db pull` sees the database (output non-empty and contains `model Question`) |
+| 3b | The live database diffed against the spike datamodel contains **only** the documented omissions (C-1…C-5 drops and the three support-unique drops); three controls run first so the check cannot pass vacuously |
 | 4 | No-change `migrate diff` is **empty** (`--exit-code` returns 0, not 2) |
 | 5 | An unrelated column produces `ADD COLUMN` only — no `DROP CONSTRAINT`, no `fk_*` in the output |
 | 6 | `migrate dev` either reports the database is in sync, or produces a migration whose SQL is inspected and contains no `DROP`; afterwards 5/5 FKs must still exist |
@@ -119,6 +120,37 @@ Harness guarantees, each deliberate:
 Steps 0–3b pass. **Step 4 fails**: the no-change `migrate diff` exits 2 and its script
 drops all five composite FKs and every plain FK/unique in the schema. Steps 5–7 never
 run. Full detail, run URLs and the verbatim SQL: [`expected/ci-evidence.md`](expected/ci-evidence.md).
+
+## Harness correction (2026-11-28) — verdict unchanged, G-1 remains FAILED
+
+The section above is kept as recorded. Two harness defects were later found and
+fixed; **G-1's question and its FAILED verdict are unchanged** (owner decision B1a,
+condition 2: G-1 is not re-scored).
+
+1. **Step 3b was vacuous.** It diffed the introspected schema against the datamodel
+   using this spike's datasource-less `prisma.config.ts`. Under Prisma 7.10.1 a
+   schema-to-schema `migrate diff` with no configured `datasource` exits 0 with an
+   empty script whatever its inputs (the "empty-diff defect" V-1 also records), so
+   3b could not fail. Step 3b now diffs the **live database** against the datamodel
+   through a datasource-ful config and fails on any statement that is not a
+   documented omission, after three per-run controls (classifier self-test, a
+   from-empty positive control, and a live probe with one unrelated difference).
+2. **The spike datamodel did not describe its own SQL.** The SQL's single-column FKs
+   declare no `ON UPDATE` (PostgreSQL: `NO ACTION`) but the datamodel said
+   `onUpdate: Cascade` on all 13; four names (`fk_answer_keys_version`,
+   `uq_answer_keys_version`, `uq_chapters_subject_number`,
+   `uq_question_options_version_key`) were left to Prisma's defaults. That put 29
+   statements unrelated to C-1…C-5 (13 FK drop/re-create pairs and 3 index renames)
+   into the step 4 diff. `prisma/schema.prisma` and the project migrations were
+   never affected: their FK actions and names are generated from `prisma/schema.prisma` itself, so the two agree by construction.
+
+After the fix, step 4 still fails — on exactly eight statements: the five composite
+FK drops and the three support-unique index drops. That is the precise G-1 finding:
+objects that exist in PostgreSQL but not in the Prisma datamodel are proposed for
+removal. (For the record: Prisma 7.10.1 *can* introspect and represent all five
+composite FKs — C-5 needs a one-to-many back-relation — and the support uniques; a
+datamodel that models them gives an empty no-change diff. Modelling them would change
+G-1's question and is an owner decision, not part of this correction.)
 
 ## Environment note from the first attempt (historical — now superseded)
 

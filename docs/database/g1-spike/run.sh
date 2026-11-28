@@ -202,36 +202,102 @@ ci_note "step3 introspected models: $(grep -c '^model ' "$OUT_DIR/03-introspecte
 ok "introspection produced $(wc -c < "$OUT_DIR/03-introspected.prisma") bytes containing the spike models"
 
 # ---------------------------------------------------------------------
-# The drift verdict is only meaningful if the spike datamodel describes the
-# SQL schema exactly, apart from the omissions Prisma cannot express. Diffing
-# the INTROSPECTED schema against the spike datamodel must therefore produce
-# nothing except the composite FKs, the three support keys and the partial
-# index. If it produces anything else, the datamodel is out of step and any
-# "drift" below would be an artefact of that mistake, not a Prisma verdict.
+# The drift verdict (step 4) is only meaningful if the spike datamodel
+# describes the SQL schema exactly, apart from the documented omissions:
+# the five composite FKs and the three support UNIQUE (id, parent_id) keys
+# (the partial index uq_topics_chapter_order is also omitted, but Prisma does
+# not propose dropping an index it does not model without the preview
+# feature, so it never appears in the diff).
 #
-# Introspection cannot see the three support UNIQUE (id, parent_id) keys, the
-# five composite FKs or the partial index, so a NON-empty result here is
-# expected in one direction only: the datamodel must not ask for anything the
-# database does not have. We check exactly that.
+# HISTORY — why this step was rewritten. It used to diff the INTROSPECTED
+# schema against the datamodel with the spike's datasource-less config. In
+# Prisma 7.10.1 a schema-to-schema `migrate diff` under a config without a
+# `datasource` exits 0 with an EMPTY script whatever the inputs — even an
+# input Prisma would reject as invalid — so the check could never fail
+# (the same "empty-diff defect" V-1 records). It passed while the datamodel
+# disagreed with the SQL on 13 ON UPDATE actions and 4 names, which put 21
+# statements unrelated to C-1..C-5 into the step 4 diff.
+#
+# NOW: diff the LIVE database against the datamodel through a config that
+# has a datasource, and require every statement to be a documented
+# omission. Exit codes are captured with `|| rc=$?` so the ERR trap does not
+# report an expected non-zero exit as an abort. Three controls run on every run,
+# so the check cannot pass
+# vacuously: the classifier must reject a foreign statement, the diff engine
+# must emit SQL for a known change, and a live probe with one unrelated
+# difference must be caught.
 # ---------------------------------------------------------------------
-step "3b. datamodel fidelity: the spike schema must not invent or omit columns"
-set +e
-prisma_run migrate diff \
-  --config "$SPIKE_CONFIG" \
-  --from-schema "$OUT_DIR/03-introspected.prisma" \
+step "3b. datamodel fidelity: every database/datamodel difference must be a documented omission"
+mkdir -p "$OUT_DIR/tmp"
+mk_cli_config "$OUT_DIR/tmp/main.config.ts"
+
+# A Prisma statement line that is a documented omission. Anything else that is
+# not blank or a comment is "unattributed".
+OMITTED_FK_RE="$(printf '%s|' "${COMPOSITE_FKS[@]}" | sed 's/|$//')"
+OMITTED_STATEMENT_RE="^(ALTER TABLE \"(questions|answer_keys)\" DROP CONSTRAINT \"($OMITTED_FK_RE)\";|DROP INDEX \"(uq_chapters_id_subject|uq_topics_id_chapter|uq_subtopics_id_topic)\";)$"
+# unattributed_statements <sql-file>: prints every non-omission statement line
+unattributed_statements() {
+  grep -vE '^[[:space:]]*(--.*)?$' "$1" | grep -vE "$OMITTED_STATEMENT_RE" || true
+}
+
+# control 1 — the classifier itself
+printf -- '-- DropForeignKey\nALTER TABLE "questions" DROP CONSTRAINT "fk_questions_level_subject";\n\n-- DropIndex\nDROP INDEX "uq_subtopics_id_topic";\n' \
+  > "$OUT_DIR/03b-selftest-omissions.sql"
+printf 'ALTER TABLE "questions" DROP CONSTRAINT "questions_subject_id_fkey";\n' \
+  > "$OUT_DIR/03b-selftest-foreign.sql"
+[ -z "$(unattributed_statements "$OUT_DIR/03b-selftest-omissions.sql")" ] \
+  || fail "3b control: the classifier rejected a documented omission"
+[ -n "$(unattributed_statements "$OUT_DIR/03b-selftest-foreign.sql")" ] \
+  || fail "3b control: the classifier accepted a statement that is not a documented omission"
+ok "3b control 1: the classifier accepts the omissions and rejects anything else"
+
+# control 2 — this config makes migrate diff actually emit SQL
+rc=0
+G1_CLI_DATABASE_URL="$URL" prisma_run migrate diff \
+  --config "$OUT_DIR/tmp/main.config.ts" \
+  --from-empty --to-schema "$SPIKE_DIR/prisma/schema.prisma" \
+  --script > "$OUT_DIR/03b-control-from-empty.sql" 2> "$OUT_DIR/03b-control-from-empty.err" || rc=$?
+[ "$rc" -eq 0 ] || { cat "$OUT_DIR/03b-control-from-empty.err"; fail "3b control: migrate diff --from-empty errored (exit $rc)"; }
+grep -q 'CREATE TABLE "questions"' "$OUT_DIR/03b-control-from-empty.sql" \
+  || fail "3b control: migrate diff emitted no CREATE TABLE for the spike schema — the diff engine is not running, so an empty result would prove nothing"
+ok "3b control 2: the diff engine emits SQL for a known change"
+
+# the fidelity diff itself
+rc=0
+G1_CLI_DATABASE_URL="$URL" prisma_run migrate diff \
+  --config "$OUT_DIR/tmp/main.config.ts" \
+  --from-config-datasource \
   --to-schema "$SPIKE_DIR/prisma/schema.prisma" \
-  --script > "$OUT_DIR/03b-fidelity.sql" 2> "$OUT_DIR/03b-fidelity.err"
-rc=$?
-set -e
-[ "$rc" -eq 0 ] || { cat "$OUT_DIR/03b-fidelity.err"; fail "could not compare the introspected schema with the spike datamodel"; }
-# an empty file here is the GOOD case: no differences at all
-[ -f "$OUT_DIR/03b-fidelity.sql" ] || fail "datamodel fidelity diff produced no output file"
-if grep -Eqi 'ADD COLUMN|DROP COLUMN|ALTER COLUMN|ADD CONSTRAINT|DROP CONSTRAINT' "$OUT_DIR/03b-fidelity.sql"; then
+  --script --exit-code > "$OUT_DIR/03b-fidelity.sql" 2> "$OUT_DIR/03b-fidelity.err" || rc=$?
+case "$rc" in
+  0|2) : ;;
+  *) cat "$OUT_DIR/03b-fidelity.err"; fail "could not diff the live database against the spike datamodel (exit $rc)" ;;
+esac
+unattributed="$(unattributed_statements "$OUT_DIR/03b-fidelity.sql")"
+if [ -n "$unattributed" ]; then
   printf '\n----- 03b-fidelity.sql -----\n'; cat "$OUT_DIR/03b-fidelity.sql"
-  fail "the spike datamodel does not match the SQL schema (see 03b-fidelity.sql); the drift result below would be meaningless until this is fixed"
+  fail "the spike datamodel does not match the SQL schema beyond the documented omissions; the drift result below would be meaningless until this is fixed. Unattributed: $(printf '%s' "$unattributed" | tr '\n' ' ' | cut -c1-600)"
 fi
-ci_note "step3b fidelity diff bytes=$(wc -c < "$OUT_DIR/03b-fidelity.sql") :: $(tr '\n' ' ' < "$OUT_DIR/03b-fidelity.sql" | cut -c1-500)"
-ok "datamodel matches the SQL schema except the documented omissions"
+omissions_seen="$(grep -cE "$OMITTED_STATEMENT_RE" "$OUT_DIR/03b-fidelity.sql" || true)"
+ci_note "step3b fidelity: exit=$rc, $omissions_seen documented-omission statement(s), 0 unattributed"
+
+# control 3 — a live probe with ONE unrelated difference must be caught
+probe_fidelity="$OUT_DIR/03b-probe.prisma"
+sed '/^  topic  *Topic  *@relation(fields: \[topicId\]/s/onUpdate: NoAction/onUpdate: Cascade/' \
+  "$SPIKE_DIR/prisma/schema.prisma" > "$probe_fidelity"
+! cmp -s "$SPIKE_DIR/prisma/schema.prisma" "$probe_fidelity" \
+  || fail "3b control: could not build the fidelity probe (Subtopic.topic onUpdate)"
+rc=0
+G1_CLI_DATABASE_URL="$URL" prisma_run migrate diff \
+  --config "$OUT_DIR/tmp/main.config.ts" \
+  --from-config-datasource --to-schema "$probe_fidelity" \
+  --script > "$OUT_DIR/03b-probe.sql" 2> "$OUT_DIR/03b-probe.err" || rc=$?
+[ "$rc" -eq 0 ] || { cat "$OUT_DIR/03b-probe.err"; fail "3b control: probe diff errored (exit $rc)"; }
+unattributed_statements "$OUT_DIR/03b-probe.sql" | grep -q 'subtopics_topic_id_fkey' \
+  || fail "3b control: an unrelated ON UPDATE change was NOT reported as unattributed — the fidelity check is blind"
+ok "3b control 3: an unrelated datamodel difference is caught"
+
+ok "datamodel matches the SQL schema except the documented omissions ($omissions_seen omission statement(s), 0 unattributed)"
 
 # --- step 4: no-change drift ------------------------------------------
 step "4. no-change drift: migrate diff (database -> datamodel) must contain no DROP"
