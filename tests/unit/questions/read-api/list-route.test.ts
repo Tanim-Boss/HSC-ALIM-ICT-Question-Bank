@@ -113,8 +113,8 @@ describe('authentication and authorization', () => {
     harness.resetRoles(['STUDENT']);
 
     // A spoofing caller has to put the claim somewhere. Parameters are not part
-    // of the approved surface, so every such attempt is a 400 and the request
-    // never reaches the boundary with a claimed role.
+    // of the approved surface, so every such attempt is rejected — and the
+    // claim buys nothing: a STUDENT stays a STUDENT, and no question is read.
     for (const attempt of [
       `actorId=${OTHER_STAFF_ID}`,
       `userId=${OTHER_STAFF_ID}`,
@@ -123,10 +123,21 @@ describe('authentication and authorization', () => {
       'isStaff=true',
     ]) {
       const result = await handle(attempt);
+      // 400 is correct here: this caller IS authenticated and active, so they
+      // are allowed to learn that the parameter is unsupported.
       expect(result.status, attempt).toBe(400);
       expect((result.body['error'] as { code: string }).code).toBe('INVALID_REQUEST');
     }
-    expect(harness.calls.getUser).toBe(0);
+    expect(harness.calls.questionFindMany).toHaveLength(0);
+
+    // The same claim from an anonymous caller grants no disclosure either: the
+    // role/actor parameters do not turn an anonymous request into a valid one.
+    harness.state.sessionUser = null;
+    for (const attempt of ['role=SUPER_ADMIN', `actorId=${OTHER_STAFF_ID}`]) {
+      const result = await handle(attempt);
+      expect(result.status, attempt).toBe(401);
+      expect((result.body['error'] as { code: string }).code).toBe('UNAUTHENTICATED');
+    }
     expect(harness.calls.questionFindMany).toHaveLength(0);
   });
 

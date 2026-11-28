@@ -22,10 +22,14 @@ import 'server-only';
  *   · No offset pagination and no page numbers: the cursor is the only
  *     continuation mechanism (OD-17 §8).
  *
- * Authorization runs BEFORE input is validated, because the boundary resolves
- * the actor first. That ordering is the existing domain behaviour (a student
- * receives 403, not a 422 that reveals the accepted parameter set); this file
- * preserves it rather than re-implementing it.
+ * Identity is established BEFORE any input outcome is disclosed, because the
+ * boundary resolves the actor first. That is the existing Phase 04E behaviour
+ * (an anonymous or deactivated caller receives 401 / 403, never a 400 or 422
+ * that reveals the accepted parameter set). This file preserves it for all
+ * three input steps — transport parsing, schema validation and cursor
+ * validation — through `parseStaffTransport` / `parseStaffInput`
+ * (`server/questions/read-api/input.ts`), while keeping exactly one identity
+ * resolution per successful request.
  *
  * Caching: every response — success or failure — carries
  * `Cache-Control: private, no-store` and an `X-Request-Id`, set explicitly
@@ -42,7 +46,7 @@ import {
 } from '@/server/questions/read-api/cursor';
 import { toStaffQuestionListDto } from '@/server/questions/read-api/dto';
 import { errorResponse, jsonResponse, newRequestId } from '@/server/questions/read-api/errors';
-import { parseStaffInput } from '@/server/questions/read-api/input';
+import { parseStaffInput, parseStaffTransport } from '@/server/questions/read-api/input';
 import {
   listFilterContext,
   parseStaffQuestionListQuery,
@@ -104,22 +108,33 @@ export async function GET(request: Request): Promise<Response> {
   const requestId = newRequestId();
 
   try {
-    const input = parseStaffQuestionListQuery(new URL(request.url).searchParams.toString());
+    // DISCLOSURE ORDERING (Phase 04E invariant). Every step below can tell a
+    // caller something about the accepted input shape, so every one of them is
+    // wrapped in `parseStaffTransport`: an anonymous or deactivated caller gets
+    // 401 / 403 from the existing identity boundary instead, and only an
+    // authenticated, active caller learns that their input was malformed
+    // (400 for transport, 422 for domain / cursor). This covers all three
+    // steps — transport parsing, schema validation and cursor validation — not
+    // just the schema, which is where the earlier version of this handler
+    // leaked a 400 before establishing identity.
+    const input = await parseStaffTransport(() =>
+      parseStaffQuestionListQuery(new URL(request.url).searchParams.toString()),
+    );
 
     // Domain validation: the SAME schema and the SAME error contract as the
     // authoring services (UUIDs, enums, bounds, `q` length, `limit` 1…50,
-    // cursor shape). Nothing is restated here. A failure is reported only after
-    // identity is established, so a 422 cannot be used to probe the accepted
-    // parameter set without an account — the ordering the boundary already has.
+    // cursor shape). Nothing is restated here.
     const validated = await parseStaffInput(listQuestionsInputSchema, input);
     const filters = listFilterContext(validated as Record<string, unknown>);
 
     // Transport cursor → domain cursor, bound to these filters.
     let cursor: string | undefined;
     if (validated.cursor !== undefined) {
-      const decoded = decodeStaffListCursor(validated.cursor, filters);
-      if (!decoded.ok) throw cursorError(decoded.reason);
-      cursor = decoded.cursor;
+      cursor = await parseStaffTransport(() => {
+        const decoded = decodeStaffListCursor(validated.cursor as string, filters);
+        if (!decoded.ok) throw cursorError(decoded.reason);
+        return decoded.cursor;
+      });
     }
 
     const page = await listStaffQuestions({
