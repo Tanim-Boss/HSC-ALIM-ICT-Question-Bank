@@ -7,17 +7,27 @@
 //
 // It must describe, EXACTLY, the tables created by
 // docs/database/g1-spike/sql/0001-schema.sql — every column with its
-// @map, every default, every single-column relation — and it must
-// deliberately omit ONLY the things Prisma cannot express:
+// @map, every default, every single-column relation with its referential
+// actions and constraint/index names — and it must deliberately omit ONLY:
 //
 //   * the five composite foreign keys C-1..C-5 (Request C, §3.11.6)
 //   * the three support UNIQUE (id, parent_id) keys they need
 //   * the active-only partial unique index uq_topics_chapter_order
 //
+// Those omissions ARE the G-1 question ("does Prisma leave hand-written
+// objects that are not in the datamodel alone?"), so they stay omitted even
+// though Prisma 7.10.1 can represent them (composite relations natively, the
+// partial index with the `partialIndexes` preview feature). G-1 is FAILED and
+// is not re-scored (owner decision B1a, condition 2).
+//
+// The single-column FKs in the SQL declare no ON UPDATE, so PostgreSQL uses
+// NO ACTION — hence `onUpdate: NoAction` below, and the explicit `map:` names
+// wherever the SQL's names differ from Prisma's defaults.
+//
 // If this file is even slightly out of step with the SQL, every diff
-// becomes meaningless. `run.sh` therefore cross-checks it: it diffs the
-// introspected schema against this one and fails if they disagree beyond
-// the documented omissions. A "drift" result is only trustworthy when
+// becomes meaningless. `run.sh` step 3b therefore diffs the LIVE database
+// against this datamodel and fails unless every statement in that diff is
+// one of the documented omissions. A "drift" result is only trustworthy when
 // that check passes first.
 // =====================================================================
 
@@ -55,8 +65,8 @@ model Subject {
 model LevelSubject {
   levelId   String         @map("level_id") @db.Uuid
   subjectId String         @map("subject_id") @db.Uuid
-  level     EducationLevel @relation(fields: [levelId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  level     EducationLevel @relation(fields: [levelId], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  subject   Subject        @relation(fields: [subjectId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@id([levelId, subjectId])
   @@map("level_subjects")
@@ -68,12 +78,12 @@ model Chapter {
   chapterNumber Int       @map("chapter_number")
   titleEn       String    @default("") @map("title_en")
   isActive      Boolean   @default(true) @map("is_active")
-  subject       Subject   @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  subject       Subject   @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   topics        Topic[]
   questions     Question[]
 
   // E-7 (Revision 5): plain global unique, Prisma-native.
-  @@unique([subjectId, chapterNumber])
+  @@unique([subjectId, chapterNumber], map: "uq_chapters_subject_number")
   @@map("chapters")
 }
 
@@ -83,13 +93,14 @@ model Topic {
   nameEn     String     @default("") @map("name_en")
   orderIndex Int        @default(0) @map("order_index")
   isActive   Boolean    @default(true) @map("is_active")
-  chapter    Chapter    @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  chapter    Chapter    @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   subtopics  Subtopic[]
   questions  Question[]
 
   // E-7 as corrected in Revision 5: display order is ACTIVE-ONLY unique and is
   // expressed by the hand-written partial index uq_topics_chapter_order.
-  // No @@unique here on purpose — Prisma cannot model a partial index.
+  // No @@unique here on purpose — it is one of the documented omissions
+  // (Prisma 7.10.1 could model it only through the `partialIndexes` preview).
   @@map("topics")
 }
 
@@ -97,7 +108,7 @@ model Subtopic {
   id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   topicId   String     @map("topic_id") @db.Uuid
   nameEn    String     @default("") @map("name_en")
-  topic     Topic      @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  topic     Topic      @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   questions Question[]
 
   @@map("subtopics")
@@ -110,11 +121,11 @@ model Question {
   chapterId        String?         @map("chapter_id") @db.Uuid
   topicId          String?         @map("topic_id") @db.Uuid
   subtopicId       String?         @map("subtopic_id") @db.Uuid
-  educationLevel   EducationLevel  @relation(fields: [educationLevelId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  subject          Subject         @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  chapter          Chapter?        @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  topic            Topic?          @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  subtopic         Subtopic?       @relation(fields: [subtopicId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  educationLevel   EducationLevel  @relation(fields: [educationLevelId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  subject          Subject         @relation(fields: [subjectId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  chapter          Chapter?        @relation(fields: [chapterId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  topic            Topic?          @relation(fields: [topicId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  subtopic         Subtopic?       @relation(fields: [subtopicId], references: [id], onDelete: Restrict, onUpdate: NoAction)
   versions         QuestionVersion[]
 
   @@map("questions")
@@ -123,7 +134,7 @@ model Question {
 model QuestionVersion {
   id         String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   questionId String           @map("question_id") @db.Uuid
-  question   Question         @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  question   Question         @relation(fields: [questionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
   options    QuestionOption[]
   answerKeys AnswerKey[]
 
@@ -134,20 +145,21 @@ model QuestionOption {
   id        String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   versionId String          @map("version_id") @db.Uuid
   key       String
-  version   QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  version   QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   // C-5's referenced key; Prisma can express this one natively.
-  @@unique([versionId, key])
+  @@unique([versionId, key], map: "uq_question_options_version_key")
   @@map("question_options")
 }
 
 model AnswerKey {
   id                  String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  versionId           String          @unique @map("version_id") @db.Uuid
+  versionId           String          @unique(map: "uq_answer_keys_version") @map("version_id") @db.Uuid
   mcqCorrectOptionKey String?         @map("mcq_correct_option_key")
-  version             QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  version             QuestionVersion @relation(fields: [versionId], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_answer_keys_version")
 
   // NOTE: the (versionId, mcqCorrectOptionKey) -> QuestionOption relation is
-  // NOT modelled here. It is composite FK C-5 and is hand-written SQL only.
+  // NOT modelled here. It is composite FK C-5 — a documented omission, and
+  // hand-written SQL only.
   @@map("answer_keys")
 }
