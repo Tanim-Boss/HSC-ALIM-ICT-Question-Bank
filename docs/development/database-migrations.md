@@ -19,8 +19,8 @@
 
 | Variable | Use | Notes |
 |---|---|---|
-| `DATABASE_URL` | Application runtime (pooled) | Server-only. Validated by `lib/env.ts`; never prefixed `NEXT_PUBLIC_`. |
-| `DIRECT_URL` | Migrations / direct connections | Server-only. Used by `prisma migrate` tooling. |
+| `DATABASE_URL` | Application runtime (pooled) | Server-only. Validated by `lib/env.ts`; never prefixed `NEXT_PUBLIC_`. On Supabase: the transaction pooler, port 6543. |
+| `DIRECT_URL` | Migrations / direct connections | Server-only. On Supabase: the direct or session connection, port 5432. `prisma.config.ts` and `scripts/db/deploy-gate.sh` use `DIRECT_URL`, falling back to `DATABASE_URL` when it is unset. |
 
 Copy `.env.example` to `.env.local` for development. Never commit real credentials.
 

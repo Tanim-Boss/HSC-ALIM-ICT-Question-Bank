@@ -562,6 +562,55 @@ describe('Phase 04F — error sanitization', () => {
     expect(`${failure.message} ${failure.stack ?? ''}`).not.toMatch(/DATABASE_URL|postgresql:\/\//);
   });
 
+  it('logs the original failure once — redacted, with a request id the sanitized error carries, and no input', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      h.services.createQuestion.mockRejectedValueOnce(
+        new Error(
+          'connection to postgresql://postgres:super-secret-pw@db.internal:5432/ict failed',
+        ),
+      );
+      const failure = await staffCreateQuestion(validCreateInput).then(
+        () => {
+          throw new Error('expected rejection');
+        },
+        (error: unknown) => error as Error & { requestId?: unknown },
+      );
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      const line = String(spy.mock.calls[0]?.[0]);
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      expect(entry).toMatchObject({
+        level: 'error',
+        event: 'staff_write_boundary.unexpected_error',
+        errorName: 'Error',
+      });
+      expect(typeof failure.requestId).toBe('string');
+      expect(entry['requestId']).toBe(failure.requestId);
+      expect(entry['errorMessage']).toContain('postgresql://postgres:[REDACTED]@db.internal');
+      expect(entry['errorStack']).toEqual(expect.any(String));
+      // Nothing secret, and nothing the caller sent (stem text, answer key).
+      expect(line).not.toMatch(/super-secret-pw|নিচের কোনটি|mcqCorrectOptionKey/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('does not log a DomainError — it is an expected outcome, not a failure', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      h.services.createQuestion.mockRejectedValueOnce(
+        new DomainError({ code: 'FORBIDDEN', message: 'no' }),
+      );
+      await expect(staffCreateQuestion(validCreateInput)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      });
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('preserves DomainError (and subclass) errors without sanitization', async () => {
     const domainError = new DomainError({
       code: 'VALIDATION_FAILED',

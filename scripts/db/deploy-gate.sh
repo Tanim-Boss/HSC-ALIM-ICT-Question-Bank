@@ -87,7 +87,10 @@ usage: deploy-gate.sh verify [--history-json FILE] [--migrations-dir DIR]
            instead of around it.
 
 Environment:
-  DATABASE_URL   required for database-sourced verification and for deploy.
+  DIRECT_URL     the direct/session connection (port 5432 on Supabase). Used for
+                 verification and deploy when set — the same precedence as
+                 prisma.config.ts, so the gate checks the database it deploys to.
+  DATABASE_URL   used when DIRECT_URL is not set (CI, local).
 USAGE
 }
 
@@ -177,19 +180,22 @@ if [ -n "$HISTORY_JSON" ]; then
   cp "$HISTORY_JSON" "$TMPDIR_GATE/history.json"
   echo "history source: file ($HISTORY_JSON)"
 else
-  [ -n "${DATABASE_URL:-}" ] || fail "DATABASE_URL is not set, so the applied history cannot be read"
+  # Same precedence as prisma.config.ts (DIRECT_URL ?? DATABASE_URL): the
+  # history must be read from the database `prisma migrate deploy` will write.
+  GATE_URL="${DIRECT_URL:-${DATABASE_URL:-}}"
+  [ -n "$GATE_URL" ] || fail "DATABASE_URL is not set (nor DIRECT_URL), so the applied history cannot be read"
   command -v psql >/dev/null 2>&1 || fail "psql is unavailable, so the applied history cannot be read"
 
   # --- does the history table exist? ---------------------------------
   local_tables=""
-  if ! hist_exists="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAq -c "$HISTORY_TABLE_SQL" 2>"$TMPDIR_GATE/psql.err")"; then
+  if ! hist_exists="$(psql "$GATE_URL" -v ON_ERROR_STOP=1 -tAq -c "$HISTORY_TABLE_SQL" 2>"$TMPDIR_GATE/psql.err")"; then
     sed 's/^/    /' "$TMPDIR_GATE/psql.err" >&2 || true
     fail "could not query the database (see the message above)"
   fi
   hist_exists="$(printf '%s' "$hist_exists" | tr -d '[:space:]')"
 
   if [ "$hist_exists" = "t" ]; then
-    if ! psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAq -c "$HISTORY_SQL" > "$TMPDIR_GATE/history.json" 2>"$TMPDIR_GATE/psql.err"; then
+    if ! psql "$GATE_URL" -v ON_ERROR_STOP=1 -tAq -c "$HISTORY_SQL" > "$TMPDIR_GATE/history.json" 2>"$TMPDIR_GATE/psql.err"; then
       sed 's/^/    /' "$TMPDIR_GATE/psql.err" >&2 || true
       fail "could not read _prisma_migrations"
     fi
@@ -197,7 +203,7 @@ else
   else
     # No history table. Only a genuinely empty schema is acceptable, and this is
     # a determination, never a skip.
-    if ! local_tables="$(psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAq -c "$PUBLIC_TABLE_COUNT_SQL" 2>"$TMPDIR_GATE/psql.err")"; then
+    if ! local_tables="$(psql "$GATE_URL" -v ON_ERROR_STOP=1 -tAq -c "$PUBLIC_TABLE_COUNT_SQL" 2>"$TMPDIR_GATE/psql.err")"; then
       sed 's/^/    /' "$TMPDIR_GATE/psql.err" >&2 || true
       fail "could not count tables in the public schema"
     fi

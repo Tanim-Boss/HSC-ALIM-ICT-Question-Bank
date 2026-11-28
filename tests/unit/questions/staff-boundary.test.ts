@@ -701,6 +701,26 @@ describe('error sanitization — no secret, database or stack-trace leakage', ()
     }
   });
 
+  it('logs the original failure — redacted, with the request id the sanitized error carries', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      h.state.throwOnQuestionQuery = new Error(
+        'connection to postgresql://postgres:super-secret-pw@db.internal:5432/ict failed: SUPABASE_SERVICE_ROLE_KEY=eyJ-secret',
+      );
+      const failure = (await expectError(listStaffQuestions())) as Error & { requestId?: unknown };
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      const line = String(spy.mock.calls[0]?.[0]);
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      expect(entry).toMatchObject({ level: 'error', event: 'staff_boundary.unexpected_error' });
+      expect(typeof failure.requestId).toBe('string');
+      expect(entry['requestId']).toBe(failure.requestId);
+      expect(line).not.toMatch(/super-secret-pw|eyJ-secret/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('sanitizes unexpected session/env failures (e.g. EnvValidationError) without leaking env details', async () => {
     h.state.throwOnSession = new Error(
       'Invalid server environment variables: DATABASE_URL=postgresql://admin:pw@host/db',
