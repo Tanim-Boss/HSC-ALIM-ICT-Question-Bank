@@ -32,8 +32,12 @@ import 'server-only';
  * concurrency, transaction and audit behaviour. This boundary only resolves
  * identity and adds error safety.
  *
- * OD-17 (public API paths, HTTP methods, status mappings and wire envelopes)
- * remains open; this module defines no routes, HTTP contracts or UI.
+ * OD-17 (public API paths, HTTP methods, status mappings and wire envelopes) is
+ * finalized. Its first implemented slice is the READ side (Phase 04G,
+ * `app/api/v1/staff/questions/`); the write routes named here have NO transport
+ * implementation yet, and OD-17 §12 requires a concrete cookie-authenticated
+ * CSRF/Origin/Host policy before any mutation endpoint may be built. This
+ * boundary therefore remains transport-neutral: no routes, HTTP contracts or UI.
  */
 
 import { requireActor } from '@/server/auth/actor';
