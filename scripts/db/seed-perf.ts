@@ -839,6 +839,25 @@ async function main(): Promise<number> {
     const versions = batchWriter(client, 'question_versions', versionColumns, () =>
       questions.flush(),
     );
+    /*
+     * Migration 0005 freezes a PUBLISHED or ARCHIVED version's options and key,
+     * so — like the real authoring flow — every version is written as a DRAFT,
+     * its children are written, and only then is it moved to its final status
+     * (one UPDATE … FROM this session-local table, after every batch is
+     * flushed). The UPDATE sets only status/published_by/published_at, so
+     * updated_at and the fingerprint are unchanged.
+     */
+    await client.query(
+      `CREATE TEMP TABLE seed_version_finals (
+         id uuid PRIMARY KEY, status "VersionStatus" NOT NULL,
+         published_by uuid, published_at timestamptz(3))`,
+    );
+    const versionFinals = batchWriter(client, 'seed_version_finals', [
+      'id',
+      'status',
+      'published_by',
+      'published_at',
+    ]);
     const options = batchWriter(
       client,
       'question_options',
@@ -974,16 +993,24 @@ async function main(): Promise<number> {
           versionId,
           questionId,
           v,
-          versionStatus,
+          'DRAFT', // final status applied after the children exist (migration 0005)
           JSON.stringify(content),
           versionCreatedAt,
           versionCreatedAt,
           author,
           author,
-          published ? author : null,
-          published ? versionCreatedAt : null,
+          null,
+          null,
           ...(searchColumn ? [searchText] : []),
         ]);
+        if (versionStatus !== 'DRAFT') {
+          await versionFinals.add([
+            versionId,
+            versionStatus,
+            published ? author : null,
+            published ? versionCreatedAt : null,
+          ]);
+        }
         versionTotal += 1;
 
         for (const [o, option] of versionOptions.entries()) {
@@ -1097,6 +1124,13 @@ async function main(): Promise<number> {
     await sources.flush();
     await questionTags.flush();
     await questions.flush();
+    await versionFinals.flush();
+    await client.query(
+      `UPDATE question_versions v
+          SET status = f.status, published_by = f.published_by, published_at = f.published_at
+         FROM seed_version_finals f
+        WHERE v.id = f.id`,
+    );
 
     /* ── determinism fingerprint ──────────────────────────────────────── */
     const fingerprint = await client.query<{ questions: string; versions: string; tags: string }>(

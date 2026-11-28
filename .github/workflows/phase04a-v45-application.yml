@@ -234,11 +234,12 @@ jobs:
       # search tests require the function the migration defines. The inventory
       # is asserted, not just printed — 0003 adds no table, enum, FK or CHECK,
       # so the 21/8/33/54 assertion below is unchanged by it. 0004 (RLS and
-      # Data API grant lockdown) adds no table, enum, FK or CHECK either.
-      - name: Apply migrations 0001 … 0004
+      # Data API grant lockdown) adds no table, enum, FK or CHECK either, and
+      # 0005 (published-content triggers) replaces one FK under the same name.
+      - name: Apply migrations 0001 … 0005
         run: |
           set -euo pipefail
-          for m in 0001_phase04a_question_bank 0002_identity_audit 0003_staff_list_search_performance 0004_rls_lockdown; do
+          for m in 0001_phase04a_question_bank 0002_identity_audit 0003_staff_list_search_performance 0004_rls_lockdown 0005_published_immutability; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
           done
           inv="$(psql "$DATABASE_URL" -tAc "

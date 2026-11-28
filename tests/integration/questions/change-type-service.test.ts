@@ -34,6 +34,7 @@
 
 import { PrismaClient } from '@/lib/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { purgeQuestions } from '../purge';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { changeQuestionType } from '@/server/questions/change-type';
@@ -170,10 +171,7 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!hasDatabase) return;
   const levelId = tax.levelId;
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM questions WHERE education_level_id = $1::uuid`,
-    levelId,
-  );
+  await purgeQuestions(prisma, { educationLevelId: levelId });
   await prisma.$executeRawUnsafe(`DELETE FROM level_subjects WHERE level_id = $1::uuid`, levelId);
   await prisma.$executeRawUnsafe(
     `DELETE FROM chapters WHERE subject_id IN (SELECT id FROM subjects WHERE code = $1)`,

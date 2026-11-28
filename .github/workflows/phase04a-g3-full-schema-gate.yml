@@ -60,7 +60,8 @@ jobs:
             prisma/migrations/0001_phase04a_question_bank/migration.sql \
             prisma/migrations/0002_identity_audit/migration.sql \
             prisma/migrations/0003_staff_list_search_performance/migration.sql \
-            prisma/migrations/0004_rls_lockdown/migration.sql
+            prisma/migrations/0004_rls_lockdown/migration.sql \
+            prisma/migrations/0005_published_immutability/migration.sql
 
   g3-full:
     name: G-3 full-schema gate (node ${{ matrix.node }}, postgres 16)
@@ -275,7 +276,7 @@ jobs:
             echo "| Prisma (pinned) | $PRISMA_VERSION |"
             echo "| PostgreSQL | 16 |"
             echo "| Schema | \`prisma/schema.prisma\` (21 tables: 0001 + 0002) |"
-            echo "| Migrations | \`0001_phase04a_question_bank\`, \`0002_identity_audit\`, \`0003_staff_list_search_performance\`, \`0004_rls_lockdown\` |"
+            echo "| Migrations | \`0001_phase04a_question_bank\`, \`0002_identity_audit\`, \`0003_staff_list_search_performance\`, \`0004_rls_lockdown\`, \`0005_published_immutability\` |"
             echo "| Result | ${{ job.status }} |"
             echo
             echo "G-1 remains **FAILED** and is not re-scored by this workflow."
