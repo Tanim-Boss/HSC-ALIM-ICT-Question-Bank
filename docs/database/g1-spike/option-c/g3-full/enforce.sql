@@ -591,28 +591,34 @@ END $$;
 --     (ck_question_versions_published_has_publisher), so both rows carry one;
 --     otherwise the CHECK would fire first and this case would no longer test
 --     the index.
+--     Since migration 0005 a PUBLISHED version can no longer be put back to
+--     DRAFT, so the setup is undone by rolling back to a savepoint (the
+--     inner block ends with a sentinel exception) instead of an UPDATE. The
+--     assertion itself is unchanged.
 DO $$
 DECLARE vid uuid := gen_random_uuid();
         pid uuid := gen_random_uuid();
+        verdict text;
 BEGIN
-  INSERT INTO profiles (id, display_name, updated_at) VALUES (pid, 'g3f publisher', now());
-  UPDATE question_versions SET status = 'PUBLISHED', published_by = pid, published_at = now()
-  WHERE id = '88888888-8888-8888-8888-888888888888';
   BEGIN
-    INSERT INTO question_versions (id, question_id, version_number, status, content, updated_at,
-                                   published_by, published_at)
-    VALUES (vid, '77777777-7777-7777-7777-777777777777', 2, 'PUBLISHED',
-            '{"format":"ict-atlas/1","version":1,"blocks":[]}'::jsonb, now(), pid, now());
-    INSERT INTO g3f_results VALUES (28, 'uq-one-published-per-question', 'FAIL: two published versions accepted');
-  EXCEPTION WHEN unique_violation THEN
-    INSERT INTO g3f_results VALUES (28, 'uq-one-published-per-question',
-      CASE WHEN SQLERRM LIKE '%uq_question_versions_one_published_per_question%'
-           THEN 'PASS' ELSE 'FAIL: wrong constraint: ' || SQLERRM END);
+    INSERT INTO profiles (id, display_name, updated_at) VALUES (pid, 'g3f publisher', now());
+    UPDATE question_versions SET status = 'PUBLISHED', published_by = pid, published_at = now()
+    WHERE id = '88888888-8888-8888-8888-888888888888';
+    BEGIN
+      INSERT INTO question_versions (id, question_id, version_number, status, content, updated_at,
+                                     published_by, published_at)
+      VALUES (vid, '77777777-7777-7777-7777-777777777777', 2, 'PUBLISHED',
+              '{"format":"ict-atlas/1","version":1,"blocks":[]}'::jsonb, now(), pid, now());
+      verdict := 'FAIL: two published versions accepted';
+    EXCEPTION WHEN unique_violation THEN
+      verdict := CASE WHEN SQLERRM LIKE '%uq_question_versions_one_published_per_question%'
+                      THEN 'PASS' ELSE 'FAIL: wrong constraint: ' || SQLERRM END;
+    END;
+    RAISE EXCEPTION 'undo case 28 setup' USING ERRCODE = 'G3F28';
+  EXCEPTION WHEN SQLSTATE 'G3F28' THEN
+    NULL; -- version 8888… is DRAFT again, the profile and second version are gone
   END;
-  DELETE FROM question_versions WHERE id = vid;
-  UPDATE question_versions SET status = 'DRAFT', published_by = NULL, published_at = NULL
-  WHERE id = '88888888-8888-8888-8888-888888888888';
-  DELETE FROM profiles WHERE id = pid;
+  INSERT INTO g3f_results VALUES (28, 'uq-one-published-per-question', verdict);
 END $$;
 
 -- 29. a SECOND DRAFT version of the same question must still be allowed

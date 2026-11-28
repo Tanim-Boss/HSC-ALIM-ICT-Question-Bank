@@ -17,6 +17,9 @@ import 'server-only';
  *      unique index `uq_question_versions_one_published_per_question` would
  *      reject the second with 23505 anyway, but a lock turns a raw conflict into
  *      a clean serialised decision.
+ *   1b. lock the version row (`FOR NO KEY UPDATE`), so no child write
+ *      (option / answer key / asset pin) can be in flight or start while the
+ *      gate validates — the migration 0005 trigger locks the same row FOR SHARE.
  *   2. read the snapshot inside the transaction.
  *   3. run the gate. Any violation aborts before a write happens.
  *   4. write the version status, then the question rollup, then commit.
@@ -153,6 +156,16 @@ export async function publishVersion(
 
       // 1. serialise concurrent publishes of the same question
       await db.$queryRaw`SELECT id FROM questions WHERE id = ${input.questionId}::uuid FOR UPDATE`;
+
+      // 1b. lock the version row BEFORE reading its children (migration 0005
+      //     protocol). Every child write locks this row FOR SHARE, which
+      //     conflicts with FOR NO KEY UPDATE: a child write in flight makes us
+      //     wait until it commits — the snapshot read below then sees it — and
+      //     a child write that starts now waits for us and is refused once the
+      //     version is PUBLISHED. Without this, the gate could validate a child
+      //     state that a concurrent writer changes before the publish commits.
+      //     Order: question, then version — the same order every command uses.
+      await db.$queryRaw`SELECT id FROM question_versions WHERE id = ${input.versionId}::uuid AND question_id = ${input.questionId}::uuid FOR NO KEY UPDATE`;
 
       // 2. read through the SAME client that holds the lock (D2).
       //

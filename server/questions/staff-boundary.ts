@@ -33,6 +33,7 @@ import {
 } from '@/server/questions/authoring/queries';
 import type { GetQuestionInput, ListQuestionsInput } from '@/server/questions/authoring/schemas';
 import { DomainError } from '@/server/shared/errors';
+import { describeError, logger, newRequestId } from '@/server/shared/logger';
 
 export type {
   GetQuestionInput,
@@ -45,10 +46,14 @@ export type {
 const SAFE_UNEXPECTED_MESSAGE = 'The request could not be completed. Please try again.';
 
 class StaffBoundaryInternalError extends Error {
-  constructor() {
+  /** Correlates this sanitized error with the server log entry for the original. */
+  readonly requestId: string;
+
+  constructor(requestId: string) {
     super(SAFE_UNEXPECTED_MESSAGE);
     this.name = 'StaffBoundaryInternalError';
     this.stack = `${this.name}: ${this.message}`;
+    this.requestId = requestId;
   }
 }
 
@@ -65,7 +70,11 @@ async function withBoundarySafety<T>(work: () => Promise<T>): Promise<T> {
     if (error instanceof DomainError) {
       throw error;
     }
-    throw new StaffBoundaryInternalError();
+    // Log the original (redacted, never the input) before it is replaced, so
+    // the failure stays diagnosable; the request id links the two.
+    const requestId = newRequestId();
+    logger.error('staff_boundary.unexpected_error', { requestId, ...describeError(error) });
+    throw new StaffBoundaryInternalError(requestId);
   }
 }
 

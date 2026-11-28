@@ -21,6 +21,7 @@
 
 import { PrismaClient } from '@/lib/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { purgeQuestions } from '../purge';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import {
@@ -150,7 +151,7 @@ async function searchTextOf(versionId: string): Promise<string> {
 }
 
 async function cleanup(): Promise<void> {
-  await prisma.question.deleteMany({ where: { subject: { code: CODES.subject } } });
+  await purgeQuestions(prisma, { subject: { code: CODES.subject } });
   await prisma.chapter.deleteMany({ where: { subject: { code: CODES.subject } } });
   await prisma.levelSubject.deleteMany({ where: { subject: { code: CODES.subject } } });
   await prisma.subject.deleteMany({ where: { code: CODES.subject } });

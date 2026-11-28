@@ -15,6 +15,7 @@
 
 import { PrismaClient } from '@/lib/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { purgeQuestions } from '../purge';
 import { ensureActorProfiles, publishStamp, verifyStamp } from '../auth-fixtures';
 
 const DATABASE_URL = process.env['DATABASE_URL'];
@@ -136,8 +137,9 @@ export async function createMcqFixture(options: FixtureOptions = {}): Promise<{
       data: {
         questionId: question.id,
         versionNumber: 1,
-        status: options.publish === true ? 'PUBLISHED' : 'DRAFT',
-        ...(options.publish === true ? publishStamp() : {}),
+        // Always DRAFT first: since migration 0005 a PUBLISHED version's
+        // options and key are frozen, so they are written before publishing.
+        status: 'DRAFT',
         content: MCQ_STEM,
       },
       select: { id: true },
@@ -167,6 +169,13 @@ export async function createMcqFixture(options: FixtureOptions = {}): Promise<{
       });
     }
 
+    if (options.publish === true) {
+      await db.questionVersion.update({
+        where: { id: version.id },
+        data: { status: 'PUBLISHED', ...publishStamp() },
+      });
+    }
+
     return { questionId: question.id, versionId: version.id };
   });
 }
@@ -179,9 +188,8 @@ export async function createMcqFixture(options: FixtureOptions = {}): Promise<{
  * usable for the next run.
  */
 export async function cleanupFixtures(): Promise<void> {
-  await prisma.$executeRawUnsafe(
-    `DELETE FROM questions WHERE education_level_id IN (SELECT id FROM education_levels WHERE code = '${FIXTURE_CODES.level}')`,
-  );
+  // Published versions are undeletable since migration 0005 — see ../purge.ts.
+  await purgeQuestions(prisma, { educationLevel: { code: FIXTURE_CODES.level } });
   await prisma.$executeRawUnsafe(
     `DELETE FROM level_subjects WHERE level_id IN (SELECT id FROM education_levels WHERE code = '${FIXTURE_CODES.level}')`,
   );

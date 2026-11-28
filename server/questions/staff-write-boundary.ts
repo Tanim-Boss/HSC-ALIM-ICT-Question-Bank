@@ -69,6 +69,7 @@ import type {
   VerifyAnswerKeyInput,
 } from '@/server/questions/authoring/schemas';
 import { DomainError } from '@/server/shared/errors';
+import { describeError, logger, newRequestId } from '@/server/shared/logger';
 
 /* ── Re-exports ──────────────────────────────────────────────────────────── */
 
@@ -95,10 +96,14 @@ export type {
 const SAFE_UNEXPECTED_MESSAGE = 'The request could not be completed. Please try again.';
 
 class StaffBoundaryInternalError extends Error {
-  constructor() {
+  /** Correlates this sanitized error with the server log entry for the original. */
+  readonly requestId: string;
+
+  constructor(requestId: string) {
     super(SAFE_UNEXPECTED_MESSAGE);
     this.name = 'StaffBoundaryInternalError';
     this.stack = `${this.name}: ${this.message}`;
+    this.requestId = requestId;
   }
 }
 
@@ -107,7 +112,8 @@ class StaffBoundaryInternalError extends Error {
  * which extends `DomainError`) and collapses any unexpected infrastructure or
  * runtime exception into a non-chain-linked error with a fixed, secret-free
  * message and sanitized stack (no `cause`, driver text, SQL, connection URL or
- * key data).
+ * key data). The original is logged first (server/shared/logger.ts) under a
+ * generated request id, which the sanitized error carries as `requestId`.
  */
 async function withBoundarySafety<T>(work: () => Promise<T>): Promise<T> {
   try {
@@ -116,7 +122,11 @@ async function withBoundarySafety<T>(work: () => Promise<T>): Promise<T> {
     if (error instanceof DomainError) {
       throw error;
     }
-    throw new StaffBoundaryInternalError();
+    // Log the original (redacted, never the input) before it is replaced, so
+    // the failure stays diagnosable; the request id links the two.
+    const requestId = newRequestId();
+    logger.error('staff_write_boundary.unexpected_error', { requestId, ...describeError(error) });
+    throw new StaffBoundaryInternalError(requestId);
   }
 }
 

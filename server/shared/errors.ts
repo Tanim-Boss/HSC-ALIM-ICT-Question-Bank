@@ -87,6 +87,7 @@ export type DomainErrorCode =
   | 'ANSWER_KEY_OPTION_MISSING' // C-5: the correct option is not an option of this version
   | 'REFERENCE_NOT_FOUND' // a referenced row (taxonomy, tag, board, …) does not exist
   | 'FOREIGN_KEY_CONFLICT' // an unrecognised FK violation; never guessed into a field
+  | 'QUESTION_HAS_VERSIONS' // question_versions_question_id_fkey (0005): a question with versions is never deleted
   // Generic, deliberately last: an unmapped unique violation is a conflict the
   // user can act on ("that value is already taken") without learning which
   // index it was. Never silently coerced into a specific field (V-5 requirement).

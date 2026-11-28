@@ -18,6 +18,7 @@
 
 import { PrismaClient } from '@/lib/generated/prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { purgeQuestions } from '../purge';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { evaluatePublishGate, type QuestionSnapshot } from '@/server/questions/publish/rules';
@@ -135,8 +136,9 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
       data: {
         questionId: question.id,
         versionNumber: 1,
-        status: opts.publish === true ? 'PUBLISHED' : 'DRAFT',
-        ...(opts.publish === true ? publishStamp() : {}),
+        // DRAFT first: since migration 0005 a published version's options and
+        // key are frozen, so they are written before it is published.
+        status: 'DRAFT',
         content: MCQ_CONTENT,
       },
       select: { id: true },
@@ -156,6 +158,12 @@ async function createMcqFixture(opts: { publish?: boolean } = {}): Promise<{
         ...verifyStamp(),
       },
     });
+    if (opts.publish === true) {
+      await db.questionVersion.update({
+        where: { id: version.id },
+        data: { status: 'PUBLISHED', ...publishStamp() },
+      });
+    }
 
     return { questionId: question.id, versionId: version.id };
   });
@@ -268,12 +276,10 @@ describeDb('publish gate against real PostgreSQL', () => {
   });
 
   afterAll(async () => {
-    // Remove this suite's rows in FK order (children first). Deleting a question
-    // cascades to its versions, options, keys and asset links. The codes are
-    // fixed, so cleanup is exact rather than a prefix guess.
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM questions WHERE education_level_id IN (SELECT id FROM education_levels WHERE code = 'V4IT_LEVEL')`,
-    );
+    // Remove this suite's rows in FK order (children first). Since migration
+    // 0005 published versions are undeletable, so questions go through the
+    // test-only purge helper. The codes are fixed, so cleanup is exact.
+    await purgeQuestions(prisma, { educationLevel: { code: 'V4IT_LEVEL' } });
     await prisma.$executeRawUnsafe(
       `DELETE FROM level_subjects WHERE level_id IN (SELECT id FROM education_levels WHERE code = 'V4IT_LEVEL')`,
     );

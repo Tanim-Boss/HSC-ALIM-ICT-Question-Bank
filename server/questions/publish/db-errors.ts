@@ -427,6 +427,12 @@ export const FOREIGN_KEY_MAP: Readonly<Record<string, Mapping>> = {
     message: 'The selected academic year does not exist.',
     field: 'sources',
   },
+  // Migration 0005: ON DELETE RESTRICT. Deleting a question never deletes its
+  // versions; archive it instead.
+  question_versions_question_id_fkey: {
+    code: 'QUESTION_HAS_VERSIONS',
+    message: 'This question has versions and cannot be deleted. Archive it instead.',
+  },
 } as const;
 
 function driverAdapterCause(error: PrismaKnownErrorShape): {
@@ -496,7 +502,43 @@ export function mapForeignKeyViolation(error: unknown): DomainError | null {
   });
 }
 
-/** Unique and FK violations, in that order. Null when the error is neither. */
+/* ------------------------------------------------------------------------- */
+/* Migration 0005 — frozen published/archived content (SQLSTATE IA001)       */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The SQLSTATE every 0005 trigger raises (custom class "IA" = ICT Atlas):
+ * trg_question_versions_frozen, trg_<child>_frozen and trg_<table>_no_truncate.
+ *
+ * Measured shape (Prisma 7.10.1 + @prisma/adapter-pg, PostgreSQL 16): `code`
+ * is `P2039` for a model call and `P2010` for a raw query, and the SQLSTATE is
+ * only in `meta.driverAdapterError.cause.originalCode`. The trigger's
+ * CONSTRAINT name is not passed through, so the SQLSTATE is the identifier.
+ */
+export const FROZEN_CONTENT_SQLSTATE = 'IA001';
+
+/** True when a 0005 trigger refused the write. */
+export function isFrozenContentViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const cause = driverAdapterCause(error as PrismaKnownErrorShape);
+  if (cause?.originalCode === FROZEN_CONTENT_SQLSTATE) return true;
+  return sqlStateOf(error) === FROZEN_CONTENT_SQLSTATE;
+}
+
+/** Maps a 0005 trigger refusal to I-5; returns null for anything else. */
+export function mapFrozenContentViolation(error: unknown): DomainError | null {
+  if (!isFrozenContentViolation(error)) return null;
+  return new DomainError({
+    code: 'PUBLISHED_VERSION_IMMUTABLE',
+    invariant: 'I-5',
+    message:
+      'This version is published or archived, so it cannot be changed or deleted. Create a revision instead.',
+  });
+}
+
+/** Unique, FK and frozen-content violations, in that order. Null when the error is none of them. */
 export function mapDatabaseError(error: unknown): DomainError | null {
-  return mapUniqueViolation(error) ?? mapForeignKeyViolation(error);
+  return (
+    mapUniqueViolation(error) ?? mapForeignKeyViolation(error) ?? mapFrozenContentViolation(error)
+  );
 }

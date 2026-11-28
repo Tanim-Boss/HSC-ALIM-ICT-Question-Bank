@@ -26,11 +26,13 @@ SPIKE_DIR="$(cd "$OC_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$SPIKE_DIR/../../.." && pwd)"
 PSQL="${PSQL:-psql}"
 GUARD="$OC_DIR/guard.py"
-# The committed history, in order (04B added 0002, 04D added 0003).
+# The committed history, in order (04B added 0002, 04D added 0003, 0004 RLS lockdown, 0005 published immutability).
 MIGS=(
   "$REPO_ROOT/prisma/migrations/0001_phase04a_question_bank/migration.sql"
   "$REPO_ROOT/prisma/migrations/0002_identity_audit/migration.sql"
   "$REPO_ROOT/prisma/migrations/0003_staff_list_search_performance/migration.sql"
+  "$REPO_ROOT/prisma/migrations/0004_rls_lockdown/migration.sql"
+  "$REPO_ROOT/prisma/migrations/0005_published_immutability/migration.sql"
 )
 
 fail() { printf '\n[local] FAIL: %s\n' "$*" >&2; exit 1; }
