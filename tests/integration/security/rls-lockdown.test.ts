@@ -14,8 +14,17 @@
  *      be an artefact of the simulation rather than the work of 0004;
  *   4. apply every later migration (0004 onwards) and prove the lockdown.
  *
+ * Functions: PostgreSQL grants EXECUTE on every function to PUBLIC, and anon /
+ * authenticated inherit PUBLIC. So the suite also proves — by privilege
+ * inspection AND by real call attempts as anon, authenticated and a role with
+ * no grants at all (i.e. PUBLIC only) — that 0004 removed PUBLIC's EXECUTE,
+ * that the owner still executes, that triggers still fire, and that functions
+ * created later get no PUBLIC EXECUTE. The "before 0004" controls show the
+ * exposure is real in this simulation.
+ *
  * A second block checks the suite's own DATABASE_URL: every table there must
- * have RLS, so a future migration that adds a table without it fails CI.
+ * have RLS and no project function may be executable by PUBLIC, so a future
+ * migration that forgets either fails CI.
  *
  * Requires DATABASE_URL for a role that may CREATE DATABASE, CREATE ROLE and
  * SET ROLE (the CI service user is a superuser), and `psql` on PATH.
@@ -41,6 +50,30 @@ const API_ROLES = ['anon', 'authenticated'] as const;
 /** Tables the brief names explicitly; the catalog checks below cover all of them. */
 const SENSITIVE_TABLES = ['answer_keys', 'question_versions', 'profiles', 'audit_events'] as const;
 const LOCKDOWN = '0004_rls_lockdown';
+/** A role with no grants of its own: what it can do, PUBLIC can do. */
+const PUBLIC_ONLY = 'ict_public_only_probe';
+/** Every project (non-extension) function in public after all migrations. */
+const PROJECT_FUNCTIONS = [
+  'ict_normalize_search_text(text)',
+  'ict_search_text_of(jsonb)',
+  'ict_version_search_text(jsonb,jsonb)',
+  'audit_events_reject_mutation()',
+  'question_versions_guard_frozen()',
+  'question_version_children_guard_frozen()',
+  'question_versions_guard_truncate()',
+] as const;
+/** A real call for each function (trigger functions are called directly: the
+ *  EXECUTE check happens before PostgreSQL notices it is a trigger function). */
+const CALL: Record<(typeof PROJECT_FUNCTIONS)[number], string> = {
+  'ict_normalize_search_text(text)': `SELECT ict_normalize_search_text('X')`,
+  'ict_search_text_of(jsonb)': `SELECT ict_search_text_of('{}'::jsonb)`,
+  'ict_version_search_text(jsonb,jsonb)': `SELECT ict_version_search_text('{}'::jsonb, '[]'::jsonb)`,
+  'audit_events_reject_mutation()': 'SELECT audit_events_reject_mutation()',
+  'question_versions_guard_frozen()': 'SELECT question_versions_guard_frozen()',
+  'question_version_children_guard_frozen()': 'SELECT question_version_children_guard_frozen()',
+  'question_versions_guard_truncate()': 'SELECT question_versions_guard_truncate()',
+};
+const CALLERS = [...API_ROLES, PUBLIC_ONLY] as const;
 
 function psql(url: URL, args: readonly string[]): string {
   return execFileSync('psql', [url.toString(), '-v', 'ON_ERROR_STOP=1', '-q', '-At', ...args], {
@@ -81,6 +114,7 @@ describeDb('Migration 0004 — RLS and grant lockdown on a simulated Supabase da
       `DO $$ BEGIN
          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF;
          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN CREATE ROLE authenticated NOLOGIN; END IF;
+         IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${PUBLIC_ONLY}') THEN CREATE ROLE ${PUBLIC_ONLY} NOLOGIN; END IF;
        END $$`,
     ]);
     psql(base, ['-c', `CREATE DATABASE ${dbName}`]);
@@ -111,6 +145,21 @@ describeDb('Migration 0004 — RLS and grant lockdown on a simulated Supabase da
       expect(
         psqlError(target, `SET ROLE ${role}; SELECT count(*) FROM answer_keys`),
         `${role} should read answer_keys before 0004 — otherwise the simulation proves nothing`,
+      ).toBeNull();
+    }
+  });
+
+  it('control: before 0004 PUBLIC, anon and authenticated CAN execute the 0003 search functions', () => {
+    expect(
+      psql(target, [
+        '-c',
+        `SELECT has_function_privilege('public', 'ict_normalize_search_text(text)', 'EXECUTE')`,
+      ]).trim(),
+    ).toBe('t');
+    for (const role of CALLERS) {
+      expect(
+        psqlError(target, `SET ROLE ${role}; ${CALL['ict_normalize_search_text(text)']}`),
+        `${role} should execute before 0004 — otherwise the simulation proves nothing`,
       ).toBeNull();
     }
   });
@@ -148,8 +197,7 @@ describeDb('Migration 0004 — RLS and grant lockdown on a simulated Supabase da
                  OR (c.relkind = 'S' AND has_sequence_privilege(r.role, c.oid, 'USAGE,SELECT,UPDATE')))`,
       ]).trim();
       expect(tables).toBe('0');
-      // Functions keep PostgreSQL's default EXECUTE-to-PUBLIC; what 0004 removes
-      // is every explicit grant to the two API roles.
+      // No explicit grant by name either (PUBLIC is covered by the cases below).
       const functions = psql(target, [
         '-c',
         `SELECT count(*) FROM pg_proc p, aclexplode(p.proacl) a
@@ -157,6 +205,86 @@ describeDb('Migration 0004 — RLS and grant lockdown on a simulated Supabase da
             AND a.grantee IN (SELECT oid FROM pg_roles WHERE rolname IN ('anon','authenticated'))`,
       ]).trim();
       expect(functions).toBe('0');
+    });
+
+    it.each(PROJECT_FUNCTIONS)(
+      'privilege inspection: PUBLIC, anon and authenticated have no EXECUTE on %s',
+      (fn) => {
+        const row = psql(target, [
+          '-c',
+          `SELECT has_function_privilege('public', '${fn}', 'EXECUTE')
+             || ',' || has_function_privilege('anon', '${fn}', 'EXECUTE')
+             || ',' || has_function_privilege('authenticated', '${fn}', 'EXECUTE')
+             || ',' || has_function_privilege(current_user, '${fn}', 'EXECUTE')`,
+        ]).trim();
+        expect(row, 'public,anon,authenticated,owner').toBe('false,false,false,true');
+      },
+    );
+
+    it.each(CALLERS.flatMap((role) => PROJECT_FUNCTIONS.map((fn) => [role, fn] as const)))(
+      'execution attempt: %s calling %s is refused (permission denied)',
+      (role, fn) => {
+        expect(psqlError(target, `SET ROLE ${role}; ${CALL[fn]}`)).toMatch(
+          /permission denied for function/,
+        );
+      },
+    );
+
+    it('no function in public owned by the migration owner — extension members included — is executable by PUBLIC', () => {
+      expect(
+        psql(target, [
+          '-c',
+          `SELECT coalesce(string_agg(p.oid::regprocedure::text, ', '), '') FROM pg_proc p
+            WHERE p.pronamespace = 'public'::regnamespace AND p.proowner = current_user::regrole
+              AND has_function_privilege('public', p.oid, 'EXECUTE')`,
+        ]).trim(),
+      ).toBe('');
+    });
+
+    it('the owner still executes the search functions, and the triggers still fire', () => {
+      expect(psql(target, ['-c', `SELECT ict_normalize_search_text('  ICT  Atlas ')`]).trim()).toBe(
+        'ict atlas',
+      );
+      const error = psqlError(
+        target,
+        `BEGIN;
+         INSERT INTO audit_events (id, action, resource_type, resource_id)
+           VALUES ('00000000-0000-4000-8000-0000000000aa', 'probe.fire', 'probe', gen_random_uuid());
+         UPDATE audit_events SET action = 'probe.changed' WHERE id = '00000000-0000-4000-8000-0000000000aa';
+         ROLLBACK;`,
+      );
+      expect(error).toMatch(/append-only/);
+    });
+
+    it('default privileges: a function the owner creates later — in public or another schema — gets no PUBLIC EXECUTE', () => {
+      psql(target, [
+        '-c',
+        `CREATE FUNCTION fn_probe_future() RETURNS int LANGUAGE sql AS 'SELECT 1';
+         CREATE SCHEMA fn_probe_schema;
+         CREATE FUNCTION fn_probe_schema.fn_probe_future() RETURNS int LANGUAGE sql AS 'SELECT 1';`,
+      ]);
+      try {
+        expect(
+          psql(target, [
+            '-c',
+            `SELECT has_function_privilege('public', 'public.fn_probe_future()', 'EXECUTE')
+               || ',' || has_function_privilege('anon', 'public.fn_probe_future()', 'EXECUTE')
+               || ',' || has_function_privilege('public', 'fn_probe_schema.fn_probe_future()', 'EXECUTE')
+               || ',' || has_function_privilege(current_user, 'public.fn_probe_future()', 'EXECUTE')`,
+          ]).trim(),
+          'public(public),anon(public),public(other schema),owner',
+        ).toBe('false,false,false,true');
+        for (const role of CALLERS) {
+          expect(psqlError(target, `SET ROLE ${role}; SELECT public.fn_probe_future()`)).toMatch(
+            /permission denied for function/,
+          );
+        }
+      } finally {
+        psql(target, [
+          '-c',
+          'DROP FUNCTION public.fn_probe_future(); DROP SCHEMA fn_probe_schema CASCADE;',
+        ]);
+      }
     });
 
     it('every table has RLS enabled, none is FORCEd, and there are no policies', () => {
@@ -230,5 +358,17 @@ describeDb('Migration 0004 — the integration database itself', () => {
         WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r','p') AND NOT relrowsecurity`,
     ]).trim();
     expect(missing, 'tables without RLS — a migration forgot ENABLE ROW LEVEL SECURITY').toBe('');
+  });
+
+  it('no project function in public is executable by PUBLIC', () => {
+    const exposed = psql(new URL(DATABASE_URL ?? ''), [
+      '-c',
+      `SELECT coalesce(string_agg(p.oid::regprocedure::text, ', '), '') FROM pg_proc p
+        WHERE p.pronamespace = 'public'::regnamespace
+          AND NOT EXISTS (SELECT 1 FROM pg_depend d WHERE d.classid = 'pg_proc'::regclass
+                            AND d.objid = p.oid AND d.deptype = 'e')
+          AND has_function_privilege('public', p.oid, 'EXECUTE')`,
+    ]).trim();
+    expect(exposed, 'functions callable by PUBLIC — REVOKE EXECUTE … FROM PUBLIC').toBe('');
   });
 });

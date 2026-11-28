@@ -121,32 +121,68 @@ CREATE TRIGGER trg_question_versions_frozen
 
 -- ── children: question_options, answer_keys, question_version_assets ──
 --
--- The parent row is read FOR SHARE so a concurrent publish of the same
--- version waits for this write to commit (and, under READ COMMITTED, this
--- write sees a publish that committed first). A parent that no longer
--- exists is a DRAFT being deleted with ON DELETE CASCADE: allowed.
+-- CONCURRENCY PROTOCOL — the parent version row is the lock.
+--
+--   * Every child write locks its parent version row FOR SHARE, ALWAYS —
+--     whatever the parent's status — and only then reads the status from the
+--     row it locked.
+--   * Every status change of a version is an UPDATE of that row, which takes
+--     FOR NO KEY UPDATE; publishVersion takes that same lock explicitly,
+--     before it reads the children it validates (server/questions/publish/
+--     gate.ts).
+--   * FOR SHARE and FOR NO KEY UPDATE conflict; FOR SHARE does not conflict
+--     with itself, so concurrent edits of one DRAFT's children do not block
+--     each other.
+--
+-- So a child write and a publication of the same version can never overlap:
+--   child first   → the publication waits until the child transaction ends,
+--                   and then publishes (and, in publishVersion, validates)
+--                   the committed child state;
+--   publish first → the child write waits; when the publication commits,
+--                   READ COMMITTED re-reads the locked row (now PUBLISHED)
+--                   and the write is refused; if it rolls back, the row is
+--                   still DRAFT and the write proceeds.
+-- Under REPEATABLE READ/SERIALIZABLE the second case is a serialization
+-- failure (40001) instead — refused, and retryable.
+--
+-- The previous version filtered the lock by status
+-- (`WHERE … AND status <> 'DRAFT' … FOR SHARE`). PostgreSQL applies that
+-- filter to the statement snapshot BEFORE locking, so a parent that was DRAFT
+-- in the snapshot was never locked, and nothing serialized the two: a child
+-- change could commit after (or concurrently with) its version's publication.
+--
+-- Lock order: application paths lock questions(id) FOR UPDATE first and the
+-- version row second, in every command, so they cannot deadlock with each
+-- other. A raw transaction that locks a version and then its question in the
+-- opposite order can deadlock with publishVersion; PostgreSQL detects that
+-- and aborts one transaction (40P01) — nothing is written in a wrong state.
+--
+-- A parent that no longer exists is a DRAFT being deleted by this same
+-- transaction (ON DELETE CASCADE from question_versions): allowed.
 CREATE FUNCTION question_version_children_guard_frozen() RETURNS trigger
   LANGUAGE plpgsql AS $$
 DECLARE
   checked uuid[] := ARRAY[]::uuid[];
   vid uuid;
-  frozen_status text;
+  parent_status text;
+  parent_published_at timestamptz;
 BEGIN
   IF TG_OP IN ('UPDATE', 'DELETE') THEN
     checked := checked || OLD.version_id;
   END IF;
-  IF TG_OP IN ('INSERT', 'UPDATE') THEN
+  IF TG_OP IN ('INSERT', 'UPDATE') AND (TG_OP = 'INSERT' OR NEW.version_id IS DISTINCT FROM OLD.version_id) THEN
     checked := checked || NEW.version_id;
   END IF;
 
   FOREACH vid IN ARRAY checked LOOP
-    SELECT v.status::text INTO frozen_status
+    -- Unconditional: lock first, decide on the locked (latest) row.
+    SELECT v.status::text, v.published_at INTO parent_status, parent_published_at
       FROM question_versions v
-     WHERE v.id = vid AND (v.status <> 'DRAFT' OR v.published_at IS NOT NULL)
+     WHERE v.id = vid
        FOR SHARE;
-    IF FOUND THEN
+    IF FOUND AND (parent_status <> 'DRAFT' OR parent_published_at IS NOT NULL) THEN
       RAISE EXCEPTION '% on %: question version % (status %) is published content and cannot be changed',
-        TG_OP, TG_TABLE_NAME, vid, frozen_status
+        TG_OP, TG_TABLE_NAME, vid, parent_status
         USING ERRCODE = 'IA001',
               CONSTRAINT = 'trg_' || TG_TABLE_NAME || '_frozen',
               HINT = 'Options, answer keys and asset pins of a published or archived version are fixed. Create a revision instead.';
@@ -213,3 +249,13 @@ ALTER TABLE "question_versions"
   DROP CONSTRAINT "question_versions_question_id_fkey",
   ADD CONSTRAINT "question_versions_question_id_fkey"
     FOREIGN KEY ("question_id") REFERENCES "questions"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- ── function privileges ───────────────────────────────────────────────
+-- Migration 0004 already removed PUBLIC from the migration owner's default
+-- function privileges; this repeats it explicitly for the three functions
+-- above, so they are not callable through the Data API even if 0005 is ever
+-- applied by a different role. Triggers still fire for every role: EXECUTE is
+-- checked when a trigger is created, not when it fires.
+REVOKE EXECUTE ON FUNCTION question_versions_guard_frozen() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION question_version_children_guard_frozen() FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION question_versions_guard_truncate() FROM PUBLIC;
