@@ -97,7 +97,7 @@ Two databases are required, not one:
 | 1 | All five composite FKs exist in `pg_constraint` right after creation |
 | 2 | Exactly **14** enforcement cases ran, **0** failed, and every expected case name is present |
 | 3 | `prisma db pull` sees the database (output non-empty and contains `model Question`) |
-| 3b | The live database diffed against the spike datamodel contains **only** the documented omissions (C-1…C-5 drops and the three support-unique drops); three controls run first so the check cannot pass vacuously |
+| 3b | The live database diffed against the spike datamodel is **exactly** the eight documented omissions — the five C-1…C-5 drops (each on its own table) and the three support-unique drops — **each exactly once and nothing else** (`check-omissions.sh`); an empty, partial, duplicated or extended diff fails. Three controls run first so the check cannot pass vacuously |
 | 4 | No-change `migrate diff` is **empty** (`--exit-code` returns 0, not 2) |
 | 5 | An unrelated column produces `ADD COLUMN` only — no `DROP CONSTRAINT`, no `fk_*` in the output |
 | 6 | `migrate dev` either reports the database is in sync, or produces a migration whose SQL is inspected and contains no `DROP`; afterwards 5/5 FKs must still exist |
@@ -132,9 +132,14 @@ condition 2: G-1 is not re-scored).
    schema-to-schema `migrate diff` with no configured `datasource` exits 0 with an
    empty script whatever its inputs (the "empty-diff defect" V-1 also records), so
    3b could not fail. Step 3b now diffs the **live database** against the datamodel
-   through a datasource-ful config and fails on any statement that is not a
-   documented omission, after three per-run controls (classifier self-test, a
-   from-empty positive control, and a live probe with one unrelated difference).
+   through a datasource-ful config and requires it to be exactly the eight
+   documented omissions, each once and nothing else, after three per-run controls
+   (an invariant self-test, a from-empty positive control, and a live probe with
+   one unrelated difference). The invariant lives in `check-omissions.sh` (exit 0
+   pass, 1 violated, 2 unreadable), which `run.sh` calls and
+   `tests/unit/tooling/g1-omissions.test.ts` exercises directly; an empty diff, a
+   missing or duplicated omission, or a composite FK dropped from the wrong table
+   all fail, so 3b can never pass in a way that would let G-1 turn green.
 2. **The spike datamodel did not describe its own SQL.** The SQL's single-column FKs
    declare no `ON UPDATE` (PostgreSQL: `NO ACTION`) but the datamodel said
    `onUpdate: Cascade` on all 13; four names (`fk_answer_keys_version`,
