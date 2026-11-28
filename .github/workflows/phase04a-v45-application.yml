@@ -107,6 +107,7 @@ jobs:
             "tests/integration/*.ts" \
             "tests/unit/tooling/**/*.ts" \
             "tests/integration/questions/**/*.ts" \
+            "tests/integration/security/**/*.ts" \
             "tests/fixtures/questions/**/*.ts" || {
               echo "::error title=format::run 'npx prettier --write' on these files"
               exit 1
@@ -232,11 +233,12 @@ jobs:
       # authoring service now writes `question_versions.search_text` and the
       # search tests require the function the migration defines. The inventory
       # is asserted, not just printed — 0003 adds no table, enum, FK or CHECK,
-      # so the 21/8/33/54 assertion below is unchanged by it.
-      - name: Apply migrations 0001, 0002 and 0003
+      # so the 21/8/33/54 assertion below is unchanged by it. 0004 (RLS and
+      # Data API grant lockdown) adds no table, enum, FK or CHECK either.
+      - name: Apply migrations 0001 … 0004
         run: |
           set -euo pipefail
-          for m in 0001_phase04a_question_bank 0002_identity_audit 0003_staff_list_search_performance; do
+          for m in 0001_phase04a_question_bank 0002_identity_audit 0003_staff_list_search_performance 0004_rls_lockdown; do
             psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "prisma/migrations/$m/migration.sql"
           done
           inv="$(psql "$DATABASE_URL" -tAc "

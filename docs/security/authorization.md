@@ -43,7 +43,7 @@ Implemented in `server/auth/permissions.ts`; enforced by the domain services, wh
 - **Audit.** Creating a question, saving a draft, creating a revision, verifying a key, archiving, publishing, type changes, profile provisioning and role grants each write one `audit_events` row on the same transaction as the change, so a failed audit insert rolls the change back. `audit_events` is append-only in the database (a trigger rejects UPDATE, DELETE and TRUNCATE). Payloads carry ids and status fields only, never answer keys or rubric content.
 - **Bootstrap.** The first SUPER_ADMIN is created with `npm run db:bootstrap-super-admin -- <email>`. It promotes one existing auth user, refuses if any SUPER_ADMIN already exists, and writes an audit row with `actor_id` NULL.
 
-> **TODO — RLS (deferred).** Row-level security is defence in depth, not the enforcement point, and is not implemented yet. Until it is, the Question Bank tables must not be reachable through Supabase's public Data API with the anon or authenticated role. Write the policies in a later migration, with deny-all as the baseline.
+> **RLS — deny-all baseline (migration 0004).** Row-level security is defence in depth, not the enforcement point. `prisma/migrations/0004_rls_lockdown` enables RLS on every table in `public` (including `_prisma_migrations` when present) with **no policies**, and revokes all table, sequence and function privileges — current and default — from Supabase's `anon` and `authenticated` roles. The Data API therefore reads and writes nothing; the application reaches the database only through Prisma as the table owner, which RLS does not restrict (no `FORCE`). Every new table must `ENABLE ROW LEVEL SECURITY` in its own migration; the integration suite fails if one does not. Policies for a feature that genuinely needs the Data API are still open (OD-16).
 
 ## Resource and release checks
 
@@ -51,7 +51,7 @@ Implemented in `server/auth/permissions.ts`; enforced by the domain services, wh
 - **Answer keys:** official keys, correct-option identifiers and rubrics never appear in student-facing exam APIs, including result APIs. They are available only to explicitly authorized server workflows. The README's post-exam review path is open; do not infer permission from finalization alone or allow tutor/search/export to leak active-exam answers.
 - **Question authoring:** publish only validated versions through the Question Bank service. A permitted editor is not automatically a permitted publisher: see the matrix and separation of duties above. Moderation states beyond DRAFT/PUBLISHED/ARCHIVED remain OD-27.
 - **AI and files:** authorize the question/version and intended context before invoking the adapter or serving assets. Validate upload and export access; object storage URLs must not outlive or bypass the chosen access policy.
-- **Database:** use appropriate database policies and least-privilege credentials as defense in depth. If Prisma connects with a role that bypasses row-level security, server authorization remains mandatory; RLS policies are deferred (see the TODO above).
+- **Database:** use appropriate database policies and least-privilege credentials as defense in depth. Prisma connects as the table owner, which bypasses row-level security, so server authorization remains mandatory; the deny-all RLS baseline only closes the Data API (see the note above).
 
 ## Dependencies
 
